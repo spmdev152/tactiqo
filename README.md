@@ -50,6 +50,20 @@ Apply database migrations once the stack is running:
 docker compose --env-file .env.local exec api uv run python manage.py migrate
 ```
 
+Accounts are identified by an e-mail address rather than a username, so `createsuperuser` prompts for an e-mail address and stores it lowercased:
+
+```bash
+docker compose --env-file .env.local exec api uv run python manage.py createsuperuser
+```
+
+A database provisioned before the `accounts` application existed cannot be migrated onto it. `AUTH_USER_MODEL` is a swapped dependency of `django.contrib.admin`, so an older volume already has `admin.0001_initial` applied against Django's built-in user and `migrate` refuses with `InconsistentMigrationHistory`. Discard the volume, which holds no product data yet:
+
+```bash
+docker compose --env-file .env.local down --volumes
+docker compose --env-file .env.local up --detach
+docker compose --env-file .env.local exec api uv run python manage.py migrate
+```
+
 Source directories are bind-mounted into the containers, so local edits hot-reload without shadowing installed dependencies. The backend virtual environment lives at `/opt/venv` inside the API image, outside the bind-mounted `/app`, and the web image keeps `node_modules` in a named volume so the container's Linux install never shadows the host one.
 
 The `web` container runs as its image's `bun` user, uid and gid 1000, rather than as root. That is what keeps `frontend/.next` owned by the developer: Docker creates a named-volume mountpoint on the host as root, so `.next` deliberately has no volume and lives in the bind mount, written by an unprivileged container. Without this, the first `docker compose up` on a fresh clone would leave `frontend/.next` root-owned and every host `bun run` command would fail with `EACCES`. A host account whose uid is not 1000 needs `user: "${UID}:${GID}"` on the service.
