@@ -59,17 +59,14 @@ export function MatchIntelligencePanel({
         </div>
 
         <div className="relative flex h-full flex-col justify-between gap-10 p-10 xl:p-14">
-          <p className="animate-rise font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
-            Matchday intelligence
+          <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
+            Soccer intelligence
           </p>
 
           <div className="flex flex-col gap-6">
-            <span
-              aria-hidden="true"
-              className="h-px w-24 animate-rise bg-primary [animation-delay:120ms]"
-            />
+            <span aria-hidden="true" className="h-px w-24 bg-primary" />
 
-            <p className="animate-rise font-display text-4xl leading-[0.92] font-bold tracking-tight text-balance uppercase [animation-delay:200ms] xl:text-6xl">
+            <p className="font-display text-4xl leading-[0.92] font-bold tracking-tight text-balance uppercase xl:text-6xl">
               Read the evidence before the whistle
             </p>
           </div>

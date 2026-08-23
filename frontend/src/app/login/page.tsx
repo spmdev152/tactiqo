@@ -31,25 +31,23 @@ export default async function LoginPage() {
       <main className="flex items-center justify-center px-6 py-16 sm:px-10">
         <div className="flex w-full max-w-sm flex-col gap-9">
           <header className="flex flex-col gap-3">
-            <p className="animate-rise font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
+            <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
               Welcome back
             </p>
 
-            <h1 className="animate-rise font-display text-5xl leading-[0.95] font-bold tracking-tight text-balance uppercase [animation-delay:80ms]">
+            <h1 className="font-display text-5xl leading-[0.95] font-bold tracking-tight text-balance uppercase">
               Sign in to your account
             </h1>
 
-            <p className="animate-rise text-sm text-muted-foreground [animation-delay:160ms]">
+            <p className="text-sm text-muted-foreground">
               Access and analyse fixtures, statistics, bookmaker odds, and
               predictions across the five leagues you follow.
             </p>
           </header>
 
-          <div className="animate-rise [animation-delay:240ms]">
-            <LoginForm />
-          </div>
+          <LoginForm />
 
-          <p className="animate-rise text-sm text-muted-foreground [animation-delay:320ms]">
+          <p className="text-sm text-muted-foreground">
             Do not have an account?{" "}
             <Link
               className="font-medium text-foreground underline decoration-primary decoration-2 underline-offset-4 transition-colors hover:text-primary"

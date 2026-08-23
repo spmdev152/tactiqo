@@ -42,11 +42,11 @@ export default async function HomePage() {
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-start gap-10 px-6 py-16">
       <header className="flex w-full flex-col gap-6">
         <div className="flex flex-col gap-3">
-          <p className="animate-rise font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
-            Matchday intelligence
+          <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
+            Soccer intelligence
           </p>
 
-          <h1 className="animate-rise font-display text-5xl leading-[0.95] font-bold tracking-tight uppercase [animation-delay:80ms]">
+          <h1 className="font-display text-5xl leading-[0.95] font-bold tracking-tight uppercase">
             Football intelligence for fixtures, statistics, odds and predictions
           </h1>
         </div>

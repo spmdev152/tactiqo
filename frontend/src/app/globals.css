@@ -60,7 +60,6 @@
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
-  --animate-rise: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-drift: drift 18s ease-in-out infinite;
   --animate-drift-slow: drift 26s ease-in-out infinite;
   --animate-drift-late: drift 22s ease-in-out 4s infinite;
@@ -160,17 +159,6 @@
   }
   html {
     @apply font-sans;
-  }
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(0.75rem);
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
 
