@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 
+import { ButtonSpinner } from "@/components/button-spinner";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -14,7 +15,6 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import type { Credentials } from "@/features/auth/schemas/credentials";
 import { credentialsSchema } from "@/features/auth/schemas/credentials";
 import { signInAction } from "@/features/auth/server/actions";
@@ -56,11 +56,8 @@ const ERROR_MESSAGES = {
  * and the label is the one part of a control that should never change while the
  * control is busy.
  *
- * That is also why the spinner arrives with its `role` and `aria-label` stripped
- * and `aria-hidden` set. The registry ships it as a standalone live region, and
- * a labelled element inside a button contributes to the button's own accessible
- * name, so leaving it intact renamed the control to "Sign in Loading" for the
- * duration of the request. `aria-busy` on the button carries that state instead.
+ * The spinner comes from {@link ButtonSpinner}, which documents why it must not
+ * contribute to the button's accessible name; `aria-busy` reports the state.
  */
 export function LoginForm() {
   const [submissionError, setSubmissionError] =
@@ -155,7 +152,7 @@ export function LoginForm() {
       >
         Sign in
         {form.formState.isSubmitting ? (
-          <Spinner aria-hidden="true" aria-label={undefined} role={undefined} />
+          <ButtonSpinner />
         ) : (
           <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
         )}
