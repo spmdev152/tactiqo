@@ -50,7 +50,9 @@ Apply database migrations once the stack is running:
 docker compose --env-file .env.local exec api uv run python manage.py migrate
 ```
 
-Source directories are bind-mounted into the containers, so local edits hot-reload without shadowing installed dependencies. The backend virtual environment lives at `/opt/venv` inside the API image, outside the bind-mounted `/app`, and the web image keeps `node_modules` and `.next` in named volumes.
+Source directories are bind-mounted into the containers, so local edits hot-reload without shadowing installed dependencies. The backend virtual environment lives at `/opt/venv` inside the API image, outside the bind-mounted `/app`, and the web image keeps `node_modules` in a named volume so the container's Linux install never shadows the host one.
+
+The `web` container runs as its image's `bun` user, uid and gid 1000, rather than as root. That is what keeps `frontend/.next` owned by the developer: Docker creates a named-volume mountpoint on the host as root, so `.next` deliberately has no volume and lives in the bind mount, written by an unprivileged container. Without this, the first `docker compose up` on a fresh clone would leave `frontend/.next` root-owned and every host `bun run` command would fail with `EACCES`. A host account whose uid is not 1000 needs `user: "${UID}:${GID}"` on the service.
 
 ### Services and ports
 

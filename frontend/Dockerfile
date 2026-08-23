@@ -5,11 +5,15 @@ WORKDIR /app
 ENV NODE_ENV=development \
     NEXT_TELEMETRY_DISABLED=1
 
-COPY package.json bun.lock ./
+RUN chown bun:bun /app
+
+USER bun
+
+COPY --chown=bun:bun package.json bun.lock ./
 
 RUN bun install --frozen-lockfile
 
-COPY . .
+COPY --chown=bun:bun . .
 
 EXPOSE 3000
 

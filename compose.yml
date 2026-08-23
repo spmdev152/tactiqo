@@ -88,7 +88,6 @@ services:
     volumes:
       - ./frontend:/app
       - frontend-node-modules:/app/node_modules
-      - frontend-next:/app/.next
     depends_on:
       - api
 
@@ -97,4 +96,3 @@ volumes:
   redis-data:
   beat-schedule:
   frontend-node-modules:
-  frontend-next:
