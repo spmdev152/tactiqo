@@ -1,0 +1,285 @@
+name: Repository conventions
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-conventions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commit-messages:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+
+          empty_sha=0000000000000000000000000000000000000000
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            commits=$(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA")
+          elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "$empty_sha" ]; then
+            commits=$(git rev-list --no-merges "$BEFORE_SHA..$CURRENT_SHA")
+          else
+            commits=$(git rev-list --no-merges -n 1 "$CURRENT_SHA")
+          fi
+
+          if [ -z "$commits" ]; then
+            echo "No non-merge commits to validate."
+            exit 0
+          fi
+
+          subject_pattern='^(feat|fix|refactor|perf|style|test|docs|build|ops|chore)(\([a-z0-9][a-z0-9._/-]*\))?!?: [a-z0-9].*$'
+          status=0
+
+          while IFS= read -r sha; do
+            [ -n "$sha" ] || continue
+
+            subject=$(git log -1 --format=%s "$sha")
+
+            if ! printf '%s' "$subject" | grep -Eq "$subject_pattern"; then
+              echo "::error::Commit $sha has an invalid subject: '$subject'"
+              status=1
+              continue
+            fi
+
+            case "$subject" in
+              *.)
+                echo "::error::Commit $sha subject must not end with a period: '$subject'"
+                status=1
+                ;;
+              *)
+                echo "Commit $sha subject is valid: '$subject'"
+                ;;
+            esac
+          done <<COMMITS
+          $commits
+          COMMITS
+
+          if [ "$status" -ne 0 ]; then
+            echo "Expected format: <type>(<optional scope>): <lowercase imperative description>"
+            echo "Allowed types: feat, fix, refactor, perf, style, test, docs, build, ops, chore"
+          fi
+
+          exit "$status"
+
+  branch-name:
+    name: Conventional Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch name
+        env:
+          BRANCH_NAME: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+        run: |
+          set -eu
+
+          case "$BRANCH_NAME" in
+            main|master|develop)
+              echo "Trunk branch '$BRANCH_NAME' is exempt from the prefix convention."
+              exit 0
+              ;;
+          esac
+
+          branch_pattern='^(feature|feat|bugfix|fix|hotfix|release|chore|ai|claude|codex|cursor|copilot)/[a-z0-9]+([.-][a-z0-9]+)*$'
+
+          if printf '%s' "$BRANCH_NAME" | grep -Eq "$branch_pattern"; then
+            echo "Branch name '$BRANCH_NAME' is valid."
+            exit 0
+          fi
+
+          echo "::error::Branch name '$BRANCH_NAME' does not follow Conventional Branch 1.1.0"
+          echo "Expected format: <type>/<lowercase-description>, for example feature/issue-123-add-predictions"
+          echo "Allowed purpose types: feature, feat, bugfix, fix, hotfix, release, chore"
+          echo "Allowed agent-source types: ai, claude, codex, cursor, copilot"
+
+          exit 1
+
+  file-headers:
+    name: File header comments
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Reject file header comments
+        run: |
+          set -eu
+
+          python3 - <<'PYTHON'
+          import fnmatch
+          import re
+          import subprocess
+          import sys
+
+          SOURCE_PATTERNS = ("*.py", "*.ts", "*.tsx", "*.mts", "*.mjs")
+
+          EXEMPT_PATHS = (
+              "migrations/*",
+              "*/migrations/*",
+              "frontend/src/components/ui/*",
+              "frontend/next-env.d.ts",
+          )
+
+          PYTHON_SHEBANG = "#!"
+          TYPESCRIPT_DIRECTIVE = "///"
+
+          PYTHON_DOCSTRING = re.compile(r"^[rRuUbBfF]*(\"\"\"|'''|\"|')")
+          TYPESCRIPT_DECLARATION = re.compile(
+              r"^(?:@|export\b|default\b|declare\b|abstract\b|async\b|function\b|class\b"
+              r"|interface\b|type\b|enum\b|namespace\b|module\b|const\b|let\b|var\b)"
+          )
+
+
+          def is_exempt(path):
+              """Whether a tracked path is generated or vendored, and so out of scope."""
+
+              return any(fnmatch.fnmatch(path, pattern) for pattern in EXEMPT_PATHS)
+
+
+          def first_meaningful_index(path, lines):
+              """Index of the first line that must be code, skipping functional directives."""
+
+              is_python = path.endswith(".py")
+              index = 0
+
+              while index < len(lines):
+                  stripped = lines[index].strip()
+
+                  if not stripped:
+                      index += 1
+                      continue
+
+                  if index == 0 and is_python and stripped.startswith(PYTHON_SHEBANG):
+                      index += 1
+                      continue
+
+                  if not is_python and stripped.startswith(TYPESCRIPT_DIRECTIVE):
+                      index += 1
+                      continue
+
+                  return index
+
+              return None
+
+
+          def documented_declaration_follows(lines, index):
+              """Whether the block comment opened at `index` documents the declaration below it."""
+
+              opener = lines[index].strip()
+              closes_at = index if opener.find("*/", len("/*")) != -1 else None
+              cursor = index
+
+              while closes_at is None:
+                  cursor += 1
+
+                  if cursor >= len(lines):
+                      return False
+
+                  if "*/" in lines[cursor]:
+                      closes_at = cursor
+
+              for line in lines[closes_at + 1 :]:
+                  stripped = line.strip()
+
+                  if not stripped:
+                      continue
+
+                  return bool(TYPESCRIPT_DECLARATION.match(stripped))
+
+              return False
+
+
+          def find_header_comment(path, lines):
+              """Line number, text and kind of a prohibited file-header comment, if any."""
+
+              index = first_meaningful_index(path, lines)
+
+              if index is None:
+                  return None
+
+              stripped = lines[index].strip()
+
+              if path.endswith(".py"):
+                  if stripped.startswith("#"):
+                      return (index + 1, stripped, "a file-banner comment")
+
+                  if PYTHON_DOCSTRING.match(stripped):
+                      return (index + 1, stripped, "a module docstring")
+
+                  return None
+
+              if stripped.startswith("/**"):
+                  if documented_declaration_follows(lines, index):
+                      return None
+
+                  return (index + 1, stripped, "a file-banner block comment")
+
+              if stripped.startswith("/*"):
+                  return (index + 1, stripped, "a file-banner block comment")
+
+              if stripped.startswith("//"):
+                  return (index + 1, stripped, "a file-banner comment")
+
+              return None
+
+
+          def main():
+              """Fail when any tracked project-authored source file starts with a comment."""
+
+              listing = subprocess.run(
+                  ["git", "ls-files", "-z", "--", *SOURCE_PATTERNS],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+
+              paths = [path for path in listing.stdout.split("\0") if path and not is_exempt(path)]
+              offenders = 0
+
+              for path in paths:
+                  with open(path, encoding="utf-8") as source:
+                      lines = source.read().splitlines()
+
+                  offence = find_header_comment(path, lines)
+
+                  if offence is None:
+                      continue
+
+                  number, text, kind = offence
+                  print(f"::error file={path},line={number}::{path}:{number} starts with {kind}: '{text}'")
+                  offenders += 1
+
+              if offenders:
+                  print(f"Found {offenders} file(s) starting with a prohibited header comment.")
+                  print("The first meaningful line of a file must be an import or a declaration.")
+                  print("Documentation attached to a declaration is allowed, even as the first block.")
+                  print("Exempt: '#!' shebangs, TypeScript '///' directives, and generated or vendored paths.")
+
+                  return 1
+
+              print(f"No file-header comments found in {len(paths)} tracked source file(s).")
+
+              return 0
+
+
+          sys.exit(main())
+          PYTHON

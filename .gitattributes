@@ -1,0 +1,41 @@
+* text=auto eol=lf
+
+*.py text eol=lf
+*.pyi text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+
+backend/uv.lock text eol=lf linguist-generated=true
+frontend/bun.lock text eol=lf linguist-generated=true
+frontend/next-env.d.ts text eol=lf linguist-generated=true
+backend/**/migrations/*.py linguist-generated=true
+frontend/src/components/ui/** linguist-vendored=true
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.gz binary

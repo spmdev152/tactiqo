@@ -1,0 +1,6 @@
+include = ["**/*.toml"]
+exclude = ["**/node_modules/**", "**/.venv/**", "**/.next/**"]
+
+[formatting]
+array_auto_collapse = false
+indent_string = "  "

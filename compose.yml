@@ -1,0 +1,100 @@
+name: tactiqo
+
+x-backend: &backend
+  build:
+    context: ./backend
+  image: tactiqo-backend:local
+  environment:
+    DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE?missing, pass --env-file .env.local}
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY?missing, pass --env-file .env.local}
+    DJANGO_DEBUG: ${DJANGO_DEBUG?missing, pass --env-file .env.local}
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS?missing, pass --env-file .env.local}
+    DJANGO_LOG_LEVEL: ${DJANGO_LOG_LEVEL?missing, pass --env-file .env.local}
+    POSTGRES_DB: ${POSTGRES_DB?missing, pass --env-file .env.local}
+    POSTGRES_USER: ${POSTGRES_USER?missing, pass --env-file .env.local}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?missing, pass --env-file .env.local}
+    POSTGRES_HOST: ${POSTGRES_HOST?missing, pass --env-file .env.local}
+    POSTGRES_PORT: ${POSTGRES_PORT?missing, pass --env-file .env.local}
+    REDIS_URL: ${REDIS_URL?missing, pass --env-file .env.local}
+    CELERY_BROKER_URL: ${CELERY_BROKER_URL?missing, pass --env-file .env.local}
+    CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND?missing, pass --env-file .env.local}
+    SPORTMONKS_API_TOKEN: ${SPORTMONKS_API_TOKEN?missing, pass --env-file .env.local}
+    SPORTMONKS_BASE_URL: ${SPORTMONKS_BASE_URL?missing, pass --env-file .env.local}
+    SPORTMONKS_LEAGUE_IDS: ${SPORTMONKS_LEAGUE_IDS?missing, pass --env-file .env.local}
+  volumes:
+    - ./backend:/app
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB?missing, pass --env-file .env.local}
+      POSTGRES_USER: ${POSTGRES_USER?missing, pass --env-file .env.local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?missing, pass --env-file .env.local}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    <<: *backend
+    command: uv run python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *backend
+    command: uv run celery -A config worker --loglevel=info
+
+  beat:
+    <<: *backend
+    command: uv run celery -A config beat --loglevel=info --schedule=/var/lib/celery/celerybeat-schedule
+    volumes:
+      - ./backend:/app
+      - beat-schedule:/var/lib/celery
+
+  web:
+    build:
+      context: ./frontend
+    image: tactiqo-frontend:local
+    command: bun run dev
+    environment:
+      BACKEND_API_BASE_URL: ${BACKEND_API_BASE_URL?missing, pass --env-file .env.local}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next:/app/.next
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  redis-data:
+  beat-schedule:
+  frontend-node-modules:
+  frontend-next:

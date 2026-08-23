@@ -1,0 +1,54 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python and uv
+*.egg-info/
+*.py[cod]
+.coverage
+.coverage.*
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+coverage.xml
+htmlcov/
+venv/
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+mediafiles/
+staticfiles/
+
+# Celery
+celerybeat-schedule*
+celerybeat.pid
+
+# Node, Bun, and Next.js
+*.tsbuildinfo
+.next/
+.turbo/
+.vercel/
+node_modules/
+out/
+
+# Test and tooling output
+coverage/
+playwright-report/
+test-results/
+
+# Docker and local volumes
+.docker/
+volumes/
+
+# Editors and operating systems
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db

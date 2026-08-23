@@ -1,0 +1,25 @@
+# Version control
+.git
+.gitignore
+
+# Environment
+.env
+.env.*
+
+# Python and uv
+*.egg-info
+*.py[cod]
+.mypy_cache
+.pyright
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+
+# Django runtime artefacts
+*.sqlite3
+staticfiles
+
+# Container build inputs
+.dockerignore
+Dockerfile

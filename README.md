@@ -1,0 +1,190 @@
+# Tactiqo
+
+Tactiqo is a football intelligence web platform built on top of the Sportmonks Football API.
+
+The MVP is focused on a small, well-modelled product surface:
+
+- Discover fixtures by competition and date.
+- Open fixture detail pages.
+- Inspect pre-match and historical match/team statistics relevant to a fixture.
+- Inspect bookmaker odds available through the active Sportmonks subscription.
+- Inspect Sportmonks predictions for the supported markets and selections.
+
+The MVP league scope matches the active Sportmonks subscription: Premier League (`8`), Bundesliga (`82`), Ligue 1 (`301`), Serie A (`384`), and La Liga (`564`).
+
+Out of scope for the MVP: live ingestion, WebSockets, AI-generated insights, custom prediction models, mobile applications, and distributed microservices.
+
+## Stack
+
+- Frontend: Next.js App Router, React, TypeScript, Tailwind CSS, shadcn/ui, with Bun as runtime, package manager, and script runner.
+- Backend: Python, Django, Django Ninja for the REST API, Celery and Celery Beat for background work, with uv as the project and dependency manager.
+- Data: PostgreSQL for canonical storage and Redis for caching, locks, and coordination.
+- Provider: Sportmonks, accessed only from the backend and never from the browser.
+- Tooling: Ruff and Pyright for Python, Prettier, ESLint, TypeScript, Vitest, React Testing Library, and React Doctor for the frontend.
+- Infrastructure: Docker and Docker Compose locally, GitHub Actions for CI.
+
+## Repository layout
+
+```text
+backend/     Django project, Django Ninja API, Celery application, and tests
+frontend/    Next.js application, features, and tests
+compose.yml  Local orchestration for every runnable service
+.env.example Environment variable reference for every environment
+.github/     GitHub Actions quality gates
+```
+
+## Local setup
+
+Prerequisites: Docker with Compose v2 or newer. Bun and uv are only required when running a tree outside of Docker.
+
+```bash
+cp .env.example .env.local
+docker compose --env-file .env.local up
+```
+
+The first start builds both application images, provisions PostgreSQL and Redis, and waits for their health checks before starting the Django and Celery containers.
+
+Apply database migrations once the stack is running:
+
+```bash
+docker compose --env-file .env.local exec api uv run python manage.py migrate
+```
+
+Source directories are bind-mounted into the containers, so local edits hot-reload without shadowing installed dependencies. The backend virtual environment lives at `/opt/venv` inside the API image, outside the bind-mounted `/app`, and the web image keeps `node_modules` and `.next` in named volumes.
+
+### Services and ports
+
+| Service    | Description             | Host port |
+| ---------- | ----------------------- | --------- |
+| `web`      | Next.js application     | 3000      |
+| `api`      | Django and Django Ninja | 8000      |
+| `worker`   | Celery worker           | —         |
+| `beat`     | Celery Beat scheduler   | —         |
+| `postgres` | PostgreSQL 18           | 5432      |
+| `redis`    | Redis 8                 | 6379      |
+
+### Local URLs
+
+- Web application: `http://localhost:3000`
+- API health check: `http://localhost:8000/api/v1/health`
+- API documentation: `http://localhost:8000/api/v1/docs`
+
+## Environment variables
+
+All variables are documented in `.env.example`. Copy the file to `.env.local` and keep real credentials out of version control. Every `docker compose` command takes `--env-file .env.local`, and that flag is the single thing that selects an environment.
+
+`compose.yml` declares explicitly which variables each service receives, so the exposure is readable at a glance and verifiable: `api`, `worker`, and `beat` receive the 16 variables the Django settings actually read, `postgres` receives only its 3 credentials, `redis` receives none, and `web` receives only `BACKEND_API_BASE_URL`. Every variable is declared as `${NAME?...}`, so a forgotten `--env-file` fails immediately with `required variable ... is missing a value` instead of silently starting a stack full of blank configuration. The form without a colon is deliberate: it accepts a legitimately empty value such as `SPORTMONKS_API_TOKEN=` while still rejecting an absent one.
+
+### Logging
+
+Loguru is the single sink for every backend process, installed behind the standard library so Django, Celery, and third-party packages share one format. Application code calls `logging.getLogger(__name__)` and never imports Loguru.
+
+`DJANGO_LOG_LEVEL` controls verbosity. Local development defaults to `DEBUG` with human-readable colourized output; `preproduction` and `production` emit one JSON object per record and clamp the level, so exporting `DJANGO_LOG_LEVEL=DEBUG` against a deployed environment still yields `INFO`. That clamp is deliberate: debug records can carry request payloads, and Loguru's `diagnose` option, enabled only locally, prints the variable values around a traceback.
+
+`SPORTMONKS_API_TOKEN` is backend-only and never reaches the frontend container. Only `NEXT_PUBLIC_*` variables are exposed to browser code.
+
+### One file per environment
+
+There is a single `.env.example` rather than one template per environment, because the variable names are identical in `local`, `preproduction`, and `production`. Only the values and their strictness differ, and `DJANGO_SETTINGS_MODULE` selects which settings module reads them:
+
+| Variable                 | `local` and `test`                | `preproduction` and `production`          |
+| ------------------------ | --------------------------------- | ----------------------------------------- |
+| `DJANGO_SECRET_KEY`      | Optional, safe fallback           | Mandatory, `ImproperlyConfigured` when absent |
+| `DJANGO_ALLOWED_HOSTS`   | Optional, local default           | Mandatory, `ImproperlyConfigured` when absent |
+| Every other variable     | Read in `config/settings/base.py` | Same name and meaning in all environments |
+
+The settings modules are the authoritative contract: they fail loudly on a missing value, whereas an extra template file can drift silently. Real preproduction and production secrets are injected by the deployment platform rather than read from a committed file.
+
+### Running locally against another environment
+
+One flag does it. Add the environment's file next to `.env.local` and point `--env-file` at it:
+
+```bash
+docker compose --env-file .env.preproduction up
+```
+
+Nothing else changes. There is a single mechanism, so the flag moves every service at once: the backend settings module, the PostgreSQL credentials, and the frontend API URL all come from the file you named. Every `.env.*` file other than the tracked `.env.example` is gitignored.
+
+One caveat makes this rarely what you want. The non-local settings modules set `SECURE_SSL_REDIRECT = True`, so a plain HTTP request to a locally running preproduction container answers `301` to `https://localhost:<port>/...` and nothing is reachable without TLS termination in front. Verifying that the preproduction and production settings modules resolve correctly belongs in `tests/unit/test_environment_settings.py`, which asserts their real contract, rather than in a booted stack.
+
+If you only want local development against remote data, do not change the settings module. Stay on `config.settings.local` and point `POSTGRES_*` and `REDIS_URL` at the remote services in your `.env.local`.
+
+## Quality gates
+
+The same commands run locally and in GitHub Actions. Each backend job installs only the dependency groups it needs, and CI sets `UV_NO_SYNC=1` so that `uv run` uses the environment as synced instead of silently re-adding the aggregate `dev` group.
+
+Backend, from `backend/`:
+
+```bash
+uv sync --frozen --no-default-groups --group lint
+uv run ruff format --check .
+uv run ruff check .
+```
+
+TOML formatting is checked from the repository root, because `.taplo.toml` governs every TOML file in the project and not only the backend ones:
+
+```bash
+uv run --project backend taplo fmt --check --diff
+uv run --project backend taplo fmt
+```
+
+Taplo is the TOML formatting authority. It is the same engine the Even Better TOML editor extension uses, so formatting on save and the CI gate agree. Its 2-space indentation matches the `[*.{yml,yaml,toml}]` rule in `.editorconfig`, and `array_auto_collapse = false` keeps multi-line arrays such as `dependencies` and `dev` expanded.
+
+```bash
+uv sync --frozen --no-default-groups --group typecheck --group test
+uv run pyright
+
+uv sync --frozen --no-default-groups --group test
+uv run pytest
+
+uv sync --frozen --no-default-groups
+uv run python manage.py makemigrations --check --dry-run
+```
+
+The type-check job also installs the `test` group because Pyright analyses `tests/` and needs to resolve pytest imports. For day-to-day local work, `uv sync --frozen --group dev` installs the aggregate development group instead.
+
+Frontend, from `frontend/`:
+
+```bash
+bun install --frozen-lockfile
+bun run format:check
+bun run lint
+bun run typecheck
+bun run test
+bun run build
+bun run doctor
+```
+
+`backend/uv.lock` and `frontend/bun.lock` are committed, and every install in CI and Docker is frozen against them.
+
+## Conventions
+
+### Commit messages
+
+Commit messages follow the project's [Conventional Commits cheatsheet](https://gist.github.com/qoomon/5dfcdf8eec66a051ecd85625518cfd13):
+
+```text
+<type>(<optional scope>): <description>
+```
+
+- Allowed types are `feat`, `fix`, `refactor`, `perf`, `style`, `test`, `docs`, `build`, `ops`, and `chore`.
+- Descriptions use the imperative present tense, start with a lowercase letter, and have no trailing period.
+- Add `!` before the colon for breaking changes and explain them in a `BREAKING CHANGE:` footer.
+
+### Branch names
+
+Branch names follow [Conventional Branch 1.1.0](https://conventionalbranch.org/):
+
+```text
+<type>/<description>
+```
+
+- Prefer purpose prefixes such as `feature/`, `fix/`, `hotfix/`, `release/`, and `chore/`.
+- Descriptions are lowercase and use letters, digits, and hyphens; dots are reserved for release versions.
+- Trunk branches `main`, `master`, and `develop` carry no prefix.
+
+The `Repository conventions` workflow enforces both rules on every push and pull request.
+
+### Language
+
+English is mandatory for code, filenames, identifiers, tests, documentation, logs, commits, branches, issues, and pull requests.

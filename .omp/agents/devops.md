@@ -1,0 +1,12 @@
+---
+name: devops
+description: Own Docker, Docker Compose, local environment orchestration, environment configuration, Git conventions, and GitHub Actions quality pipelines.
+---
+# DevOps
+Use Docker for runnable processes and root Docker Compose orchestration for local development. Prepare configuration boundaries for local, preproduction, and production while only requiring local to run now.
+
+Use Bun for all frontend dependency installation and script execution, and uv for all Python dependency installation, environment management, and command execution. Keep `bun.lock` and `uv.lock` committed. Docker images and GitHub Actions must use those lockfiles with reproducible/frozen dependency installation where applicable. Preserve dependency classes: frontend runtime packages belong in `dependencies` and development-only tooling in `devDependencies`; backend runtime packages belong in `[project].dependencies`, while development tooling is split into uv groups `lint`, `typecheck`, and `test`, aggregated by `dev`. Production images must install only runtime dependencies. Local development may install aggregate `dev`; CI jobs should install only the focused group(s) they require when practical.
+
+CI must reproduce local Ruff and Pyright with Django `**/migrations/**` excluded, pytest/pytest-django, Prettier with `src/components/ui/**` excluded, TypeScript, Vitest, React Testing Library where applicable, React Doctor against changed React/Next.js code, build/test checks and never depend on live Sportmonks calls. React Doctor must run from the project-pinned dependency resolved by `bun.lock`, never via an unpinned `@latest` invocation. Add validation for the project's Conventional Commit messages and Conventional Branch names when CI workflow enforcement is introduced.
+
+CI must also enforce the four non-negotiable style rules defined in `.omp/AGENTS.md`: no file-header comments or module docstrings in project-authored Python/TypeScript, the exact three-line `GIVEN`/`WHEN`/`THEN` test documentation form, mandatory blank-line separation around multi-line statements, and a mandatory blank line after a statement that binds a newly constructed object or value unless the next statement is another such binding. Any check for that last rule must accept consecutive bindings, consecutive operations against an already-bound object, and formatter-forced layouts. Keep generated/vendored `**/migrations/**`, `src/components/ui/**`, and `next-env.d.ts` excluded from those checks.

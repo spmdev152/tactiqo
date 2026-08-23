@@ -1,0 +1,11 @@
+# Build and dependency output
+.next/
+coverage/
+node_modules/
+
+# Generated files
+bun.lock
+next-env.d.ts
+
+# Generated shadcn/ui primitives
+src/components/ui/

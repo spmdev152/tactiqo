@@ -1,0 +1,140 @@
+name: Backend quality
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "**.toml"
+      - ".github/workflows/backend-quality.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "**.toml"
+      - ".github/workflows/backend-quality.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_NO_SYNC: "1"
+  DJANGO_SETTINGS_MODULE: config.settings.local
+  DJANGO_SECRET_KEY: insecure-ci-key
+  DJANGO_DEBUG: "false"
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+  POSTGRES_DB: tactiqo
+  POSTGRES_USER: tactiqo
+  POSTGRES_PASSWORD: tactiqo
+  POSTGRES_HOST: 127.0.0.1
+  POSTGRES_PORT: "5432"
+  REDIS_URL: redis://127.0.0.1:6379/0
+  CELERY_BROKER_URL: redis://127.0.0.1:6379/1
+  CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
+  SPORTMONKS_API_TOKEN: ""
+  SPORTMONKS_BASE_URL: https://api.sportmonks.com/v3/football
+  SPORTMONKS_LEAGUE_IDS: 8,82,301,384,564
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  lint:
+    name: Ruff, Taplo, and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.6.2"
+          python-version: "3.13"
+          working-directory: backend
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install lint dependencies
+        run: uv sync --frozen --no-default-groups --group lint
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check TOML formatting
+        working-directory: .
+        run: uv run --project backend taplo fmt --check --diff
+
+  typecheck:
+    name: Pyright type check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.6.2"
+          python-version: "3.13"
+          working-directory: backend
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install type-check dependencies
+        run: uv sync --frozen --no-default-groups --group typecheck --group test
+
+      - name: Type check
+        run: uv run pyright
+
+  test:
+    name: Pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.6.2"
+          python-version: "3.13"
+          working-directory: backend
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install test dependencies
+        run: uv sync --frozen --no-default-groups --group test
+
+      - name: Run tests
+        run: uv run pytest
+
+  migrations:
+    name: Migration consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.6.2"
+          python-version: "3.13"
+          working-directory: backend
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install runtime dependencies
+        run: uv sync --frozen --no-default-groups
+
+      - name: Check for missing migrations
+        run: uv run python manage.py makemigrations --check --dry-run

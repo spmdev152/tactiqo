@@ -1,0 +1,20 @@
+# Version control
+.git
+.gitignore
+
+# Environment
+.env
+.env.*
+
+# Node, Bun, and Next.js
+*.tsbuildinfo
+.next
+node_modules
+out
+
+# Test and tooling output
+coverage
+
+# Container build inputs
+.dockerignore
+Dockerfile
