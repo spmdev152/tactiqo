@@ -50,19 +50,18 @@ const readMountedOnServer = () => false;
  * than inline arrows because React resubscribes whenever `subscribe` changes
  * identity, so an inline function would resubscribe on every render.
  *
- * That unchecked first render is also why the switch carries a `key` derived
- * from the mounted flag. The server cannot know the resolved theme, so a stored
- * dark theme makes the switch correct itself from unchecked to checked the
- * moment React takes over, and with transitions live the visitor watched the
- * thumb slide across on every single reload. Changing the key makes that
- * correction a remount instead of a state change, and a freshly inserted element
- * has no previous value to animate from, so the correction is instant while a
- * real click still animates. Animation should express what somebody did, not a
- * correction they had no part in.
+ * That unchecked first render is also why `data-settling` marks the switch until
+ * the flag turns true. The server cannot know the resolved theme, so a stored
+ * dark theme leaves the control sitting in its light position until React takes
+ * over, which measured at around 170 milliseconds. The document does know: the
+ * `dark` class is on the root element before the first paint, so two rules in
+ * `globals.css` key off this attribute and paint the settling switch from that
+ * class. The control is therefore correct in the frame it first appears.
  *
- * Suppressing the transition instead does not work, because the flag and the
- * checked value flip in the same commit: whatever re-enables transitions does so
- * in the very render that changes the state, and the browser animates it anyway.
+ * Removing the transition instead does not solve it, and neither does remounting
+ * on a changing `key`. Both only decide whether the wrong state animates or
+ * snaps to the right one, and the visitor sees the wrong state either way. The
+ * first paint has to be right, not the correction.
  */
 export function ModeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -84,8 +83,8 @@ export function ModeToggle() {
 
       <Switch
         checked={isDark}
+        data-settling={isMounted ? undefined : ""}
         id={MODE_SWITCH_ID}
-        key={isMounted ? "resolved" : "initial"}
         onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
         size="lg"
       >
