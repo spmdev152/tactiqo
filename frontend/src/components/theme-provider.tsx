@@ -24,17 +24,24 @@ export interface ThemeProviderProps {
  * `enableSystem` with `defaultTheme="system"` respects the operating system
  * until the visitor overrides it.
  *
- * `disableTransitionOnChange` is deliberately absent. It injects a document-wide
- * `transition: none !important` rule for the duration of the swap, and the swap
- * is exactly when the theme switch's thumb is sliding, so it made the shadcn
- * switch look like it had no animation at all: the thumb moved, but the track
- * colour and the whole page snapped around it. The flag exists for applications
- * that put a `transition` on every element; this one only transitions the few
- * components that ask for it, so letting those play is the better trade.
+ * `disableTransitionOnChange` makes the swap abrupt. It injects a document-wide
+ * `transition: none !important` rule for the duration of the change, so text,
+ * borders, inputs and surfaces jump straight to their new colours instead of
+ * fading between two themes.
+ *
+ * That blanket rule would also freeze the theme switch mid-slide, which is the
+ * one animation that has to survive because it belongs to the control somebody
+ * just operated rather than to the swap. Two rules in `globals.css` re-assert it
+ * by selector, which outranks the `*` the injected style uses.
  */
 export function ThemeProvider({ children }: ThemeProviderProps) {
   return (
-    <NextThemesProvider attribute="class" defaultTheme="system" enableSystem>
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="system"
+      disableTransitionOnChange
+      enableSystem
+    >
       {children}
     </NextThemesProvider>
   );

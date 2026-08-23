@@ -171,6 +171,29 @@
   translate: calc(100% + 2px) !important;
 }
 
+/* `disableTransitionOnChange` injects `*, *::before, *::after { transition: none
+   !important }` while the theme swaps, which is what makes every other colour
+   change abrupt. These two rules opt the switch back in: an attribute selector
+   outranks the universal selector, so they win even though both carry
+   `!important`. Without them the control somebody just clicked would freeze
+   mid-slide, which is the one place the animation belongs.
+
+   Surviving the suppression means restating `transition-property`, which the
+   injected shorthand also resets, so these apply at all times and not only
+   during a swap. The list therefore names everything the primitive's
+   `transition-all` actually animates here, rather than narrowing the control to
+   its track colour and losing the focus ring and disabled fades with it. */
+[data-slot="switch"] {
+  transition-duration: 150ms !important;
+  transition-property:
+    background-color, border-color, box-shadow, opacity !important;
+}
+
+[data-slot="switch-thumb"] {
+  transition-duration: 150ms !important;
+  transition-property: translate !important;
+}
+
 @layer base {
   @media (prefers-reduced-motion: reduce) {
     *,
