@@ -23,7 +23,7 @@ export function SiteHeader() {
         >
           <TactiqoMark className="size-8 text-primary transition-colors group-hover:text-accent-foreground" />
 
-          <span className="font-serif text-xl leading-none font-semibold tracking-tight">
+          <span className="font-display text-2xl leading-none font-bold tracking-tight uppercase">
             Tactiqo
           </span>
         </Link>

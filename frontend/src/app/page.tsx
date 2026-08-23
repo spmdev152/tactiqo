@@ -46,9 +46,8 @@ export default async function HomePage() {
             Matchday intelligence
           </p>
 
-          <h1 className="animate-rise font-serif text-4xl leading-tight tracking-tight [animation-delay:80ms]">
-            Football intelligence for fixtures, statistics, odds, and
-            predictions.
+          <h1 className="animate-rise font-display text-5xl leading-[0.95] font-bold tracking-tight uppercase [animation-delay:80ms]">
+            Football intelligence for fixtures, statistics, odds and predictions
           </h1>
         </div>
 

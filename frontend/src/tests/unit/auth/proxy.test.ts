@@ -51,6 +51,17 @@ describe("proxy", () => {
   });
 
   /**
+   * GIVEN a request for the account-request page without a session cookie
+   * WHEN the proxy handles it
+   * THEN it continues, because the page exists for people with no session
+   */
+  it("lets an uncredentialed request reach the account-request page", () => {
+    const response = proxy(navigationTo("/signup"));
+
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  /**
    * GIVEN a request for the login page carrying a stale session cookie
    * WHEN the proxy handles it
    * THEN it continues, because bouncing it to a page that bounces back loops

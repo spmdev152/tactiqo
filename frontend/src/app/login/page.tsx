@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/features/auth/components/login-form";
@@ -34,8 +35,8 @@ export default async function LoginPage() {
               Account access
             </p>
 
-            <h1 className="animate-rise font-serif text-4xl leading-[1.05] tracking-tight text-balance [animation-delay:80ms]">
-              Welcome back to the desk.
+            <h1 className="animate-rise font-display text-5xl leading-[0.95] font-bold tracking-tight text-balance uppercase [animation-delay:80ms]">
+              Welcome back to the desk
             </h1>
 
             <p className="animate-rise text-sm text-muted-foreground [animation-delay:160ms]">
@@ -48,8 +49,14 @@ export default async function LoginPage() {
             <LoginForm />
           </div>
 
-          <p className="animate-rise font-mono text-[0.68rem] leading-relaxed tracking-wide text-muted-foreground [animation-delay:320ms]">
-            Accounts are provisioned by an administrator.
+          <p className="animate-rise text-sm text-muted-foreground [animation-delay:320ms]">
+            Do not have an account?{" "}
+            <Link
+              className="font-medium text-foreground underline decoration-primary decoration-2 underline-offset-4 transition-colors hover:text-primary"
+              href="/signup"
+            >
+              Create one
+            </Link>
           </p>
         </div>
       </main>

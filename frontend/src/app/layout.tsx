@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Fira_Code, Geist, Lora } from "next/font/google";
+import { Antonio, Fira_Code, Geist } from "next/font/google";
 
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -11,9 +11,10 @@ const geistSans = Geist({
   subsets: ["latin"],
 });
 
-const lora = Lora({
-  variable: "--font-serif",
+const antonio = Antonio({
+  variable: "--font-display",
   subsets: ["latin"],
+  weight: ["600", "700"],
 });
 
 const firaCode = Fira_Code({
@@ -58,7 +59,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${lora.variable} ${firaCode.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${antonio.variable} ${firaCode.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col" suppressHydrationWarning>

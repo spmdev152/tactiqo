@@ -157,9 +157,8 @@ export function MatchIntelligencePanel({
           </div>
 
           <div className="flex flex-col gap-8">
-            <p className="max-w-md animate-rise font-serif text-2xl leading-snug tracking-tight text-balance [animation-delay:160ms] xl:text-3xl">
-              Every fixture arrives with its own evidence. Read it before the
-              whistle.
+            <p className="max-w-md animate-rise font-display text-4xl leading-[0.95] font-bold tracking-tight text-balance uppercase [animation-delay:160ms] xl:text-5xl">
+              Read the evidence before the whistle
             </p>
 
             <dl className="grid grid-cols-3 gap-3">

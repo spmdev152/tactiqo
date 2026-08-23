@@ -4,6 +4,11 @@ import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
 
 const LOGIN_PATH = "/login";
 
+const PUBLIC_PATHS: Record<string, true> = {
+  "/login": true,
+  "/signup": true,
+};
+
 /**
  * Limits the proxy to page navigations.
  *
@@ -34,13 +39,13 @@ export const config = {
  * itself.
  *
  * It deliberately does the opposite redirect not at all. Sending a request that
- * carries a cookie away from `/login` looks symmetrical and is a redirect loop:
- * the login page would bounce it to `/`, `HomePage` would find the session
+ * carries a cookie away from a public path looks symmetrical and is a redirect
+ * loop: the login page would bounce it to `/`, `HomePage` would find the session
  * unusable and bounce it back, and neither side can break the tie because only
  * one of them can verify the token. A revoked session, an expired token, or an
  * unreachable API therefore used to end in `ERR_TOO_MANY_REDIRECTS` instead of
- * the login form. This direction is monotonic and cannot loop, since `/login`
- * is the only exempt path and the only target.
+ * the login form. This direction is monotonic and cannot loop, since every
+ * target is itself a public path.
  *
  * The pages remain the authoritative check: a cookie holding an expired,
  * revoked, or forged token passes this filter and is rejected by
@@ -53,9 +58,9 @@ export const config = {
  */
 export function proxy(request: NextRequest) {
   const hasSessionCookie = request.cookies.has(SESSION_COOKIE_NAME);
-  const isLoginRoute = request.nextUrl.pathname === LOGIN_PATH;
+  const isPublicRoute = PUBLIC_PATHS[request.nextUrl.pathname] === true;
 
-  if (!hasSessionCookie && !isLoginRoute) {
+  if (!hasSessionCookie && !isPublicRoute) {
     return NextResponse.redirect(new URL(LOGIN_PATH, request.url));
   }
 
