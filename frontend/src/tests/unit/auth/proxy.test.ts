@@ -74,6 +74,18 @@ describe("proxy", () => {
   });
 
   /**
+   * GIVEN a request for the account-request page carrying a stale session cookie
+   * WHEN the proxy handles it
+   * THEN it continues, because it is as much a loop target as the login page
+   */
+  it("never redirects a cookie away from the account-request page", () => {
+    const response = proxy(navigationTo("/signup", "stale-token"));
+
+    expect(response.status).not.toBe(TEMPORARY_REDIRECT);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  /**
    * GIVEN a request for a protected path carrying a session cookie
    * WHEN the proxy handles it
    * THEN it continues, leaving the page to verify the token

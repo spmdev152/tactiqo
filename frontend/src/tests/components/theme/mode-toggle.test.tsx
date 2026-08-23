@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ModeToggle } from "@/components/mode-toggle";
@@ -25,6 +26,25 @@ function modeToggleLabel(): HTMLLabelElement {
   }
 
   return label as HTMLLabelElement;
+}
+
+/**
+ * Renders the toggle the way the server does, before any hydration.
+ *
+ * @returns The switch element parsed out of the server-rendered markup.
+ */
+function serverRenderedSwitch(): Element {
+  const holder = document.createElement("div");
+
+  holder.innerHTML = renderToStaticMarkup(<ModeToggle />);
+
+  const control = holder.querySelector('[data-slot="switch"]');
+
+  if (control === null) {
+    throw new Error("The server-rendered markup contains no switch.");
+  }
+
+  return control;
 }
 
 describe("ModeToggle", () => {
@@ -112,5 +132,32 @@ describe("ModeToggle", () => {
     container.querySelectorAll("svg").forEach((icon) => {
       expect(icon).toHaveClass("pointer-events-none");
     });
+  });
+
+  /**
+   * GIVEN a stored dark theme the server cannot see
+   * WHEN the toggle is rendered on the server
+   * THEN the switch is unchecked and marked settling, so the CSS can paint it right
+   */
+  it("marks the switch settling on the server", () => {
+    useTheme.mockReturnValue({ resolvedTheme: "dark", setTheme });
+
+    const control = serverRenderedSwitch();
+
+    expect(control).not.toBeChecked();
+    expect(control).toHaveAttribute("data-settling", "");
+  });
+
+  /**
+   * GIVEN a toggle that has mounted on the client
+   * WHEN the switch is inspected
+   * THEN the settling marker is gone, so the CSS overrides stop applying
+   */
+  it("drops the settling marker once mounted", () => {
+    render(<ModeToggle />);
+
+    expect(
+      screen.getByRole("switch", { name: "Dark mode" }),
+    ).not.toHaveAttribute("data-settling");
   });
 });
