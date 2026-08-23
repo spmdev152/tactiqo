@@ -21,7 +21,6 @@ Dockerfile text eol=lf
 
 backend/uv.lock text eol=lf linguist-generated=true
 frontend/bun.lock text eol=lf linguist-generated=true
-frontend/next-env.d.ts text eol=lf linguist-generated=true
 backend/**/migrations/*.py linguist-generated=true
 frontend/src/components/ui/** linguist-vendored=true
 
