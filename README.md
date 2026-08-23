@@ -66,6 +66,8 @@ docker compose --env-file .env.local exec api uv run python manage.py migrate
 
 Source directories are bind-mounted into the containers, so local edits hot-reload without shadowing installed dependencies. The backend virtual environment lives at `/opt/venv` inside the API image, outside the bind-mounted `/app`, and the web image keeps `node_modules` in a named volume so the container's Linux install never shadows the host one.
 
+Both services reconcile their dependencies at container start, which is what makes a `bun add` or a `uv add` on the host visible inside the stack. The `web` command is `bun install --frozen-lockfile && bun run dev`, because Docker copies an image's content into a named volume only while that volume is empty: without the install, `frontend-node-modules` would keep whatever the first `up` put there and every package added afterwards would fail to resolve at build time. The API needs no equivalent, since `uv run` syncs `/opt/venv` against the bind-mounted `uv.lock` on its own. Both installs are frozen, so a `package.json` or `pyproject.toml` that has drifted from its lockfile fails loudly instead of resolving something the lockfile never pinned.
+
 The `web` container runs as its image's `bun` user, uid and gid 1000, rather than as root. That is what keeps `frontend/.next` owned by the developer: Docker creates a named-volume mountpoint on the host as root, so `.next` deliberately has no volume and lives in the bind mount, written by an unprivileged container. Without this, the first `docker compose up` on a fresh clone would leave `frontend/.next` root-owned and every host `bun run` command would fail with `EACCES`. A host account whose uid is not 1000 needs `user: "${UID}:${GID}"` on the service.
 
 ### Services and ports
