@@ -198,5 +198,12 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
+
+    /* A spinner reports progress rather than decorating it, so freezing this one
+       would leave a control that looks broken instead of busy. */
+    [data-slot="spinner"] {
+      animation-duration: 1s !important;
+      animation-iteration-count: infinite !important;
+    }
   }
 }

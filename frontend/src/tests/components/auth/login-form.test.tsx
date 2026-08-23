@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LoginForm } from "@/features/auth/components/login-form";
+import type { SignInActionResult } from "@/features/auth/types/sign-in-action-result";
 
 const { signInAction } = vi.hoisted(() => ({ signInAction: vi.fn() }));
 
@@ -125,5 +126,34 @@ describe("LoginForm", () => {
     await screen.findByRole("alert");
 
     expect(screen.getByLabelText("E-mail")).toHaveValue("ada@example.com");
+  });
+
+  /**
+   * GIVEN a sign-in attempt still in flight
+   * WHEN the submit button is inspected
+   * THEN it keeps its label, reports itself busy, and shows a spinner
+   */
+  it("swaps only the arrow for a spinner while submitting", async () => {
+    const { promise, resolve } = Promise.withResolvers<SignInActionResult>();
+
+    signInAction.mockReturnValue(promise);
+
+    const { container } = render(<LoginForm />);
+
+    submitCredentials("ada@example.com");
+
+    const submit = await screen.findByRole("button", { name: "Sign in" });
+
+    await waitFor(() => expect(submit).toBeDisabled());
+
+    expect(submit).toHaveAttribute("aria-busy", "true");
+    expect(container.querySelector("[data-slot=spinner]")).toBeVisible();
+
+    resolve({ error: "invalid-credentials" });
+
+    await screen.findByRole("alert");
+
+    expect(screen.getByRole("button", { name: "Sign in" })).not.toBeDisabled();
+    expect(container.querySelector("[data-slot=spinner]")).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import type { Credentials } from "@/features/auth/schemas/credentials";
 import { credentialsSchema } from "@/features/auth/schemas/credentials";
 import { signInAction } from "@/features/auth/server/actions";
@@ -48,6 +49,18 @@ const ERROR_MESSAGES = {
  * receives them, and no request from this component reaches the backend
  * directly. A successful attempt never settles here, because the action
  * redirects, so the only outcome this component renders is a failure.
+ *
+ * While the attempt is in flight the submit button keeps its label and swaps
+ * only its trailing icon for a spinner. Rewording the button moves it, which
+ * shifts the pointer target out from under a visitor who is already mid-click,
+ * and the label is the one part of a control that should never change while the
+ * control is busy.
+ *
+ * That is also why the spinner arrives with its `role` and `aria-label` stripped
+ * and `aria-hidden` set. The registry ships it as a standalone live region, and
+ * a labelled element inside a button contributes to the button's own accessible
+ * name, so leaving it intact renamed the control to "Sign in Loading" for the
+ * duration of the request. `aria-busy` on the button carries that state instead.
  */
 export function LoginForm() {
   const [submissionError, setSubmissionError] =
@@ -135,13 +148,17 @@ export function LoginForm() {
       )}
 
       <Button
+        aria-busy={form.formState.isSubmitting}
         className="group h-11 w-full text-sm tracking-wide"
         disabled={form.formState.isSubmitting}
         type="submit"
       >
-        {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
-
-        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+        Sign in
+        {form.formState.isSubmitting ? (
+          <Spinner aria-hidden="true" aria-label={undefined} role={undefined} />
+        ) : (
+          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+        )}
       </Button>
     </form>
   );
