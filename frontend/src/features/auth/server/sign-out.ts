@@ -34,9 +34,7 @@ export async function signOut(): Promise<void> {
         headers: { authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
       });
-    } catch {
-      // A backend that cannot be reached must not keep the visitor signed in.
-    }
+    } catch {}
   }
 
   await clearSessionCookie();

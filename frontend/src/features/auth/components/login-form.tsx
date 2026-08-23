@@ -118,6 +118,7 @@ export function LoginForm() {
                 autoComplete="current-password"
                 className="h-11"
                 id="sign-in-password"
+                placeholder="*********"
                 type="password"
               />
 

@@ -250,7 +250,10 @@ class AuthSession(models.Model):
     user : User
         Account the token authenticates.
     token_digest : str
-        Hexadecimal SHA-256 of the token.
+        Hexadecimal SHA-256 of the token. A bare digest rather than a password
+        hash because the token is 256 bits of ``secrets`` entropy, so a slow key
+        derivation would buy no brute-force resistance while costing a
+        derivation on every authenticated request.
     created_at : datetime
         Instant the token was issued.
     expires_at : datetime
@@ -268,9 +271,6 @@ class AuthSession(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="auth_sessions"
     )
 
-    # SHA-256 rather than a password hasher: the token is 256 bits of `secrets`
-    # entropy, so a slow key derivation buys no brute-force resistance while
-    # costing a derivation on every authenticated request.
     token_digest = models.CharField(max_length=64, unique=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

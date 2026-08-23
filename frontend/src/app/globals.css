@@ -177,13 +177,9 @@
   background-size: 6px 6px;
 }
 
-/* The theme switch renders unchecked until React hydrates, because the server
-   cannot know the resolved theme. The document can: `next-themes` stamps `dark`
-   onto the root element from a blocking script before the first paint. These two
-   rules let the switch paint from that class while it settles, so a stored dark
-   theme no longer shows the control in its light position for the first frames.
-   The values mirror the `lg` size in `components/ui/switch.tsx` and have to
-   change with it. */
+/* Paints the theme switch from the root `dark` class while React has not
+   hydrated yet; `ModeToggle` documents why. These values mirror the `lg` size in
+   `components/ui/switch.tsx` and have to change with it. */
 .dark [data-settling][data-slot="switch"] {
   background-color: var(--color-primary) !important;
 }
