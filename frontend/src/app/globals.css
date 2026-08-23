@@ -60,9 +60,6 @@
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
-  --animate-drift: drift 18s ease-in-out infinite;
-  --animate-drift-slow: drift 26s ease-in-out infinite;
-  --animate-drift-late: drift 22s ease-in-out 4s infinite;
 }
 
 :root {
@@ -160,21 +157,6 @@
   html {
     @apply font-sans;
   }
-}
-
-@keyframes drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(-3%, 4%, 0) scale(1.08);
-  }
-}
-
-@utility grain {
-  background-image: radial-gradient(currentColor 0.5px, transparent 0.5px);
-  background-size: 6px 6px;
 }
 
 /* Paints the theme switch from the root `dark` class while React has not

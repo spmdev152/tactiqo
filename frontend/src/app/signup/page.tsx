@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { MatchIntelligencePanel } from "@/features/auth/components/match-intelligence-panel";
+import { SignInPanel } from "@/features/auth/components/sign-in-panel";
 import { getCurrentUser } from "@/features/auth/server/get-current-user";
 
 /**
@@ -81,7 +81,7 @@ export default async function SignupPage() {
         </div>
       </main>
 
-      <MatchIntelligencePanel className="hidden lg:block" />
+      <SignInPanel className="hidden lg:block" />
     </div>
   );
 }
