@@ -61,6 +61,9 @@
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
   --animate-rise: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-drift: drift 18s ease-in-out infinite;
+  --animate-drift-slow: drift 26s ease-in-out infinite;
+  --animate-drift-late: drift 22s ease-in-out 4s infinite;
 }
 
 :root {
@@ -171,23 +174,19 @@
   }
 }
 
-@keyframes draw {
-  from {
-    stroke-dashoffset: 1;
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
-  to {
-    stroke-dashoffset: 0;
+  50% {
+    transform: translate3d(-3%, 4%, 0) scale(1.08);
   }
 }
 
 @utility grain {
   background-image: radial-gradient(currentColor 0.5px, transparent 0.5px);
   background-size: 6px 6px;
-}
-
-@utility animate-draw {
-  stroke-dasharray: 1;
-  animation: draw 1.4s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
 }
 
 @layer base {

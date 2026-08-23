@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { ModeToggle } from "@/components/mode-toggle";
-import { TactiqoMark } from "@/components/tactiqo-mark";
+import { TactiqoWordmark } from "@/components/tactiqo-wordmark";
 
 /**
  * Renders the application header shared by every route.
@@ -18,14 +18,10 @@ export function SiteHeader() {
     <header className="sticky top-0 z-20 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-6 py-3.5">
         <Link
-          className="group flex items-center gap-2.5 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           href="/"
         >
-          <TactiqoMark className="size-8 text-primary transition-colors group-hover:text-accent-foreground" />
-
-          <span className="font-display text-2xl leading-none font-bold tracking-tight uppercase">
-            Tactiqo
-          </span>
+          <TactiqoWordmark className="font-display text-3xl leading-none font-bold tracking-tight uppercase" />
         </Link>
 
         <ModeToggle />

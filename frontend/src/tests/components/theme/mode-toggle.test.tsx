@@ -75,11 +75,11 @@ describe("ModeToggle", () => {
   });
 
   /**
-   * GIVEN a toggle whose sun and moon icons used to sit outside the hit area
-   * WHEN the label wrapping them is clicked
-   * THEN the theme still changes, so neither icon is a dead zone
+   * GIVEN a toggle whose icons used to sit outside the hit area of the switch
+   * WHEN the label wrapping the whole control is clicked
+   * THEN the theme still changes, so no part of the control is a dead zone
    */
-  it("toggles from the icons around the switch", () => {
+  it("toggles from anywhere in the label", () => {
     render(<ModeToggle />);
     fireEvent.click(modeToggleLabel());
 
@@ -89,15 +89,28 @@ describe("ModeToggle", () => {
   /**
    * GIVEN a rendered toggle
    * WHEN the icons are located
-   * THEN both sit inside the label bound to the switch
+   * THEN both sit inside the track, where the thumb can occlude one of them
    */
-  it("keeps both icons inside the switch label", () => {
+  it("keeps both icons inside the switch track", () => {
     const { container } = render(<ModeToggle />);
 
     const icons = container.querySelectorAll("svg");
-    const label = modeToggleLabel();
+    const track = screen.getByRole("switch", { name: "Dark mode" });
 
     expect(icons).toHaveLength(2);
-    icons.forEach((icon) => expect(label).toContainElement(icon));
+    icons.forEach((icon) => expect(track).toContainElement(icon));
+  });
+
+  /**
+   * GIVEN a rendered toggle
+   * WHEN the icons are inspected for pointer handling
+   * THEN neither can swallow a click meant for the switch beneath them
+   */
+  it("never lets an icon intercept a click", () => {
+    const { container } = render(<ModeToggle />);
+
+    container.querySelectorAll("svg").forEach((icon) => {
+      expect(icon).toHaveClass("pointer-events-none");
+    });
   });
 });
