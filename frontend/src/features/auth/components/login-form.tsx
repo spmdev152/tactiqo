@@ -47,8 +47,12 @@ const ERROR_MESSAGES = {
  *
  * The credentials still only ever exist in client memory: the Server Action
  * receives them, and no request from this component reaches the backend
- * directly. A successful attempt never settles here, because the action
- * redirects, so the only outcome this component renders is a failure.
+ * directly. A successful attempt does not hang here, it rejects: Next rejects
+ * the Server Action promise with a redirect error, and a global
+ * `unhandledrejection` listener recognises that error and navigates, so the
+ * continuation after the `await` never runs. The only outcome this component
+ * renders is therefore a failure, which is what makes the non-nullable
+ * `result` type sound.
  *
  * While the attempt is in flight the submit button keeps its label and swaps
  * only its trailing icon for a spinner. Rewording the button moves it, which
