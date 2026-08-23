@@ -49,6 +49,20 @@ const readMountedOnServer = () => false;
  * this component renders at all. Its three callbacks are module constants rather
  * than inline arrows because React resubscribes whenever `subscribe` changes
  * identity, so an inline function would resubscribe on every render.
+ *
+ * That unchecked first render is also why the switch carries a `key` derived
+ * from the mounted flag. The server cannot know the resolved theme, so a stored
+ * dark theme makes the switch correct itself from unchecked to checked the
+ * moment React takes over, and with transitions live the visitor watched the
+ * thumb slide across on every single reload. Changing the key makes that
+ * correction a remount instead of a state change, and a freshly inserted element
+ * has no previous value to animate from, so the correction is instant while a
+ * real click still animates. Animation should express what somebody did, not a
+ * correction they had no part in.
+ *
+ * Suppressing the transition instead does not work, because the flag and the
+ * checked value flip in the same commit: whatever re-enables transitions does so
+ * in the very render that changes the state, and the browser animates it anyway.
  */
 export function ModeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -71,6 +85,7 @@ export function ModeToggle() {
       <Switch
         checked={isDark}
         id={MODE_SWITCH_ID}
+        key={isMounted ? "resolved" : "initial"}
         onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
         size="lg"
       >

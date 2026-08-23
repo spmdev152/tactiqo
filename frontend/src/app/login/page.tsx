@@ -32,16 +32,16 @@ export default async function LoginPage() {
         <div className="flex w-full max-w-sm flex-col gap-9">
           <header className="flex flex-col gap-3">
             <p className="animate-rise font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
-              Account access
+              Welcome back
             </p>
 
             <h1 className="animate-rise font-display text-5xl leading-[0.95] font-bold tracking-tight text-balance uppercase [animation-delay:80ms]">
-              Welcome back to the desk
+              Sign in to your account
             </h1>
 
             <p className="animate-rise text-sm text-muted-foreground [animation-delay:160ms]">
-              Fixtures, statistics, bookmaker odds, and predictions for the five
-              leagues you follow.
+              Access and analyse fixtures, statistics, bookmaker odds, and
+              predictions across the five leagues you follow.
             </p>
           </header>
 
