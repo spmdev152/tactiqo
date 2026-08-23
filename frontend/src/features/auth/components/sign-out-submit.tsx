@@ -18,6 +18,12 @@ import { Button } from "@/components/ui/button";
  * The busy state matches the sign-in button deliberately: the label never
  * changes, only the trailing icon becomes a spinner, and `aria-busy` reports
  * what the icon shows.
+ *
+ * Both icons are 12 pixels rather than the 16 the sign-in button uses, and
+ * rather than the 14 an `sm` button gives its own unsized icons. A power symbol
+ * is a full-height circle, so anything above the roughly 9 pixel cap height of
+ * the 12.8 pixel label beside it reads as the dominant element of the control.
+ * The spinner has to state the same size because the registry hardcodes its own.
  */
 export function SignOutSubmit() {
   const { pending } = useFormStatus();
@@ -31,7 +37,11 @@ export function SignOutSubmit() {
       variant="outline"
     >
       Sign out
-      {pending ? <ButtonSpinner /> : <Power className="size-4" />}
+      {pending ? (
+        <ButtonSpinner className="size-3" />
+      ) : (
+        <Power className="size-3" />
+      )}
     </Button>
   );
 }
