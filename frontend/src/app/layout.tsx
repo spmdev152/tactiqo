@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fira_Code, Geist, Lora } from "next/font/google";
 
+import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import "./globals.css";
@@ -61,7 +62,11 @@ export default function RootLayout({ children }: RootLayoutProps) {
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <SiteHeader />
+
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

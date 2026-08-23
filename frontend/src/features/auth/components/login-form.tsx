@@ -1,27 +1,28 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState } from "react";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { ArrowRight } from "lucide-react";
+import { Controller, useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import type { Credentials } from "@/features/auth/schemas/credentials";
+import { credentialsSchema } from "@/features/auth/schemas/credentials";
 import { signInAction } from "@/features/auth/server/actions";
-import type {
-  SignInFormError,
-  SignInFormState,
-} from "@/features/auth/types/sign-in-form-state";
+import type { SignInActionError } from "@/features/auth/types/sign-in-action-result";
 
-const INITIAL_STATE: SignInFormState = { email: "", error: null };
+const EMPTY_CREDENTIALS: Credentials = { email: "", password: "" };
 
 const ERROR_MESSAGES = {
-  "missing-credentials": "Enter your e-mail address and your password.",
+  "malformed-request": "Check the credentials you submitted and try again.",
   "backend-not-configured":
     "Sign-in is unavailable because this deployment has no API configured.",
   "api-unreachable": "The API could not be reached. Try again in a moment.",
@@ -31,74 +32,116 @@ const ERROR_MESSAGES = {
     "The API answered the sign-in request with an unreadable response.",
   "contract-mismatch":
     "The API returned a payload that does not match the sign-in contract.",
-} as const satisfies Record<SignInFormError, string>;
+} as const satisfies Record<SignInActionError, string>;
 
 /**
  * Collects e-mail and password credentials and signs the visitor in.
  *
  * @remarks
- * A Client Component only because `useActionState` needs the pending flag and
- * the returned state; the credentials themselves are handled by the Server
- * Action and never appear in client state. The error region is rendered only
- * when there is something to say, so assistive technology announces it as it
- * appears instead of announcing an empty container on every keystroke.
+ * React Hook Form owns the field state and validates against
+ * {@link credentialsSchema} through `zodResolver`, which is the integration
+ * shadcn/ui documents for its `Field` primitives. Holding the values in the
+ * form means a rejected attempt keeps whatever was typed without the component
+ * having to echo it back through the action.
  *
- * React resets an uncontrolled form once its action settles, which would wipe
- * the address a visitor just typed. Seeding `defaultValue` from the returned
- * state restores it, and the password is deliberately not restored.
+ * The credentials still only ever exist in client memory: the Server Action
+ * receives them, and no request from this component reaches the backend
+ * directly. A successful attempt never settles here, because the action
+ * redirects, so the only outcome this component renders is a failure.
  */
 export function LoginForm() {
-  const [state, formAction, isPending] = useActionState(
-    signInAction,
-    INITIAL_STATE,
-  );
+  const [submissionError, setSubmissionError] =
+    useState<SignInActionError | null>(null);
+
+  const form = useForm<Credentials>({
+    resolver: zodResolver(credentialsSchema),
+    defaultValues: EMPTY_CREDENTIALS,
+  });
+
+  async function submitCredentials(credentials: Credentials) {
+    setSubmissionError(null);
+
+    const result = await signInAction(credentials);
+
+    setSubmissionError(result.error);
+  }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Sign in</CardTitle>
-        <CardDescription>Access your Tactiqo workspace.</CardDescription>
-      </CardHeader>
+    <form
+      className="flex flex-col gap-7"
+      noValidate
+      onSubmit={form.handleSubmit(submitCredentials)}
+    >
+      <FieldGroup className="gap-5">
+        <Controller
+          control={form.control}
+          name="email"
+          render={({ field, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel
+                className="font-mono text-xs tracking-wider uppercase"
+                htmlFor="sign-in-email"
+              >
+                E-mail
+              </FieldLabel>
 
-      <CardContent>
-        <form action={formAction} className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="email">E-mail</Label>
+              <Input
+                {...field}
+                aria-invalid={fieldState.invalid}
+                autoComplete="email"
+                className="h-11"
+                id="sign-in-email"
+                placeholder="you@example.com"
+                type="email"
+              />
 
-            <Input
-              autoComplete="email"
-              defaultValue={state.email}
-              id="email"
-              name="email"
-              placeholder="you@example.com"
-              required
-              type="email"
-            />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="password">Password</Label>
-
-            <Input
-              autoComplete="current-password"
-              id="password"
-              name="password"
-              required
-              type="password"
-            />
-          </div>
-
-          {state.error !== null && (
-            <p className="text-sm text-destructive" role="alert">
-              {ERROR_MESSAGES[state.error]}
-            </p>
+              <FieldError errors={[fieldState.error]} />
+            </Field>
           )}
+        />
 
-          <Button className="w-full" disabled={isPending} type="submit">
-            {isPending ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+        <Controller
+          control={form.control}
+          name="password"
+          render={({ field, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel
+                className="font-mono text-xs tracking-wider uppercase"
+                htmlFor="sign-in-password"
+              >
+                Password
+              </FieldLabel>
+
+              <Input
+                {...field}
+                aria-invalid={fieldState.invalid}
+                autoComplete="current-password"
+                className="h-11"
+                id="sign-in-password"
+                type="password"
+              />
+
+              <FieldError errors={[fieldState.error]} />
+            </Field>
+          )}
+        />
+      </FieldGroup>
+
+      {submissionError !== null && (
+        <FieldError className="border-l-2 border-destructive pl-3">
+          {ERROR_MESSAGES[submissionError]}
+        </FieldError>
+      )}
+
+      <Button
+        className="group h-11 w-full text-sm tracking-wide"
+        disabled={form.formState.isSubmitting}
+        type="submit"
+      >
+        {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
+
+        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+      </Button>
+    </form>
   );
 }

@@ -3,7 +3,7 @@
  *
  * @remarks
  * It lives in its own module rather than beside the cookie reader and writer
- * because `src/middleware.ts` needs it and runs outside the React Server
+ * because `src/proxy.ts` needs it and runs outside the React Server
  * environment, where importing a `server-only` module throws.
  */
 export const SESSION_COOKIE_NAME = "tactiqo_session";

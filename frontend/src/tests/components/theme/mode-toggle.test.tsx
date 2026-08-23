@@ -10,6 +10,23 @@ const { setTheme, useTheme } = vi.hoisted(() => ({
 
 vi.mock("next-themes", () => ({ useTheme }));
 
+/**
+ * Returns the label that owns the whole toggle, icons included.
+ *
+ * @returns The label element bound to the mode switch.
+ */
+function modeToggleLabel(): HTMLLabelElement {
+  const label = screen
+    .getByRole("switch", { name: "Dark mode" })
+    .closest("label");
+
+  if (label === null) {
+    throw new Error("The mode switch is not wrapped in a label.");
+  }
+
+  return label as HTMLLabelElement;
+}
+
 describe("ModeToggle", () => {
   beforeEach(() => {
     setTheme.mockReset();
@@ -19,12 +36,15 @@ describe("ModeToggle", () => {
   /**
    * GIVEN a mounted toggle rendered against the light theme
    * WHEN the switch is queried by its accessible name
-   * THEN the switch is found and is not checked
+   * THEN the switch is found, is enabled, and is not checked
    */
-  it("exposes an accessible name instead of a bare icon", () => {
+  it("exposes an enabled switch with an accessible name", () => {
     render(<ModeToggle />);
 
-    expect(screen.getByRole("switch", { name: "Dark mode" })).not.toBeChecked();
+    const control = screen.getByRole("switch", { name: "Dark mode" });
+
+    expect(control).not.toBeChecked();
+    expect(control).toBeEnabled();
   });
 
   /**
@@ -52,5 +72,32 @@ describe("ModeToggle", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Dark mode" }));
 
     expect(setTheme).toHaveBeenCalledWith("light");
+  });
+
+  /**
+   * GIVEN a toggle whose sun and moon icons used to sit outside the hit area
+   * WHEN the label wrapping them is clicked
+   * THEN the theme still changes, so neither icon is a dead zone
+   */
+  it("toggles from the icons around the switch", () => {
+    render(<ModeToggle />);
+    fireEvent.click(modeToggleLabel());
+
+    expect(setTheme).toHaveBeenCalledWith("dark");
+  });
+
+  /**
+   * GIVEN a rendered toggle
+   * WHEN the icons are located
+   * THEN both sit inside the label bound to the switch
+   */
+  it("keeps both icons inside the switch label", () => {
+    const { container } = render(<ModeToggle />);
+
+    const icons = container.querySelectorAll("svg");
+    const label = modeToggleLabel();
+
+    expect(icons).toHaveLength(2);
+    icons.forEach((icon) => expect(label).toContainElement(icon));
   });
 });

@@ -16,7 +16,7 @@ const CURRENT_USER_TIMEOUT_MS = 5_000;
  * @remarks
  * The backend is the authority: a cookie proves nothing until `/auth/me`
  * accepts the token, which is why an expired or revoked session is discovered
- * here and not in the middleware. A `401` is a normal answer meaning the
+ * here and not in the proxy. A `401` is a normal answer meaning the
  * session is gone, so it produces `null` rather than an error, and every other
  * failure produces `null` as well: no page may render authenticated content on
  * the strength of a session this function could not confirm.
