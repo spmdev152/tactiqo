@@ -1,8 +1,15 @@
-from django.contrib import admin
+import logging
+
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import AdminUserCreationForm, UserChangeForm
+from django.db.models import QuerySet
+from django.http import HttpRequest
 
+from apps.accounts.application.services import revoke_sessions
 from apps.accounts.models import AuthSession, User
+
+logger = logging.getLogger(__name__)
 
 
 class UserCreationForm(AdminUserCreationForm):
@@ -116,9 +123,14 @@ class AuthSessionAdmin(admin.ModelAdmin):
     """
     Admin surface of the bearer session table.
 
-    An operator can inspect and revoke a session but cannot forge one: the
-    digest and the issue instant are read-only, so no request can be made to
-    authenticate by typing a value into this form.
+    The surface is inspect-and-revoke only. Every field is read-only and no
+    session can be added, because ``resolve_session`` authenticates a request
+    as ``session.user``: an operator able to repoint that foreign key, or to
+    type a digest of a token they chose into an add form, would hold every
+    account of the installation, superusers included, through the sole
+    ``accounts.change_authsession`` permission. Revocation stays reachable
+    through the action below, which goes through the application layer so an
+    already revoked session keeps its first revocation instant.
 
     Attributes
     ----------
@@ -129,13 +141,58 @@ class AuthSessionAdmin(admin.ModelAdmin):
     search_fields : tuple of str
         Fields the change list search box queries.
     readonly_fields : tuple of str
-        Fields shown but not editable.
-    autocomplete_fields : tuple of str
-        Relations rendered as a search widget instead of a full dropdown.
+        Every field of the record, none of them editable.
+    actions : tuple of str
+        Change list actions offered on a selection of sessions.
+
+    Methods
+    -------
+    has_add_permission(request) -> bool
+        Refuse the creation of a session through the admin.
+    revoke_selected_sessions(request, queryset) -> None
+        Revoke the selected sessions that are still current.
     """
 
     list_display = ("user", "created_at", "expires_at", "revoked_at")
     list_filter = ("expires_at", "revoked_at")
     search_fields = ("user__email",)
-    readonly_fields = ("token_digest", "created_at")
-    autocomplete_fields = ("user",)
+    readonly_fields = ("user", "token_digest", "created_at", "expires_at", "revoked_at")
+    actions = ("revoke_selected_sessions",)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """
+        Refuse the creation of a session through the admin.
+
+        Parameters
+        ----------
+        request : HttpRequest
+            Admin request the permission is evaluated for.
+
+        Returns
+        -------
+        bool
+            Always ``False``: a session is issued by signing in.
+        """
+
+        logger.debug("Withheld the session add form from %s", request.user)
+
+        return False
+
+    @admin.action(description="Revoke selected sessions")
+    def revoke_selected_sessions(
+        self, request: HttpRequest, queryset: QuerySet[AuthSession]
+    ) -> None:
+        """
+        Revoke the selected sessions that are still current.
+
+        Parameters
+        ----------
+        request : HttpRequest
+            Admin request the outcome is reported on.
+        queryset : QuerySet of AuthSession
+            Sessions the operator selected in the change list.
+        """
+
+        revoked_count = revoke_sessions(queryset)
+
+        self.message_user(request, f"Sessions revoked: {revoked_count}.", messages.SUCCESS)

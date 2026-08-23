@@ -1,9 +1,10 @@
 import hashlib
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from django.contrib.auth import authenticate
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from apps.accounts.domain.exceptions import InvalidCredentialsError
@@ -18,6 +19,10 @@ class IssuedSession:
     """
     Freshly issued session, the only moment the raw token exists.
 
+    The token is deliberately kept out of the generated ``__repr__``: no log
+    line, error report, or monitoring integration that interpolates an
+    ``IssuedSession`` can leak the credential it carries.
+
     Attributes
     ----------
     token : str
@@ -28,7 +33,7 @@ class IssuedSession:
         Account the token authenticates.
     """
 
-    token: str
+    token: str = field(repr=False)
     expires_at: datetime
     user: User
 
@@ -140,12 +145,32 @@ def resolve_session(token: str) -> User | None:
     return user if user.is_active else None
 
 
+def revoke_sessions(sessions: QuerySet[AuthSession]) -> int:
+    """
+    Revoke every session of a selection that is still current.
+
+    The update matches only a session whose ``revoked_at`` is still null, so an
+    already revoked session keeps its first revocation instant. That invariant
+    lives here rather than at each call site, so the sign-out endpoint and the
+    admin action cannot drift apart.
+
+    Parameters
+    ----------
+    sessions : QuerySet of AuthSession
+        Sessions to revoke, whether they are still current or not.
+
+    Returns
+    -------
+    int
+        Number of sessions this call revoked.
+    """
+
+    return sessions.filter(revoked_at__isnull=True).update(revoked_at=timezone.now())
+
+
 def revoke_session(token: str) -> bool:
     """
     Revoke the session a bearer token identifies.
-
-    Revoking twice is a no-op: the update only matches a session that has not
-    been revoked yet, so the first revocation instant is never moved.
 
     Parameters
     ----------
@@ -161,8 +186,4 @@ def revoke_session(token: str) -> bool:
     if not token:
         return False
 
-    revoked_count = AuthSession.objects.filter(
-        token_digest=_digest(token), revoked_at__isnull=True
-    ).update(revoked_at=timezone.now())
-
-    return revoked_count > 0
+    return revoke_sessions(AuthSession.objects.filter(token_digest=_digest(token))) > 0

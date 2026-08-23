@@ -30,13 +30,13 @@ def test_signing_in_with_valid_credentials_opens_a_session(
     """
 
     account = user()
+    before = timezone.now()
 
     issued = sign_in(account.email, user_password)
 
     assert issued.user == account
     assert issued.token
-    assert issued.expires_at > timezone.now()
-    assert issued.expires_at <= timezone.now() + SESSION_LIFETIME
+    assert before + SESSION_LIFETIME <= issued.expires_at <= timezone.now() + SESSION_LIFETIME
 
 
 @pytest.mark.django_db
@@ -114,6 +114,21 @@ def test_a_session_stores_only_the_digest_of_its_token(user: UserFactory) -> Non
 
     assert issued.token not in session.token_digest
     assert session.token_digest == hashlib.sha256(issued.token.encode("utf-8")).hexdigest()
+
+
+@pytest.mark.django_db
+def test_an_issued_session_keeps_its_raw_token_out_of_its_representation(
+    user: UserFactory,
+) -> None:
+    """
+    GIVEN a session issued for an account
+    WHEN the issued session is rendered by ``repr``
+    THEN the raw token does not appear in the rendering
+    """
+
+    issued = issue_session(user())
+
+    assert issued.token not in repr(issued)
 
 
 @pytest.mark.django_db
