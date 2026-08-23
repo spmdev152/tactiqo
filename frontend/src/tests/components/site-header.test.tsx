@@ -15,12 +15,12 @@ describe("SiteHeader", () => {
   /**
    * GIVEN the application header
    * WHEN it is rendered
-   * THEN the wordmark links to the landing route
+   * THEN the wordmark reads as one lowercase word and links to the landing route
    */
   it("links the wordmark to the landing route", () => {
     render(<SiteHeader />);
 
-    expect(screen.getByRole("link", { name: "Tactiqo" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "tactiqo" })).toHaveAttribute(
       "href",
       "/",
     );

@@ -21,7 +21,7 @@ export function SiteHeader() {
           className="rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           href="/"
         >
-          <TactiqoWordmark className="font-display text-3xl leading-none font-bold tracking-tight uppercase" />
+          <TactiqoWordmark className="font-sans text-2xl leading-none font-semibold tracking-tight" />
         </Link>
 
         <ModeToggle />
