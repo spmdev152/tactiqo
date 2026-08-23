@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 
 import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
+import { isSessionCookieInsecure } from "@/lib/env";
 
 /**
  * Reads the session token carried by the current request.
@@ -24,8 +25,17 @@ export async function readSessionToken(): Promise<string | null> {
  * whole reason the token never travels to a Client Component: an XSS payload
  * cannot read a cookie it is not allowed to see. `sameSite: "lax"` blocks the
  * cookie on cross-site subrequests while still allowing a normal top-level
- * navigation into the application, and `secure` is lifted only in development,
- * where the application is served over plain HTTP.
+ * navigation into the application.
+ *
+ * `secure` is on unless {@link isSessionCookieInsecure} says otherwise, so an
+ * insecure cookie is now a deliberate declaration in the environment rather
+ * than a side effect of which command built the bundle. Deriving it from
+ * `NODE_ENV` tied a transport control to a build mode, and the `Dockerfile`
+ * pins that mode to `development`.
+ *
+ * `path` is `/` and no `domain` is set, which is exactly the shape the
+ * `__Host-` cookie prefix requires. Renaming the cookie to claim that
+ * guarantee stays available later without changing anything else here.
  *
  * The expiry mirrors the backend's own `expires_at` rather than a duration
  * chosen here, so the cookie cannot outlive the session row it points at.
@@ -42,7 +52,7 @@ export async function writeSessionCookie(
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV !== "development",
+    secure: !isSessionCookieInsecure(),
     path: "/",
     expires: expiresAt,
   });
