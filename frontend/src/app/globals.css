@@ -210,6 +210,39 @@
   font-weight: 600;
 }
 
+/* Sonner paints the close control as a bordered circle filled with the toast's
+   own surface, which reads as a second chip stuck to a corner. Only the glyph
+   is wanted, so the box is removed and the icon inherits the toast's text
+   colour, keeping whatever contrast the surface already passes.
+
+   `!important` rather than a longer selector: the winning declarations come
+   from `[data-rich-colors='true'][data-sonner-toast][data-type='warning']
+   [data-close-button]` and from a `:hover` pair that reaches five compound
+   parts, and Sonner appends its stylesheet after this one, so out-specifying
+   every one of them would take a selector nobody could maintain.
+
+   The resting opacity is measured, not chosen for looks: the glyph is a
+   non-text control, so it needs 3:1 against the surface it sits on. Composited
+   over the amber, the dark plum gives 2.60:1 at 0.7 and 3.96:1 at 0.85, so 0.7
+   would have been a regression dressed as restraint. `position` and `inset` are
+   left to Sonner's own custom properties, which `components/ui/sonner.tsx`
+   sets. */
+[data-sonner-toaster] [data-sonner-toast] [data-close-button],
+[data-sonner-toaster] [data-sonner-toast]:hover [data-close-button]:hover {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: inherit !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-close-button] {
+  opacity: 0.85;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-close-button]:hover,
+[data-sonner-toaster] [data-sonner-toast] [data-close-button]:focus-visible {
+  opacity: 1;
+}
+
 /* `disableTransitionOnChange` injects `*, *::before, *::after { transition: none
    !important }` while the theme swaps, which is what makes every other colour
    change abrupt. These two rules opt the switch back in: an attribute selector

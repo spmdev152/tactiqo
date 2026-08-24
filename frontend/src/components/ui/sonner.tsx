@@ -36,11 +36,15 @@ const Toaster = ({ ...props }: ToasterProps) => {
          independently of sheet order. `fontFamily` is the same problem in
          reverse — Sonner sets a `ui-sans-serif` stack on this element, which
          defeats inheritance from `html`, so every toast would render in the OS
-         font instead of Geist. `--warning-border` is deliberately the
-         foreground rather than the surface, because Sonner paints the close
-         button from these three variables and it sits half outside the toast,
-         where an amber edge on the page background falls under the 3:1 minimum
-         for a control boundary. */
+         font instead of Geist.
+
+         The three close-button properties are Sonner's own positioning API.
+         They move the control from the top-left corner, where it straddles the
+         edge as a bordered circle, to inside the top-right corner with room to
+         breathe. Because it no longer overlaps the page background, the border
+         token can stay the surface: nothing paints a control boundary against
+         anything but the toast itself. The circle is stripped in `globals.css`,
+         which is where a descendant of the toast has to be styled. */
       style={
         {
           "--normal-bg": "var(--popover)",
@@ -48,8 +52,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-border": "var(--border)",
           "--warning-bg": "var(--warning)",
           "--warning-text": "var(--warning-foreground)",
-          "--warning-border": "var(--warning-foreground)",
+          "--warning-border": "var(--warning)",
           "--border-radius": "var(--radius)",
+          "--toast-close-button-start": "unset",
+          "--toast-close-button-end": "0.5rem",
+          "--toast-close-button-transform": "translateY(0.5rem)",
           fontFamily: "var(--font-sans)",
         } as React.CSSProperties
       }
