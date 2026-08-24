@@ -1,8 +1,4 @@
-import { redirect } from "next/navigation";
-
-import { SignOutButton } from "@/features/auth/components/sign-out-button";
-import { SESSION_LOSS_PATH } from "@/features/auth/domain/session-loss";
-import { getCurrentUser } from "@/features/auth/server/get-current-user";
+import { requireUser } from "@/features/auth/server/require-user";
 import { PlatformHealthCard } from "@/features/health/components/platform-health-card";
 import { getPlatformHealth } from "@/features/health/server/get-platform-health";
 
@@ -26,29 +22,26 @@ export const dynamic = "force-dynamic";
  * A Server Component: the session check and the health probe both run on the
  * server, so the browser never talks to the API or the upstream provider, and
  * the session token never leaves the server. This check is authoritative, not
- * the proxy, which only knows whether a cookie exists.
+ * the proxy, which only knows whether a cookie exists, and not the shell layout
+ * either, which Next.js does not re-render for a navigation that stays inside
+ * it.
  *
- * An unconfirmed session is an involuntary loss: the token expired, was
- * revoked, was forged, or the API was unreachable. The redirect says that much
- * and no more, because the sign-in form on its own is indistinguishable from
- * having been asked for. It deliberately does not claim which of the two
- * messages applies: `null` here also covers a request that carried no cookie at
- * all, which only the proxy's matcher keeps off this route today, so the login
- * page reads the cookie itself rather than trusting a claim made here.
+ * The signed-in identity and the sign-out control are no longer rendered here.
+ * They belong to the sidebar, which every authenticated route carries, so a
+ * page repeating them would offer the same account twice.
+ *
+ * The page root is a `div` rather than a `main`, because `SidebarInset` is
+ * itself the `main` element of the shell.
  *
  * @returns The landing page tree.
  */
 export default async function HomePage() {
-  const user = await getCurrentUser();
-
-  if (user === null) {
-    redirect(SESSION_LOSS_PATH);
-  }
+  await requireUser();
 
   const health = await getPlatformHealth();
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-start gap-10 px-6 py-16">
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-start gap-10 px-6 py-16">
       <header className="flex w-full flex-col gap-6">
         <div className="flex flex-col gap-3">
           <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
@@ -59,17 +52,9 @@ export default async function HomePage() {
             Football intelligence for fixtures, statistics, odds and predictions
           </h1>
         </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border/60 pt-5">
-          <p className="font-mono text-xs tracking-wide text-muted-foreground">
-            Signed in as <span className="text-foreground">{user.email}</span>
-          </p>
-
-          <SignOutButton />
-        </div>
       </header>
 
       <PlatformHealthCard health={health} />
-    </main>
+    </div>
   );
 }

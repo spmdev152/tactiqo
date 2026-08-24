@@ -16,14 +16,19 @@ import { Button } from "@/components/ui/button";
  * hydration and with JavaScript disabled.
  *
  * The busy state matches the sign-in button deliberately: the label never
- * changes, only the trailing icon becomes a spinner, and `aria-busy` reports
- * what the icon shows.
+ * changes, only the icon becomes a spinner, and `aria-busy` reports what the
+ * icon shows.
  *
- * Both icons are 12 pixels rather than the 16 the sign-in button uses, and
- * rather than the 14 an `sm` button gives its own unsized icons. A power symbol
- * is a full-height circle, so anything above the roughly 9 pixel cap height of
- * the 12.8 pixel label beside it reads as the dominant element of the control.
- * The spinner has to state the same size because the registry hardcodes its own.
+ * The icon leads rather than trails, because this control now sits in the
+ * sidebar footer under a column of navigation entries whose icons all lead. It
+ * is 14 pixels, matching those entries, rather than the 16 the sign-in button
+ * uses. The spinner has to state the same size because the registry hardcodes
+ * its own.
+ *
+ * The collapsed-sidebar variant is expressed in classes rather than in state,
+ * so the control needs no sidebar context and stays renderable on its own. The
+ * label turns screen-reader-only rather than being removed, since removing it
+ * would leave a button with no accessible name.
  */
 export function SignOutSubmit() {
   const { pending } = useFormStatus();
@@ -31,17 +36,19 @@ export function SignOutSubmit() {
   return (
     <Button
       aria-busy={pending}
+      className="w-full justify-start group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
       disabled={pending}
       size="sm"
       type="submit"
       variant="outline"
     >
-      Sign out
       {pending ? (
-        <ButtonSpinner className="size-3" />
+        <ButtonSpinner className="size-3.5" />
       ) : (
-        <Power className="size-3" />
+        <Power className="size-3.5" />
       )}
+
+      <span className="group-data-[collapsible=icon]:sr-only">Sign out</span>
     </Button>
   );
 }
