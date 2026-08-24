@@ -206,6 +206,8 @@ src/
       api/
         client.ts
         repository.ts
+      domain/
+        fixture-window.ts
       server/
         get-fixtures.ts
       components/
@@ -224,6 +226,10 @@ src/
     components/
     integration/
 ```
+
+Every module inside a feature belongs to one of those role directories; none sits loose at the feature root. `domain/` holds what the feature *is about* independently of any adapter: wire and URL contracts, closed vocabularies, product copy chosen from such a vocabulary, and the small functions that build or resolve them. It is the frontend counterpart of the backend `domain/` layer above, and it is also the only part of a feature that every runtime may import, which is what earns it a directory of its own. Everything in `server/` carries `import "server-only"`, so `src/proxy.ts` — which runs outside the React Server environment — and client components can reach `domain/` and nothing else in the feature. `features/auth/domain/session-cookie-name.ts` and `features/auth/domain/session-loss.ts` are the standing examples: the proxy, a Server Component, a Server Action, and a client component all import them.
+
+Do not add a `constants.ts` or a `utils.ts` to a feature. Both group by the kind of thing a value is instead of by the concept it serves, which has three costs paid here rather than hypothesised. One concept gets torn in two, since a search parameter name and the function that resolves it would land in different files. Product copy has no home, being a constant that is neither a contract nor a utility. And, worst, the runtime boundary above becomes a matter of luck: a single module that anything may import is safe only while nobody adds a `server-only` dependency to it, and a bucket named for a kind gives no reason to refuse one. A file is named after the concept it owns, so a reader knows from the name whether their change belongs there. `src/lib/utils.ts` stays as the one exception, because `components.json` aliases `utils` to it and shadcn/ui generates imports against that path.
 
 Frontend tests live under the dedicated first-level `src/tests/` directory. Do not colocate `*.test.ts`, `*.test.tsx`, `*.spec.ts`, or `*.spec.tsx` files beside functional source modules. Mirror feature/domain names inside `src/tests/` when that improves discoverability.
 
