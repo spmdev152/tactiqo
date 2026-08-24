@@ -71,27 +71,38 @@ const REQUIRED_WARNING: SessionLossWarning = {
 };
 
 /**
- * Chooses which of the two warnings is true for this request.
+ * Resolves the warning an arrival at the sign-in page deserves.
  *
  * @remarks
- * The cookie decides, never the parameter. The parameter is
- * visitor-controllable, so anything it asserted could be forged, and a forged
- * `expired` would let anybody show "Session expired" to somebody who never had
- * a session — the lie the copy above refuses to tell. What the parameter is
- * still needed for is whether to speak at all, which the cookie cannot answer:
- * a deliberate sign-out and a first visit are both cookie-less and must stay
- * silent.
+ * Two independent inputs, and neither alone would do. The parameter decides
+ * whether to speak at all, because a deliberate sign-out must stay silent and
+ * looks identical to an involuntary arrival from the cookie alone. The cookie
+ * decides what is said, because the parameter is visitor-controllable and a
+ * forged `expired` would otherwise let anybody show "Session expired" to
+ * somebody who never had a session — the same lie the copy above refuses to
+ * tell.
  *
- * Both statements are true by construction at the point of use. The login page
- * renders only after `getCurrentUser` returned `null`, so a request that still
- * carries a token carries an unusable one, and a request that carries none
- * genuinely needs a sign-in.
+ * Both statements are true by construction at the point of rendering. The page
+ * only reaches this after `getCurrentUser` returned `null`, so a request that
+ * still carries a token carries an unusable one, and a request that carries
+ * none genuinely needs a sign-in.
  *
- * @param sessionTokenPresent - Whether the request carries a session token.
- * @returns The warning that is true for that request.
+ * A repeated parameter arrives as an array and a deliberate arrival carries
+ * nothing; comparing against the single known value rejects both, along with
+ * every forged string.
+ *
+ * @param value - Raw parameter value, as `searchParams` supplies it.
+ * @param sessionTokenPresent - Whether the request still carries a session
+ * token, which is what makes one of the two titles true rather than plausible.
+ * @returns The warning to show, or `null` when no toast is warranted.
  */
 export function sessionLossWarning(
+  value: string | string[] | undefined,
   sessionTokenPresent: boolean,
-): SessionLossWarning {
+): SessionLossWarning | null {
+  if (value !== SESSION_LOSS_VALUE) {
+    return null;
+  }
+
   return sessionTokenPresent ? EXPIRED_WARNING : REQUIRED_WARNING;
 }
