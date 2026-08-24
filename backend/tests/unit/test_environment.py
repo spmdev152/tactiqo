@@ -6,15 +6,20 @@ from django.core.exceptions import ImproperlyConfigured
 
 from config.settings.environment import (
     env_bool,
+    env_int,
     env_int_list,
+    env_proxy_networks,
     env_str,
     env_str_list,
     load_environment_file,
+    require_env_proxy_networks,
     require_env_str,
     require_env_str_list,
 )
 
 VARIABLE_NAME = "TACTIQO_TEST_VARIABLE"
+
+APPENDED_HOPS = 2
 
 
 def test_env_str_strips_surrounding_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,6 +177,115 @@ def test_env_int_list_rejects_a_non_numeric_entry(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(ImproperlyConfigured):
         env_int_list(VARIABLE_NAME, default=[])
+
+
+def test_env_proxy_networks_accepts_networks_and_bare_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a variable mixing a CIDR network with a single proxy address
+    WHEN it is read as a network list setting
+    THEN the bare address becomes a single-host network of its own
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "172.16.0.0/12, 192.0.2.10")
+
+    networks = env_proxy_networks(VARIABLE_NAME, default=[])
+
+    assert [str(network) for network in networks] == ["172.16.0.0/12", "192.0.2.10/32"]
+
+
+def test_env_proxy_networks_rejects_an_entry_that_is_not_a_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a variable whose entry carries host bits its prefix cannot hold
+    WHEN it is read as a network list setting
+    THEN ImproperlyConfigured is raised rather than the trust being widened
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "192.0.2.10/24")
+
+    with pytest.raises(ImproperlyConfigured):
+        env_proxy_networks(VARIABLE_NAME, default=[])
+
+
+def test_require_env_proxy_networks_reads_the_declared_networks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a deployment naming the addresses its forwarding tier speaks from
+    WHEN they are read as a mandatory network list
+    THEN every entry is parsed in the order it was declared
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "10.4.0.0/16, 192.0.2.10")
+
+    networks = require_env_proxy_networks(VARIABLE_NAME)
+
+    assert [str(network) for network in networks] == ["10.4.0.0/16", "192.0.2.10/32"]
+
+
+def test_require_env_proxy_networks_rejects_an_empty_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a deployment exporting the variable with nothing in it
+    WHEN it is read as a mandatory network list
+    THEN ImproperlyConfigured is raised rather than silently trusting no peer
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "  ")
+
+    with pytest.raises(ImproperlyConfigured, match=VARIABLE_NAME):
+        require_env_proxy_networks(VARIABLE_NAME)
+
+
+@pytest.mark.parametrize("default_route", ["0.0.0.0/0", "::/0"])
+def test_env_proxy_networks_rejects_a_default_route(
+    default_route: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    GIVEN a trust list widened to a default route
+    WHEN it is read as a forwarding tier
+    THEN ImproperlyConfigured is raised, because that trusts every peer
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, f"10.4.0.0/16, {default_route}")
+
+    with pytest.raises(ImproperlyConfigured, match="default route"):
+        env_proxy_networks(VARIABLE_NAME, default=[])
+
+
+@pytest.mark.parametrize("raw_value, expected", [("0", 0), (f" {APPENDED_HOPS} ", APPENDED_HOPS)])
+def test_env_int_reads_a_value_inside_its_bound(
+    raw_value: str, expected: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    GIVEN a variable holding an integer inside the bound, its own edge included
+    WHEN it is read as a bounded integer setting
+    THEN the parsed value is returned
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, raw_value)
+
+    assert env_int(VARIABLE_NAME, default=9, minimum=0, maximum=APPENDED_HOPS) == expected
+
+
+@pytest.mark.parametrize("raw_value", ["-1", "999999", "one"])
+def test_env_int_rejects_a_value_outside_its_bound(
+    raw_value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    GIVEN a variable holding an integer outside the bound, or no integer at all
+    WHEN it is read as a bounded integer setting
+    THEN ImproperlyConfigured is raised instead of a nonsensical setting
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, raw_value)
+
+    with pytest.raises(ImproperlyConfigured, match=VARIABLE_NAME):
+        env_int(VARIABLE_NAME, default=0, minimum=0, maximum=APPENDED_HOPS)
 
 
 def test_load_environment_file_reads_values_without_overriding_the_process(

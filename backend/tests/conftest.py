@@ -1,10 +1,18 @@
 import secrets
-from typing import Protocol, cast
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
+from django.core.cache import cache
 from django.test import Client
+from loguru import logger
 
 from apps.accounts.models import User
+
+if TYPE_CHECKING:
+    from loguru import Message
+
+CapturedRecord = tuple[str, str, bool]
 
 
 class ApiResponse(Protocol):
@@ -161,6 +169,52 @@ def bearer_headers(token: str | None) -> dict[str, str]:
     """
 
     return {"Authorization": f"Bearer {token}"} if token is not None else {}
+
+
+@pytest.fixture(autouse=True)
+def isolated_cache() -> Iterator[None]:
+    """
+    Empty the cache around every test.
+
+    The test settings back the cache with an in-process locmem store, which
+    outlives a single test. The sign-in throttle counts attempts there, so
+    without this the tests in a run would share one budget and their order
+    would decide which of them sees HTTP 429.
+    """
+
+    cache.clear()
+
+    yield
+
+    cache.clear()
+
+
+@pytest.fixture
+def loguru_records() -> Iterator[list[CapturedRecord]]:
+    """
+    Collect the level, message, and exception presence of every Loguru record.
+
+    Loguru bypasses the standard-library handlers that ``caplog`` inspects, so
+    assertions have to read from a Loguru sink instead.
+
+    Yields
+    ------
+    list of CapturedRecord
+        Captured records in emission order.
+    """
+
+    captured: list[CapturedRecord] = []
+
+    def sink(message: "Message") -> None:
+        record = message.record
+
+        captured.append((record["level"].name, record["message"], record["exception"] is not None))
+
+    sink_id = logger.add(sink, level="DEBUG")
+
+    yield captured
+
+    logger.remove(sink_id)
 
 
 @pytest.fixture

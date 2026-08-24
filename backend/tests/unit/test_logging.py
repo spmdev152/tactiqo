@@ -1,6 +1,4 @@
 import logging
-from collections.abc import Iterator
-from typing import TYPE_CHECKING
 
 import pytest
 from loguru import logger
@@ -13,39 +11,9 @@ from config.logging import (
     configure,
     deployed_log_level,
 )
+from tests.conftest import CapturedRecord
 
-if TYPE_CHECKING:
-    from loguru import Message
-
-CapturedRecord = tuple[str, str, bool]
 SinkOptions = dict[str, object]
-
-
-@pytest.fixture
-def loguru_records() -> Iterator[list[CapturedRecord]]:
-    """
-    Collect the level, message, and exception presence of every Loguru record.
-
-    Loguru bypasses the standard-library handlers that ``caplog`` inspects, so
-    assertions have to read from a Loguru sink instead.
-
-    Yields
-    ------
-    list of CapturedRecord
-        Captured records in emission order.
-    """
-
-    captured: list[CapturedRecord] = []
-
-    def sink(message: "Message") -> None:
-        record = message.record
-        captured.append((record["level"].name, record["message"], record["exception"] is not None))
-
-    sink_id = logger.add(sink, level="DEBUG")
-
-    yield captured
-
-    logger.remove(sink_id)
 
 
 def intercepted_logger(name: str) -> logging.Logger:

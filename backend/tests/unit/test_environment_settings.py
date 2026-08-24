@@ -4,6 +4,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from ipaddress import ip_network
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -39,6 +40,14 @@ PROVIDED_DATABASE_VARIABLES = {
     "POSTGRES_PASSWORD": PROVIDED_DATABASE_PASSWORD,
     "POSTGRES_HOST": PROVIDED_DATABASE_HOST,
 }
+
+PROVIDED_TRUSTED_PROXY_NETWORKS = "10.4.0.0/16, 192.0.2.10"
+
+EXPECTED_TRUSTED_PROXY_NETWORKS = [ip_network("10.4.0.0/16"), ip_network("192.0.2.10")]
+
+PROVIDED_TRUSTED_PROXY_HOPS = "1"
+
+DEFAULT_SIGN_IN_THROTTLE_RATE = "5/m"
 
 ONE_YEAR_IN_SECONDS = 31_536_000
 ONE_HOUR_IN_SECONDS = 3_600
@@ -193,6 +202,8 @@ def load_deployed_settings(
         DJANGO_SECRET_KEY=PROVIDED_SECRET_KEY,
         DJANGO_DEBUG="true",
         DJANGO_ALLOWED_HOSTS=hosts,
+        DJANGO_TRUSTED_PROXY_NETWORKS=PROVIDED_TRUSTED_PROXY_NETWORKS,
+        DJANGO_TRUSTED_PROXY_HOPS=PROVIDED_TRUSTED_PROXY_HOPS,
         **extra_variables,
     )
 
@@ -224,6 +235,82 @@ def test_settings_modules_load_the_dotenv_file_without_overriding_the_process(
     settings_loader.load("local")
 
     assert settings_loader.dotenv_overrides == [False]
+
+
+def test_the_sign_in_throttle_reads_its_rate_and_trust_list_from_the_environment(
+    settings_loader: SettingsModuleLoader,
+) -> None:
+    """
+    GIVEN an environment naming a sign-in rate, a forwarding tier and its depth
+    WHEN the settings module is imported
+    THEN all three reach the settings under the names the deployment exports
+    """
+
+    module = settings_loader.load(
+        "local",
+        DJANGO_SIGN_IN_THROTTLE_RATE="3/m",
+        DJANGO_TRUSTED_PROXY_NETWORKS=PROVIDED_TRUSTED_PROXY_NETWORKS,
+        DJANGO_TRUSTED_PROXY_HOPS="1",
+    )
+
+    assert module.SIGN_IN_THROTTLE_RATE == "3/m"
+    assert module.TRUSTED_PROXY_NETWORKS == EXPECTED_TRUSTED_PROXY_NETWORKS
+    assert module.TRUSTED_PROXY_HOPS == 1
+
+
+def test_the_sign_in_throttle_defaults_to_a_rate_and_to_trusting_no_proxy(
+    settings_loader: SettingsModuleLoader,
+) -> None:
+    """
+    GIVEN an environment naming neither the sign-in rate nor a forwarding tier
+    WHEN the settings module is imported
+    THEN the documented rate applies and no forwarding header is believed
+    """
+
+    module = settings_loader.load("local")
+
+    assert module.SIGN_IN_THROTTLE_RATE == DEFAULT_SIGN_IN_THROTTLE_RATE
+    assert module.TRUSTED_PROXY_NETWORKS == []
+    assert module.TRUSTED_PROXY_HOPS == 0
+
+
+@pytest.mark.parametrize("module_name", DEPLOYED_SETTINGS_MODULES)
+def test_deployed_settings_reject_a_missing_forwarding_tier(
+    module_name: str, settings_loader: SettingsModuleLoader
+) -> None:
+    """
+    GIVEN a deployment that exports every variable except the forwarding tier
+    WHEN the environment settings module is imported
+    THEN the import fails loudly, because an unnamed tier throttles everyone as one
+    """
+
+    with pytest.raises(ImproperlyConfigured, match="DJANGO_TRUSTED_PROXY_NETWORKS"):
+        settings_loader.load(
+            module_name,
+            **PROVIDED_DATABASE_VARIABLES,
+            DJANGO_SECRET_KEY=PROVIDED_SECRET_KEY,
+            DJANGO_ALLOWED_HOSTS=PROVIDED_HOSTS,
+        )
+
+
+@pytest.mark.parametrize("module_name", DEPLOYED_SETTINGS_MODULES)
+def test_deployed_settings_reject_a_missing_forwarding_depth(
+    module_name: str, settings_loader: SettingsModuleLoader
+) -> None:
+    """
+    GIVEN a deployment that names its forwarding tier but not how deep it is
+    WHEN the environment settings module is imported
+    THEN the import fails loudly, because a wrong depth throttles everyone as one
+    """
+
+    with pytest.raises(ImproperlyConfigured, match="DJANGO_TRUSTED_PROXY_HOPS"):
+        settings_loader.load(
+            module_name,
+            **PROVIDED_DATABASE_VARIABLES,
+            DJANGO_SECRET_KEY=PROVIDED_SECRET_KEY,
+            DJANGO_ALLOWED_HOSTS=PROVIDED_HOSTS,
+            DJANGO_TRUSTED_PROXY_NETWORKS=PROVIDED_TRUSTED_PROXY_NETWORKS,
+        )
 
 
 @pytest.mark.parametrize("module_name", DEPLOYED_SETTINGS_MODULES)

@@ -1,5 +1,6 @@
 import os
 from collections.abc import Sequence
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -7,6 +8,8 @@ from dotenv import load_dotenv
 
 TRUTHY_VALUES = frozenset({"1", "true", "t", "yes", "y", "on"})
 FALSY_VALUES = frozenset({"0", "false", "f", "no", "n", "off"})
+
+type IPNetwork = IPv4Network | IPv6Network
 
 
 def load_environment_file(path: Path) -> bool:
@@ -118,6 +121,110 @@ def env_bool(name: str, *, default: bool) -> bool:
     raise ImproperlyConfigured(f"Environment variable {name} must be a boolean, got {raw_value!r}.")
 
 
+def env_int(name: str, *, default: int, minimum: int, maximum: int) -> int:
+    """
+    Read an integer variable that must fall inside a bound.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+    default : int
+        Value used when the variable is absent.
+    minimum : int
+        Smallest value the setting accepts.
+    maximum : int
+        Largest value the setting accepts.
+
+    Returns
+    -------
+    int
+        Parsed integer value.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the variable is present but is not an integer, or falls outside the
+        bound.
+    """
+
+    raw_value = os.environ.get(name)
+
+    if raw_value is None:
+        return default
+
+    return _bounded_int(name, raw_value, minimum=minimum, maximum=maximum)
+
+
+def require_env_int(name: str, *, minimum: int, maximum: int) -> int:
+    """
+    Read an integer variable that must be provided and must fall inside a bound.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+    minimum : int
+        Smallest value the setting accepts.
+    maximum : int
+        Largest value the setting accepts.
+
+    Returns
+    -------
+    int
+        Parsed integer value.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the variable is missing or empty, is not an integer, or falls
+        outside the bound.
+    """
+
+    return _bounded_int(name, require_env_str(name), minimum=minimum, maximum=maximum)
+
+
+def _bounded_int(name: str, raw_value: str, *, minimum: int, maximum: int) -> int:
+    """
+    Parse an integer and hold it to its bound.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name, used in every failure message.
+    raw_value : str
+        Declared value.
+    minimum : int
+        Smallest value the setting accepts.
+    maximum : int
+        Largest value the setting accepts.
+
+    Returns
+    -------
+    int
+        Parsed integer value.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the value is not an integer or falls outside the bound.
+    """
+
+    try:
+        value = int(raw_value.strip())
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be an integer, got {raw_value!r}."
+        ) from error
+
+    if not minimum <= value <= maximum:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be between {minimum} and {maximum}, got {value}."
+        )
+
+    return value
+
+
 def env_str_list(name: str, *, default: Sequence[str]) -> list[str]:
     """
     Read a comma-separated list of strings.
@@ -201,3 +308,98 @@ def env_int_list(name: str, *, default: Sequence[int]) -> list[int]:
         raise ImproperlyConfigured(
             f"Environment variable {name} must be a comma-separated list of integers."
         ) from error
+
+
+def env_proxy_networks(name: str, *, default: Sequence[str]) -> list[IPNetwork]:
+    """
+    Read the addresses and CIDR networks a forwarding header may be believed from.
+
+    A bare address is accepted and becomes a single-host network, so an
+    operator naming one proxy does not have to write its prefix length.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+    default : Sequence of str
+        Entries used when the variable is absent.
+
+    Returns
+    -------
+    list of IPNetwork
+        Parsed networks, in the order they were declared.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If any entry is not an IP address or CIDR network, host bits included,
+        or if an entry is a default route.
+    """
+
+    return _parse_proxy_networks(name, env_str_list(name, default=default))
+
+
+def require_env_proxy_networks(name: str) -> list[IPNetwork]:
+    """
+    Read a forwarding tier that must be provided.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+
+    Returns
+    -------
+    list of IPNetwork
+        Parsed networks, in the order they were declared.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the variable is missing or empty, or holds an entry that is not an
+        IP address or CIDR network, or holds a default route.
+    """
+
+    return _parse_proxy_networks(name, require_env_str_list(name))
+
+
+def _parse_proxy_networks(name: str, entries: Sequence[str]) -> list[IPNetwork]:
+    """
+    Parse declared forwarding-tier entries into networks.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name, used in every failure message.
+    entries : Sequence of str
+        Declared addresses and CIDR networks.
+
+    Returns
+    -------
+    list of IPNetwork
+        Parsed networks, in the order they were declared.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If an entry is not an IP address or CIDR network, or is a default
+        route. A default route would believe a forwarding header from every
+        peer, which is the one thing the trust list exists to prevent.
+    """
+
+    try:
+        networks = [ip_network(entry) for entry in entries]
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be a comma-separated list of "
+            f"IP addresses or CIDR networks: {error}"
+        ) from error
+
+    for network in networks:
+        if network.prefixlen == 0:
+            raise ImproperlyConfigured(
+                f"Environment variable {name} must not include the default route {network}, "
+                f"which would believe a forwarding header from every peer."
+            )
+
+    return networks

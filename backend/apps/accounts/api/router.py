@@ -1,13 +1,16 @@
 import logging
 from http import HTTPStatus
 
+from django.conf import settings
 from django.http import HttpRequest
 from ninja import Router, Status
 
 from apps.accounts.api.schemas import ErrorResponse, LoginRequest, LoginResponse, UserResponse
 from apps.accounts.api.security import AuthenticatedRequest, SessionTokenAuth
+from apps.accounts.api.throttling import SignInRateThrottle
 from apps.accounts.application.services import revoke_session, sign_in
 from apps.accounts.domain.exceptions import InvalidCredentialsError
+from config.client_identity import resolve_client_identity
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +19,18 @@ INVALID_CREDENTIALS_DETAIL = "Invalid email or password."
 router = Router(tags=["auth"])
 session_token_auth = SessionTokenAuth()
 
+sign_in_throttle = SignInRateThrottle(settings.SIGN_IN_THROTTLE_RATE)
+
 
 @router.post(
     "/login",
-    response={HTTPStatus.OK: LoginResponse, HTTPStatus.UNAUTHORIZED: ErrorResponse},
+    response={
+        HTTPStatus.OK: LoginResponse,
+        HTTPStatus.UNAUTHORIZED: ErrorResponse,
+        HTTPStatus.TOO_MANY_REQUESTS: ErrorResponse,
+    },
     summary="Open a session from an email address and a password",
+    throttle=[sign_in_throttle],
 )
 def login(
     request: HttpRequest, payload: LoginRequest
@@ -30,13 +40,19 @@ def login(
 
     Every rejection answers with the same status and the same detail, whether
     the address is unknown, the password is wrong, or the account is
-    deactivated, so the endpoint cannot be used to enumerate accounts.
+    deactivated, so the endpoint cannot be used to enumerate accounts. Once
+    ``SIGN_IN_THROTTLE_RATE`` is exhausted the request never reaches this
+    function and answers HTTP 429, whose body is equally uniform: the throttle
+    counts attempts per client without consulting the submitted address, so it
+    cannot become the oracle the rejection body refuses to be.
 
     Parameters
     ----------
     request : HttpRequest
-        Inbound HTTP request, whose origin is logged when an attempt fails so
-        that repeated failures can be traced without recording a credential.
+        Inbound HTTP request, whose identified client and whose peer are both
+        logged when an attempt fails, so that repeated failures can be traced
+        without recording a credential and a forwarded attribution is always
+        visible next to the address the connection really came from.
     payload : LoginRequest
         Submitted address and password.
 
@@ -50,7 +66,9 @@ def login(
         session = sign_in(payload.email, payload.password)
     except InvalidCredentialsError:
         logger.warning(
-            "Rejected a sign-in attempt from %s", request.META.get("REMOTE_ADDR", "unknown")
+            "Rejected a sign-in attempt from %s (peer %s)",
+            resolve_client_identity(request),
+            request.META.get("REMOTE_ADDR", "unknown"),
         )
 
         return Status(HTTPStatus.UNAUTHORIZED, ErrorResponse(detail=INVALID_CREDENTIALS_DETAIL))
