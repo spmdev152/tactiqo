@@ -7,15 +7,19 @@ import type { AuthenticatedUser } from "@/features/auth/types/authenticated-user
  * Every reason is distinguishable on purpose. `invalid-credentials` is the only
  * one the visitor can act on by retyping, and it deliberately covers an unknown
  * e-mail, a wrong password, and a deactivated account alike, because the
- * backend refuses to tell those apart. The remaining reasons describe a broken
- * environment rather than a broken attempt, and separating them is what makes
- * an unreachable API distinguishable from an API that answered with something
- * this application cannot read.
+ * backend refuses to tell those apart. `rate-limited` is the visitor's other
+ * actionable reason, and it is deliberately not folded into
+ * `invalid-credentials`: the backend throttled the attempt without looking at
+ * the address, so retyping is not what resolves it. The remaining reasons
+ * describe a broken environment rather than a broken attempt, and separating
+ * them is what makes an unreachable API distinguishable from an API that
+ * answered with something this application cannot read.
  */
 export type SignInFailureReason =
   | "backend-not-configured"
   | "api-unreachable"
   | "invalid-credentials"
+  | "rate-limited"
   | "unexpected-status"
   | "undecodable-body"
   | "contract-mismatch";

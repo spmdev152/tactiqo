@@ -28,6 +28,8 @@ const ERROR_MESSAGES = {
     "Sign-in is unavailable because this deployment has no API configured.",
   "api-unreachable": "The API could not be reached. Try again in a moment.",
   "invalid-credentials": "Invalid e-mail or password.",
+  "rate-limited":
+    "Too many sign-in attempts. Wait a moment before trying again.",
   "unexpected-status": "The API refused the sign-in request unexpectedly.",
   "undecodable-body":
     "The API answered the sign-in request with an unreadable response.",

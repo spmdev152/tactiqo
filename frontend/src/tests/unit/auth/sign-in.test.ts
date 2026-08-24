@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signIn } from "@/features/auth/server/sign-in";
 
 // The server-only marker throws outside the React Server condition, which Vitest does not set.
 vi.mock("server-only", () => ({}));
+
+const { headers } = vi.hoisted(() => ({ headers: vi.fn() }));
+
+vi.mock("next/headers", () => ({ headers }));
+
+const FORWARDING_CHAIN = "198.51.100.7";
 
 // Millisecond precision and the Z suffix are the shape the backend actually emits.
 const EXPIRES_AT = "2026-09-06T19:03:51.915Z";
@@ -19,6 +25,12 @@ function randomCredential(): string {
 }
 
 describe("signIn", () => {
+  beforeEach(() => {
+    headers.mockResolvedValue(
+      new Headers({ "x-forwarded-for": FORWARDING_CHAIN }),
+    );
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -60,6 +72,49 @@ describe("signIn", () => {
         body: JSON.stringify({ email: "ada@example.com", password }),
       }),
     );
+  });
+
+  /**
+   * GIVEN a request whose forwarding chain names the visitor
+   * WHEN the credentials are submitted
+   * THEN the chain travels with the call, so the backend can throttle per visitor
+   */
+  it("forwards the chain of the current request to the backend", async () => {
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 401, json: vi.fn() });
+
+    vi.stubEnv("BACKEND_API_BASE_URL", "http://api.test/api/v1");
+    vi.stubGlobal("fetch", fetchStub);
+
+    await signIn("ada@example.com", randomCredential());
+
+    expect(fetchStub).toHaveBeenCalledWith(
+      "http://api.test/api/v1/auth/login",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-forwarded-for": FORWARDING_CHAIN,
+        }),
+      }),
+    );
+  });
+
+  /**
+   * GIVEN an API that throttled the attempt
+   * WHEN the credentials are submitted
+   * THEN the attempt fails as rate limited rather than as invalid credentials
+   */
+  it("maps a throttled answer to a rate-limited failure", async () => {
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 429, json: vi.fn() });
+
+    vi.stubEnv("BACKEND_API_BASE_URL", "http://api.test/api/v1");
+    vi.stubGlobal("fetch", fetchStub);
+
+    await expect(
+      signIn("ada@example.com", randomCredential()),
+    ).resolves.toEqual({ ok: false, reason: "rate-limited" });
   });
 
   /**

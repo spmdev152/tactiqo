@@ -2,6 +2,7 @@ import "server-only";
 
 import { toAuthenticatedUser } from "@/features/auth/mappers/authenticated-user";
 import { signInPayloadSchema } from "@/features/auth/schemas/sign-in";
+import { forwardingHeaders } from "@/features/auth/server/forwarding-chain";
 import type { SignInResult } from "@/features/auth/types/sign-in-result";
 import { getBackendApiBaseUrl } from "@/lib/env";
 
@@ -10,6 +11,8 @@ const LOGIN_PATH = "/auth/login";
 const LOGIN_TIMEOUT_MS = 5_000;
 
 const UNAUTHORIZED_STATUS = 401;
+
+const TOO_MANY_REQUESTS_STATUS = 429;
 
 /**
  * Exchanges credentials for a backend session.
@@ -21,7 +24,14 @@ const UNAUTHORIZED_STATUS = 401;
  * an unhandled rejection. The backend answers every rejected credential with
  * the same `401`, and this function preserves that: it does not attempt to read
  * the error body, so nothing here can turn an unknown e-mail into a different
- * message than a wrong password.
+ * message than a wrong password. A `429` is preserved just as carefully: the
+ * backend throttles per client without consulting the submitted address, and
+ * reporting it as a rejected credential would tell a visitor to retype a
+ * password that was never the problem.
+ *
+ * The forwarding chain of the current request travels with the call, because
+ * the backend sees this server as its only peer and needs it to tell one
+ * visitor from another.
  *
  * @param email - E-mail address typed by the visitor.
  * @param password - Password typed by the visitor.
@@ -46,6 +56,7 @@ export async function signIn(
       headers: {
         accept: "application/json",
         "content-type": "application/json",
+        ...(await forwardingHeaders()),
       },
       body: JSON.stringify({ email, password }),
       signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
@@ -56,6 +67,10 @@ export async function signIn(
 
   if (response.status === UNAUTHORIZED_STATUS) {
     return { ok: false, reason: "invalid-credentials" };
+  }
+
+  if (response.status === TOO_MANY_REQUESTS_STATUS) {
+    return { ok: false, reason: "rate-limited" };
   }
 
   if (!response.ok) {
