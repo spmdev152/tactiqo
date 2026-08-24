@@ -140,6 +140,11 @@ def build_logging(
                 "level": "WARNING",
                 "propagate": False,
             },
+            "httpcore": {
+                "handlers": ["loguru"],
+                "level": "WARNING",
+                "propagate": False,
+            },
         },
     }
 
