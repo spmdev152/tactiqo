@@ -1,11 +1,20 @@
 import secrets
 from datetime import datetime, timedelta
+from io import StringIO
 
 import pytest
 from django.contrib.auth.forms import AdminPasswordChangeForm
+from django.contrib.auth.management.commands.changepassword import (
+    Command as ChangePasswordCommand,
+)
+from django.core.management import call_command
+from django.db import DatabaseError
+from django.db.models import QuerySet
 from django.test import override_settings
 from django.utils import timezone
+from pytest_django.fixtures import DjangoAssertNumQueries
 
+from apps.accounts import signals
 from apps.accounts.application.services import (
     delete_expired_sessions,
     issue_session,
@@ -14,10 +23,28 @@ from apps.accounts.application.services import (
 )
 from apps.accounts.models import AuthSession, User
 from apps.accounts.tasks import purge_expired_sessions
-from tests.conftest import UserFactory
+from tests.conftest import CapturedRecord, UserFactory
 
 MD5_HASHER = "django.contrib.auth.hashers.MD5PasswordHasher"
 PBKDF2_HASHER = "django.contrib.auth.hashers.PBKDF2PasswordHasher"
+
+
+def fail_to_revoke(sessions: QuerySet[AuthSession]) -> int:
+    """
+    Stand in for the revocation and fail the way a lost connection would.
+
+    Parameters
+    ----------
+    sessions : QuerySet of AuthSession
+        Sessions the receiver asked to revoke, left untouched.
+
+    Raises
+    ------
+    DatabaseError
+        Always, so a caller can prove the write that triggered it rolls back.
+    """
+
+    raise DatabaseError(f"Revoking {sessions.model.__name__} rows failed.")
 
 
 def store_session(
@@ -115,6 +142,116 @@ def test_changing_a_password_through_the_admin_form_revokes_the_sessions(
 
 
 @pytest.mark.django_db
+def test_disabling_password_authentication_in_the_admin_form_revokes_the_sessions(
+    user: UserFactory,
+) -> None:
+    """
+    GIVEN a current session of an account
+    WHEN an administrator disables password-based authentication in the admin form
+    THEN the session no longer authenticates
+    """
+
+    account = user()
+
+    issued = issue_session(account)
+    form = AdminPasswordChangeForm(account, {"usable_password": "false"})
+
+    assert form.is_valid()
+
+    form.save()
+
+    assert account.has_usable_password() is False
+    assert resolve_session(issued.token) is None
+
+
+@pytest.mark.django_db
+def test_changing_a_password_with_the_management_command_revokes_the_sessions(
+    user: UserFactory, user_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    GIVEN a current session of an account
+    WHEN an operator changes its password with the changepassword command
+    THEN the session no longer authenticates
+    """
+
+    account = user()
+
+    issued = issue_session(account)
+
+    monkeypatch.setattr(ChangePasswordCommand, "_get_pass", lambda *_args: f"{user_password}-typed")
+
+    call_command("changepassword", account.email, stdout=StringIO())
+
+    assert resolve_session(issued.token) is None
+
+
+@pytest.mark.django_db
+def test_setting_a_password_without_writing_that_column_keeps_the_sessions(
+    user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN a current session of an account whose new password is never written
+    WHEN a save writes another column only
+    THEN the session still authenticates with the stored password
+    """
+
+    account = user()
+
+    issued = issue_session(account)
+
+    account.set_password(f"{user_password}-rotated")
+    account.save(update_fields=["full_name"])
+
+    assert User.objects.get(pk=account.pk).check_password(user_password) is True
+    assert resolve_session(issued.token) == account
+
+
+@pytest.mark.django_db
+def test_a_failed_revocation_rolls_back_the_password_it_was_triggered_by(
+    user: UserFactory, user_password: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    GIVEN an account whose session revocation is going to fail
+    WHEN its password is replaced
+    THEN the failure escapes and the stored password is the one it had
+    """
+
+    account = user()
+
+    issue_session(account)
+    monkeypatch.setattr(signals, "revoke_sessions", fail_to_revoke)
+    account.set_password(f"{user_password}-rotated")
+
+    with pytest.raises(DatabaseError):
+        account.save()
+
+    assert User.objects.get(pk=account.pk).check_password(user_password) is True
+
+
+@pytest.mark.django_db
+def test_a_credential_change_reports_how_many_sessions_it_revoked(
+    user: UserFactory, user_password: str, loguru_records: list[CapturedRecord]
+) -> None:
+    """
+    GIVEN an account with two current sessions
+    WHEN its password is replaced
+    THEN one record reports the two sessions the change revoked
+    """
+
+    account = user()
+
+    issue_session(account)
+    issue_session(account)
+
+    account.set_password(f"{user_password}-rotated")
+    account.save()
+
+    assert [message for _, message, _ in loguru_records if message.startswith("Revoked")] == [
+        f"Revoked 2 authentication session(s) of account {account.pk} after a credential change."
+    ]
+
+
+@pytest.mark.django_db
 def test_changing_a_password_leaves_the_sessions_of_another_account_alone(
     user: UserFactory, user_password: str
 ) -> None:
@@ -192,6 +329,7 @@ def test_upgrading_the_hash_of_a_verified_password_keeps_the_sessions(
     """
 
     account = user()
+    original_hash = account.password
 
     issued = issue_session(account)
 
@@ -200,7 +338,7 @@ def test_upgrading_the_hash_of_a_verified_password_keeps_the_sessions(
 
     account.refresh_from_db()
 
-    assert account.password.startswith("md5$")
+    assert account.password != original_hash
     assert resolve_session(issued.token) == account
 
 
@@ -283,3 +421,43 @@ def test_purging_deletes_a_session_expiring_exactly_at_the_evaluated_instant(
     assert session.is_usable(expiry) is False
     assert delete_expired_sessions(expiry) == 1
     assert AuthSession.objects.exists() is False
+
+
+@pytest.mark.django_db
+def test_purging_keeps_a_session_expiring_just_after_the_evaluated_instant(
+    user: UserFactory,
+) -> None:
+    """
+    GIVEN a session whose expiry is one microsecond after the evaluated instant
+    WHEN expired sessions are deleted at that instant
+    THEN the session survives, as it still authenticates
+    """
+
+    account = user()
+    at = timezone.now()
+
+    session = store_session(account, expires_at=at + timedelta(microseconds=1))
+
+    assert delete_expired_sessions(at) == 0
+    assert AuthSession.objects.get(pk=session.pk).is_usable(at) is True
+
+
+@pytest.mark.django_db
+def test_purging_removes_every_expired_session_with_one_statement(
+    user: UserFactory, django_assert_num_queries: DjangoAssertNumQueries
+) -> None:
+    """
+    GIVEN three sessions past their expiry
+    WHEN expired sessions are deleted
+    THEN one statement removes them all, so no run can race a row of another
+    """
+
+    account = user()
+    at = timezone.now()
+    expired_count = 3
+
+    for age in range(1, expired_count + 1):
+        store_session(account, expires_at=at - timedelta(days=age))
+
+    with django_assert_num_queries(1):
+        assert delete_expired_sessions(at) == expired_count
