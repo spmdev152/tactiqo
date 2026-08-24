@@ -215,6 +215,108 @@ class FailingCache:
         raise ConnectionError("Error 111 connecting to redis:6379")
 
 
+class ResurrectingCache:
+    """
+    Cache delegate reproducing what Redis does to a counter that expires mid-increment.
+
+    Django implements ``incr`` as an existence check followed by ``INCRBY``, and
+    ``INCRBY`` recreates a key that expired between the two commands with no
+    lifetime at all. A counter left in that state never resets, so the client it
+    belongs to is refused forever.
+
+    Attributes
+    ----------
+    delegate : BaseCache
+        Real cache every operation is forwarded to.
+    touched_timeouts : list of float
+        Lifetime each ``touch`` asked for, recorded for assertion.
+
+    Methods
+    -------
+    add(*_args, **_kwargs) -> bool
+        Report the key as already present, as a live counter does.
+    incr(key, delta=1) -> int
+        Recreate the key without a lifetime and report the first count.
+    touch(key, timeout=None) -> bool
+        Record the requested lifetime and apply it.
+    """
+
+    def __init__(self, delegate: BaseCache) -> None:
+        """
+        Wrap a cache.
+
+        Parameters
+        ----------
+        delegate : BaseCache
+            Real cache every operation is forwarded to.
+        """
+
+        self.delegate = delegate
+        self.touched_timeouts: list[float] = []
+
+    def add(self, *_args: object, **_kwargs: object) -> bool:
+        """
+        Report the key as already present, as a live counter does.
+
+        Parameters
+        ----------
+        *_args : object
+            Ignored positional arguments of the replaced operation.
+        **_kwargs : object
+            Ignored keyword arguments of the replaced operation.
+
+        Returns
+        -------
+        bool
+            Always ``False``.
+        """
+
+        return False
+
+    def incr(self, key: str, delta: int = 1) -> int:
+        """
+        Recreate the key without a lifetime and report the first count.
+
+        Parameters
+        ----------
+        key : str
+            Cache key to recreate.
+        delta : int
+            Amount the recreated counter starts at.
+
+        Returns
+        -------
+        int
+            The recreated count, which is ``delta``.
+        """
+
+        self.delegate.set(key, delta, None)
+
+        return delta
+
+    def touch(self, key: str, timeout: float | None = None) -> bool:
+        """
+        Record the requested lifetime and apply it.
+
+        Parameters
+        ----------
+        key : str
+            Cache key whose lifetime is being set.
+        timeout : float or None
+            Lifetime in seconds.
+
+        Returns
+        -------
+        bool
+            ``True`` when the key was still present.
+        """
+
+        if timeout is not None:
+            self.touched_timeouts.append(timeout)
+
+        return self.delegate.touch(key, timeout)
+
+
 @pytest.fixture
 def throttle() -> SignInRateThrottle:
     """
@@ -225,8 +327,6 @@ def throttle() -> SignInRateThrottle:
     SignInRateThrottle
         Throttle under test, counting against the test cache.
     """
-
-    cache.clear()
 
     return SignInRateThrottle(f"{PERMITTED_ATTEMPTS}/m")
 
@@ -284,23 +384,32 @@ def test_an_unreachable_cache_allows_the_attempt(
     assert throttle.allow_request(sign_in_request) is True
 
 
-def test_a_rate_permitting_no_attempt_is_refused() -> None:
+def test_a_counter_recreated_by_the_increment_is_given_a_lifetime(
+    throttle: SignInRateThrottle,
+    sign_in_request: HttpRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
-    GIVEN a configured rate that parses but permits no attempt
+    GIVEN a counter whose key expires between the existence check and the increment
+    WHEN the attempt is counted
+    THEN the recreated key is given a lifetime, so the client is not refused forever
+    """
+
+    resurrecting_cache = ResurrectingCache(cache)
+
+    monkeypatch.setattr(throttle, "cache", resurrecting_cache)
+
+    assert throttle.allow_request(sign_in_request) is True
+    assert resurrecting_cache.touched_timeouts == [throttle.window_seconds]
+
+
+@pytest.mark.parametrize("rate", ["0/m", "-1/m", "5/0m", "5/-1m"])
+def test_a_degenerate_rate_is_refused(rate: str) -> None:
+    """
+    GIVEN a configured rate that parses but permits no attempt or spans no time
     WHEN the throttle is built from it
-    THEN construction fails loudly instead of bricking sign-in silently
+    THEN construction fails loudly instead of bricking or disabling sign-in silently
     """
 
-    with pytest.raises(ImproperlyConfigured, match="0/m"):
-        SignInRateThrottle("0/m")
-
-
-def test_a_rate_spanning_no_time_is_refused() -> None:
-    """
-    GIVEN a configured rate whose window is zero seconds
-    WHEN the throttle is built from it
-    THEN construction fails loudly instead of disabling the throttle silently
-    """
-
-    with pytest.raises(ImproperlyConfigured, match="5/0m"):
-        SignInRateThrottle("5/0m")
+    with pytest.raises(ImproperlyConfigured, match=rate):
+        SignInRateThrottle(rate)

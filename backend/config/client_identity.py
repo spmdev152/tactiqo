@@ -1,7 +1,10 @@
+import logging
 from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
 
 from django.conf import settings
 from django.http import HttpRequest
+
+logger = logging.getLogger(__name__)
 
 FORWARDED_FOR_HEADER = "HTTP_X_FORWARDED_FOR"
 
@@ -18,11 +21,18 @@ def resolve_client_identity(request: HttpRequest) -> str:
     Next.js backend-for-frontend, so ``REMOTE_ADDR`` identifies that one peer
     and would collapse every visitor into a single bucket. The forwarding chain
     is therefore read, but only from a peer listed in
-    ``TRUSTED_PROXY_NETWORKS``, and only its rightmost entry, which is the one
-    the edge appended: entries further left were supplied by the client and
-    cannot be believed. An entry that is not an address is refused rather than
-    walked past, so a chain the edge wrote in an unexpected shape falls back to
-    the peer instead of promoting a client-chosen value.
+    ``TRUSTED_PROXY_NETWORKS``.
+
+    Which entry of that chain names the visitor is a property of the topology,
+    not something the chain itself can prove, so ``TRUSTED_PROXY_HOPS`` states
+    how many entries our own infrastructure appended after the visitor's
+    address: none for an edge that appends only its peer, as nginx does with
+    ``$proxy_add_x_forwarded_for``, and one for an edge that also appends
+    itself, as Google Cloud's external Application Load Balancer does. Counting
+    from the right is what makes the entries a visitor supplied unreachable,
+    since every hop appends after them. A chain too short for the configured
+    count, or an entry that is not an address, falls back to the peer rather
+    than to a value the visitor may have chosen.
 
     An IPv6 client is identified by its ``/64`` prefix rather than by its
     address, because a delegated ``/64`` lets one client source from 2**64
@@ -37,8 +47,7 @@ def resolve_client_identity(request: HttpRequest) -> str:
     -------
     str
         Identity to attribute the request to: a canonical IPv4 address, an
-        IPv6 ``/64`` network, or the raw peer value when it is not an address,
-        which no supported deployment produces.
+        IPv6 ``/64`` network, or the raw peer value when it is not an address.
     """
 
     peer = request.META.get("REMOTE_ADDR", "")
@@ -46,6 +55,11 @@ def resolve_client_identity(request: HttpRequest) -> str:
     parsed_peer = _parse_address(peer)
 
     if parsed_peer is None:
+        logger.warning(
+            "Attributing a request to the unparseable peer %r, so every client shares one bucket.",
+            peer,
+        )
+
         return peer
 
     if not _is_trusted(parsed_peer):
@@ -58,7 +72,7 @@ def resolve_client_identity(request: HttpRequest) -> str:
 
 def _forwarded_client(forwarded_for: str) -> IPAddress | None:
     """
-    Return the address the closest hop appended to a forwarding chain.
+    Return the address a forwarding chain attributes to the visitor.
 
     Parameters
     ----------
@@ -68,18 +82,21 @@ def _forwarded_client(forwarded_for: str) -> IPAddress | None:
     Returns
     -------
     IPAddress or None
-        Rightmost entry of the chain, or ``None`` when the chain is empty or
-        that entry is not an address.
+        Entry sitting ``TRUSTED_PROXY_HOPS`` places left of the end of the
+        chain, or ``None`` when the chain is shorter than that or that entry is
+        not an address.
     """
 
     entries = [
         stripped for stripped in (entry.strip() for entry in forwarded_for.split(",")) if stripped
     ]
 
-    if not entries:
+    position = settings.TRUSTED_PROXY_HOPS + 1
+
+    if len(entries) < position:
         return None
 
-    return _parse_address(entries[-1])
+    return _parse_address(entries[-position])
 
 
 def _is_trusted(address: IPAddress) -> bool:

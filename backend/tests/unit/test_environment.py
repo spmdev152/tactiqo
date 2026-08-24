@@ -6,17 +6,20 @@ from django.core.exceptions import ImproperlyConfigured
 
 from config.settings.environment import (
     env_bool,
+    env_int,
     env_int_list,
-    env_ip_network_list,
+    env_proxy_networks,
     env_str,
     env_str_list,
     load_environment_file,
-    require_env_ip_network_list,
+    require_env_proxy_networks,
     require_env_str,
     require_env_str_list,
 )
 
 VARIABLE_NAME = "TACTIQO_TEST_VARIABLE"
+
+APPENDED_HOPS = 2
 
 
 def test_env_str_strips_surrounding_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,7 +179,7 @@ def test_env_int_list_rejects_a_non_numeric_entry(monkeypatch: pytest.MonkeyPatc
         env_int_list(VARIABLE_NAME, default=[])
 
 
-def test_env_ip_network_list_accepts_networks_and_bare_addresses(
+def test_env_proxy_networks_accepts_networks_and_bare_addresses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
@@ -187,12 +190,12 @@ def test_env_ip_network_list_accepts_networks_and_bare_addresses(
 
     monkeypatch.setenv(VARIABLE_NAME, "172.16.0.0/12, 192.0.2.10")
 
-    networks = env_ip_network_list(VARIABLE_NAME, default=[])
+    networks = env_proxy_networks(VARIABLE_NAME, default=[])
 
     assert [str(network) for network in networks] == ["172.16.0.0/12", "192.0.2.10/32"]
 
 
-def test_env_ip_network_list_rejects_an_entry_that_is_not_a_network(
+def test_env_proxy_networks_rejects_an_entry_that_is_not_a_network(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
@@ -204,10 +207,10 @@ def test_env_ip_network_list_rejects_an_entry_that_is_not_a_network(
     monkeypatch.setenv(VARIABLE_NAME, "192.0.2.10/24")
 
     with pytest.raises(ImproperlyConfigured):
-        env_ip_network_list(VARIABLE_NAME, default=[])
+        env_proxy_networks(VARIABLE_NAME, default=[])
 
 
-def test_require_env_ip_network_list_reads_the_declared_networks(
+def test_require_env_proxy_networks_reads_the_declared_networks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
@@ -218,12 +221,12 @@ def test_require_env_ip_network_list_reads_the_declared_networks(
 
     monkeypatch.setenv(VARIABLE_NAME, "10.4.0.0/16, 192.0.2.10")
 
-    networks = require_env_ip_network_list(VARIABLE_NAME)
+    networks = require_env_proxy_networks(VARIABLE_NAME)
 
     assert [str(network) for network in networks] == ["10.4.0.0/16", "192.0.2.10/32"]
 
 
-def test_require_env_ip_network_list_rejects_an_empty_value(
+def test_require_env_proxy_networks_rejects_an_empty_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
@@ -235,7 +238,45 @@ def test_require_env_ip_network_list_rejects_an_empty_value(
     monkeypatch.setenv(VARIABLE_NAME, "  ")
 
     with pytest.raises(ImproperlyConfigured, match=VARIABLE_NAME):
-        require_env_ip_network_list(VARIABLE_NAME)
+        require_env_proxy_networks(VARIABLE_NAME)
+
+
+def test_env_proxy_networks_rejects_a_default_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    GIVEN a trust list widened to a default route
+    WHEN it is read as a forwarding tier
+    THEN ImproperlyConfigured is raised, because that trusts every peer
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "10.4.0.0/16, 0.0.0.0/0")
+
+    with pytest.raises(ImproperlyConfigured, match="default route"):
+        env_proxy_networks(VARIABLE_NAME, default=[])
+
+
+def test_env_int_reads_a_value_within_its_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    GIVEN a variable holding an integer at or above the bound
+    WHEN it is read as a bounded integer setting
+    THEN the parsed value is returned
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, f" {APPENDED_HOPS} ")
+
+    assert env_int(VARIABLE_NAME, default=0, minimum=0) == APPENDED_HOPS
+
+
+def test_env_int_rejects_a_value_below_its_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    GIVEN a variable holding an integer below the bound
+    WHEN it is read as a bounded integer setting
+    THEN ImproperlyConfigured is raised instead of a nonsensical setting
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "-1")
+
+    with pytest.raises(ImproperlyConfigured, match=VARIABLE_NAME):
+        env_int(VARIABLE_NAME, default=0, minimum=0)
 
 
 def test_load_environment_file_reads_values_without_overriding_the_process(

@@ -238,19 +238,21 @@ def test_the_sign_in_throttle_reads_its_rate_and_trust_list_from_the_environment
     settings_loader: SettingsModuleLoader,
 ) -> None:
     """
-    GIVEN an environment naming a sign-in rate and a forwarding tier
+    GIVEN an environment naming a sign-in rate, a forwarding tier and its depth
     WHEN the settings module is imported
-    THEN both reach the settings under the names the deployment exports
+    THEN all three reach the settings under the names the deployment exports
     """
 
     module = settings_loader.load(
         "local",
         DJANGO_SIGN_IN_THROTTLE_RATE="3/m",
         DJANGO_TRUSTED_PROXY_NETWORKS=PROVIDED_TRUSTED_PROXY_NETWORKS,
+        DJANGO_TRUSTED_PROXY_HOPS="1",
     )
 
     assert module.SIGN_IN_THROTTLE_RATE == "3/m"
     assert module.TRUSTED_PROXY_NETWORKS == EXPECTED_TRUSTED_PROXY_NETWORKS
+    assert module.TRUSTED_PROXY_HOPS == 1
 
 
 def test_the_sign_in_throttle_defaults_to_a_rate_and_to_trusting_no_proxy(
@@ -266,6 +268,7 @@ def test_the_sign_in_throttle_defaults_to_a_rate_and_to_trusting_no_proxy(
 
     assert module.SIGN_IN_THROTTLE_RATE == DEFAULT_SIGN_IN_THROTTLE_RATE
     assert module.TRUSTED_PROXY_NETWORKS == []
+    assert module.TRUSTED_PROXY_HOPS == 0
 
 
 @pytest.mark.parametrize("module_name", DEPLOYED_SETTINGS_MODULES)

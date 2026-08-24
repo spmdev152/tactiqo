@@ -220,3 +220,37 @@ def test_no_trusted_network_keys_every_request_to_its_peer(requests: RequestFact
     )
 
     assert resolve_client_identity(request) == BACKEND_FOR_FRONTEND_ADDRESS
+
+
+@override_settings(TRUSTED_PROXY_NETWORKS=TRUSTED_NETWORKS, TRUSTED_PROXY_HOPS=1)
+def test_a_configured_hop_is_discarded_from_the_right(requests: RequestFactory) -> None:
+    """
+    GIVEN an edge that appends its own address after the visitor's, as GCP does
+    WHEN a request is identified with one hop configured
+    THEN the entry that edge appended is discarded and the visitor is used
+    """
+
+    request = requests.post(
+        "/",
+        REMOTE_ADDR=BACKEND_FOR_FRONTEND_ADDRESS,
+        headers={"X-Forwarded-For": f"{CLIENT_ADDRESS}, {BACKEND_FOR_FRONTEND_ADDRESS}"},
+    )
+
+    assert resolve_client_identity(request) == CLIENT_ADDRESS
+
+
+@override_settings(TRUSTED_PROXY_NETWORKS=TRUSTED_NETWORKS, TRUSTED_PROXY_HOPS=1)
+def test_a_chain_shorter_than_the_configured_hops_falls_back_to_the_peer(
+    requests: RequestFactory,
+) -> None:
+    """
+    GIVEN a chain holding fewer entries than the configured hops imply
+    WHEN a request is identified
+    THEN the peer is used, so a short chain cannot promote a visitor's entry
+    """
+
+    request = requests.post(
+        "/", REMOTE_ADDR=BACKEND_FOR_FRONTEND_ADDRESS, headers={"X-Forwarded-For": FORGED_ADDRESS}
+    )
+
+    assert resolve_client_identity(request) == BACKEND_FOR_FRONTEND_ADDRESS

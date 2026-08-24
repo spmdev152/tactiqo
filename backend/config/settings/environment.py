@@ -121,6 +121,50 @@ def env_bool(name: str, *, default: bool) -> bool:
     raise ImproperlyConfigured(f"Environment variable {name} must be a boolean, got {raw_value!r}.")
 
 
+def env_int(name: str, *, default: int, minimum: int) -> int:
+    """
+    Read an integer variable that must not fall below a bound.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+    default : int
+        Value used when the variable is absent.
+    minimum : int
+        Smallest value the setting accepts.
+
+    Returns
+    -------
+    int
+        Parsed integer value.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the variable is present but is not an integer, or is below the bound.
+    """
+
+    raw_value = os.environ.get(name)
+
+    if raw_value is None:
+        return default
+
+    try:
+        value = int(raw_value.strip())
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be an integer, got {raw_value!r}."
+        ) from error
+
+    if value < minimum:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be {minimum} or greater, got {value}."
+        )
+
+    return value
+
+
 def env_str_list(name: str, *, default: Sequence[str]) -> list[str]:
     """
     Read a comma-separated list of strings.
@@ -206,9 +250,9 @@ def env_int_list(name: str, *, default: Sequence[int]) -> list[int]:
         ) from error
 
 
-def env_ip_network_list(name: str, *, default: Sequence[str]) -> list[IPNetwork]:
+def env_proxy_networks(name: str, *, default: Sequence[str]) -> list[IPNetwork]:
     """
-    Read a comma-separated list of IP addresses and CIDR networks.
+    Read the addresses and CIDR networks a forwarding header may be believed from.
 
     A bare address is accepted and becomes a single-host network, so an
     operator naming one proxy does not have to write its prefix length.
@@ -228,23 +272,16 @@ def env_ip_network_list(name: str, *, default: Sequence[str]) -> list[IPNetwork]
     Raises
     ------
     ImproperlyConfigured
-        If any entry is not an IP address or CIDR network, host bits included.
+        If any entry is not an IP address or CIDR network, host bits included,
+        or if an entry is a default route.
     """
 
-    entries = env_str_list(name, default=default)
-
-    try:
-        return [ip_network(entry) for entry in entries]
-    except ValueError as error:
-        raise ImproperlyConfigured(
-            f"Environment variable {name} must be a comma-separated list of "
-            f"IP addresses or CIDR networks: {error}"
-        ) from error
+    return _parse_proxy_networks(name, env_str_list(name, default=default))
 
 
-def require_env_ip_network_list(name: str) -> list[IPNetwork]:
+def require_env_proxy_networks(name: str) -> list[IPNetwork]:
     """
-    Read a comma-separated list of IP addresses and CIDR networks that must be provided.
+    Read a forwarding tier that must be provided.
 
     Parameters
     ----------
@@ -259,16 +296,50 @@ def require_env_ip_network_list(name: str) -> list[IPNetwork]:
     Raises
     ------
     ImproperlyConfigured
-        If the variable is missing, empty, or holds an entry that is not an IP
-        address or CIDR network.
+        If the variable is missing or empty, or holds an entry that is not an
+        IP address or CIDR network, or holds a default route.
     """
 
-    entries = require_env_str_list(name)
+    return _parse_proxy_networks(name, require_env_str_list(name))
+
+
+def _parse_proxy_networks(name: str, entries: Sequence[str]) -> list[IPNetwork]:
+    """
+    Parse declared forwarding-tier entries into networks.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name, used in every failure message.
+    entries : Sequence of str
+        Declared addresses and CIDR networks.
+
+    Returns
+    -------
+    list of IPNetwork
+        Parsed networks, in the order they were declared.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If an entry is not an IP address or CIDR network, or is a default
+        route. A default route would believe a forwarding header from every
+        peer, which is the one thing the trust list exists to prevent.
+    """
 
     try:
-        return [ip_network(entry) for entry in entries]
+        networks = [ip_network(entry) for entry in entries]
     except ValueError as error:
         raise ImproperlyConfigured(
             f"Environment variable {name} must be a comma-separated list of "
             f"IP addresses or CIDR networks: {error}"
         ) from error
+
+    for network in networks:
+        if network.prefixlen == 0:
+            raise ImproperlyConfigured(
+                f"Environment variable {name} must not include the default route {network}, "
+                f"which would believe a forwarding header from every peer."
+            )
+
+    return networks

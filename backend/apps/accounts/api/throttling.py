@@ -20,19 +20,29 @@ class SignInRateThrottle(SimpleRateThrottle):
     outcome, and a client legitimately signing in more than a handful of times
     per window is not a shape this product has.
 
-    The counter is a fixed window over two atomic cache operations rather than
-    the sliding window the base class implements. That is a correctness
-    requirement, not a preference: the base class reads the history, mutates it
-    and writes it back, keeping the intermediate state on an instance that
-    every request shares, so concurrent attempts all read the same pre-state
-    and a Redis round trip is long enough to let a credential-stuffing client
-    far exceed the rate. A fixed window admits up to twice the rate across a
-    window boundary, which is the price of counting atomically.
+    The counter is a fixed window over cache primitives that each mutate the
+    counter in one operation, rather than the sliding window the base class
+    implements. That is a correctness requirement, not a preference: the base
+    class reads the history, mutates it and writes it back, keeping the
+    intermediate state on an instance that every request shares, so concurrent
+    attempts all read the same pre-state and a Redis round trip is long enough
+    to let a credential-stuffing client far exceed the rate. A fixed window
+    admits up to twice the rate across a window boundary, which is the price of
+    counting without a read-modify-write.
 
-    A cache failure allows the request and logs a warning. Denying every
-    sign-in while Redis is unreachable would turn a degraded dependency into a
-    total authentication outage, and ``config/health.py`` already treats the
-    cache as degradable rather than fatal.
+    Two edges of that counter are handled explicitly. Django's Redis backend
+    implements ``incr`` as an existence check followed by ``INCRBY``, and
+    ``INCRBY`` recreates a key that expired in between *without* a lifetime, so
+    an attempt that observes a count of one after a failed ``add`` re-arms the
+    lifetime; leaving it unset would answer that one client HTTP 429 forever,
+    with no recovery short of deleting the key by hand. When the key vanishes
+    before the increment instead, Django raises and the attempt is allowed as
+    the first of a new window.
+
+    A cache failure allows the request and logs a warning with its cause.
+    Denying every sign-in while Redis is unreachable would turn a degraded
+    dependency into a total authentication outage, and ``config/health.py``
+    already treats the cache as degradable rather than fatal.
 
     Attributes
     ----------
@@ -73,7 +83,12 @@ class SignInRateThrottle(SimpleRateThrottle):
 
         super().__init__(rate)
 
-        if not self.num_requests or self.num_requests < 1 or not self.duration:
+        if (
+            self.num_requests is None
+            or self.num_requests < 1
+            or self.duration is None
+            or self.duration < 1
+        ):
             raise ImproperlyConfigured(
                 f"Sign-in throttle rate {rate!r} must permit at least one attempt "
                 f"in a window of at least one second."
@@ -103,11 +118,18 @@ class SignInRateThrottle(SimpleRateThrottle):
             if self.cache.add(key, 1, self.window_seconds):
                 return True
 
-            return self.cache.incr(key) <= self.permitted_attempts
+            attempts = self.cache.incr(key)
+
+            if attempts == 1:
+                self.cache.touch(key, self.window_seconds)
+
+            return attempts <= self.permitted_attempts
         except ValueError:
             return True
         except Exception:
-            logger.warning("Allowed a sign-in attempt the cache could not be asked about")
+            logger.warning(
+                "Allowed a sign-in attempt the cache could not be asked about.", exc_info=True
+            )
 
             return True
 
