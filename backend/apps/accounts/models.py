@@ -5,7 +5,7 @@ from typing import ClassVar
 from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
-from django.db import models
+from django.db import models, transaction
 from django.db.models.base import ModelBase
 from django.utils import timezone
 
@@ -155,11 +155,19 @@ class User(AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS : list of str
         Extra prompts of ``createsuperuser``, empty because the address and the
         password already cover every mandatory column.
+    _password : str or None
+        Raw password ``AbstractBaseUser.set_password`` records and ``save``
+        clears, declared because django-stubs omits it.
+    _password_removed : bool
+        Whether ``set_unusable_password`` destroyed the credential of this
+        instance since it was last written.
 
     Methods
     -------
     save(force_insert=False, force_update=False, using=None, update_fields=None) -> None
-        Normalize the address before writing the row.
+        Normalize the address and write the row with its receivers.
+    set_unusable_password() -> None
+        Store a hash no password can match and record the credential as gone.
     has_new_password() -> bool
         Report whether the credential of the account was just replaced.
     """
@@ -176,10 +184,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     EMAIL_FIELD = "email"
     REQUIRED_FIELDS: ClassVar[list[str]] = []
 
-    # django-stubs omits the attribute `AbstractBaseUser.set_password` writes and
-    # `save` clears, which `has_new_password` reads. The annotation binds nothing
-    # at runtime and stays invisible to the model metaclass.
+    # django-stubs omits the private attribute `set_password` writes and `save`
+    # clears, which `has_new_password` reads.
     _password: str | None
+
+    _password_removed = False
 
     class Meta(AbstractBaseUser.Meta, PermissionsMixin.Meta):
         """
@@ -220,7 +229,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         update_fields: Iterable[str] | None = None,
     ) -> None:
         """
-        Normalize the address before writing the row.
+        Normalize the address and write the row with its receivers.
+
+        The write is wrapped in a transaction because ``save_base`` sends
+        ``post_save`` inside it, and a receiver of this model revokes the
+        sessions of a replaced credential. Without the transaction the password
+        column would commit before the revocation ran, so a failure in between
+        would leave a rotated password whose old sessions still authenticate.
 
         Parameters
         ----------
@@ -236,12 +251,30 @@ class User(AbstractBaseUser, PermissionsMixin):
 
         self.email = normalize_email(self.email)
 
-        super().save(
-            force_insert=force_insert,
-            force_update=force_update,
-            using=using,
-            update_fields=update_fields,
-        )
+        with transaction.atomic(using=using):
+            super().save(
+                force_insert=force_insert,
+                force_update=force_update,
+                using=using,
+                update_fields=update_fields,
+            )
+
+        self._password_removed = False
+
+    def set_unusable_password(self) -> None:
+        """
+        Store a hash no password can match and record the credential as gone.
+
+        ``AbstractBaseUser.set_unusable_password`` writes that hash without
+        touching the raw password, because Django does not count destroying a
+        credential as changing it. Here it counts: the admin's own "Password-based
+        authentication: Disabled" submit reaches this method, and the sessions
+        issued under the credential it destroys must not outlive it.
+        """
+
+        super().set_unusable_password()
+
+        self._password_removed = True
 
     def has_new_password(self) -> bool:
         """
@@ -252,15 +285,18 @@ class User(AbstractBaseUser, PermissionsMixin):
         present exactly while a save is storing a credential the account did not
         have before. Django draws the same line itself: the setter that re-hashes
         a password verified against an outdated hasher clears the value before
-        saving, because a hash upgrade is not a password change.
+        saving, because a hash upgrade is not a password change. Destroying the
+        credential outright is tracked separately, since Django's own setter for
+        it deliberately leaves no trace.
 
         Returns
         -------
         bool
-            ``True`` while a save is writing a new password of the account.
+            ``True`` between the replacement of the credential and the end of the
+            save that stores it.
         """
 
-        return self._password is not None
+        return self._password is not None or self._password_removed
 
 
 class AuthSession(models.Model):

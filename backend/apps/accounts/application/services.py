@@ -210,6 +210,6 @@ def delete_expired_sessions(at: datetime) -> int:
         Number of sessions this call deleted.
     """
 
-    deleted_count, _ = AuthSession.objects.filter(expires_at__lte=at).delete()
+    _, deleted_per_model = AuthSession.objects.filter(expires_at__lte=at).delete()
 
-    return deleted_count
+    return deleted_per_model.get(AuthSession._meta.label, 0)
