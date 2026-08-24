@@ -283,7 +283,8 @@ class AuthSession(models.Model):
     created_at : datetime
         Instant the token was issued.
     expires_at : datetime
-        Instant from which the token stops authenticating.
+        Instant from which the token stops authenticating. Indexed because the
+        purge task selects rows by expiry alone.
     revoked_at : datetime or None
         Instant the token was revoked, ``None`` while it is still current.
 
@@ -300,7 +301,7 @@ class AuthSession(models.Model):
     token_digest = models.CharField(max_length=64, unique=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

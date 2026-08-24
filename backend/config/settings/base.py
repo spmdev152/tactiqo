@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from celery.schedules import crontab
+
 from config.logging import build_logging
 from config.settings.environment import (
     env_bool,
@@ -105,6 +107,13 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+CELERY_BEAT_SCHEDULE = {
+    "accounts-purge-expired-sessions": {
+        "task": "accounts.purge_expired_sessions",
+        "schedule": crontab(minute="15"),
+    }
+}
 
 SPORTMONKS_API_TOKEN = env_str("SPORTMONKS_API_TOKEN", default="")
 

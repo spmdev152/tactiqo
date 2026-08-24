@@ -187,3 +187,29 @@ def revoke_session(token: str) -> bool:
         return False
 
     return revoke_sessions(AuthSession.objects.filter(token_digest=_digest(token))) > 0
+
+
+def delete_expired_sessions(at: datetime) -> int:
+    """
+    Delete every session whose expiry has passed at a given instant.
+
+    A revoked session survives until its own expiry, so the row that recorded a
+    revocation outlives every moment the token it invalidated could have been
+    presented. Expiry alone decides deletion, which is what makes the call
+    idempotent and safe to run beside itself: a single conditional delete stops
+    matching a row another run already removed.
+
+    Parameters
+    ----------
+    at : datetime
+        Timezone-aware instant expiry is evaluated against.
+
+    Returns
+    -------
+    int
+        Number of sessions this call deleted.
+    """
+
+    deleted_count, _ = AuthSession.objects.filter(expires_at__lte=at).delete()
+
+    return deleted_count
