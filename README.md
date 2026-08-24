@@ -156,6 +156,20 @@ One caveat makes this rarely what you want. The non-local settings modules set `
 
 If you only want local development against remote data, do not change the settings module. Stay on `config.settings.local` and point `POSTGRES_*` and `REDIS_URL` at the remote services in your `.env.local`.
 
+## Session lifecycle
+
+A session is a row in `accounts.AuthSession` holding the SHA-256 digest of an opaque bearer token, never the token, and it authenticates for 14 days. `resolve_session` re-reads the row on every request, so revocation, expiry, and a deactivated account all take effect immediately.
+
+Replacing the credential of an account ends the sessions issued under the previous one. The revocation hangs on the write rather than on a caller, so the admin, `changepassword` and a bare `set_password` followed by a save all reach it through one `post_save` receiver, and so does the admin's own "Password-based authentication: Disabled" submit, which destroys the credential instead of rotating it. `User.save` wraps the write in a transaction and the receiver runs inside it, so the new credential and the revocation commit together or not at all. The receiver distinguishes a new credential from a re-encoded one — Django clears the raw password before saving a hash it upgraded to the preferred hasher, so signing in against an outdated hasher does not sign anybody out — and it ignores a save that left the password column alone. Revocation only ever stamps a row that carries no instant yet, so the first revocation of a session is permanent.
+
+Two paths write the password column without going through a model save, and both are outside any signal by construction: a queryset `update(password=...)` and a raw SQL update. They are asymmetric in a way that misleads, so it is worth stating: Django's own session-auth hash covers the admin session, which dies either way, while a bearer token does not, so a bulk credential rotation must call `revoke_sessions` on the affected accounts itself.
+
+Nothing else deletes a row, so a Beat entry does. `accounts-purge-expired-sessions` runs `accounts.purge_expired_sessions` hourly at minute 15 and deletes every session whose expiry has passed. It is one conditional delete, which is what makes it idempotent and safe to run beside itself: a row another run already removed simply stops matching, and a test pins the statement count so the property cannot quietly become a row-by-row collection. The entry expires after 3000 seconds, so a run queued while the workers were down cannot fire once its slot has passed; the next hour does the same work anyway. `expires_at` carries an index for that query and for nothing else. Two loose ends land here rather than needing machinery of their own: a sign-out whose revocation call never reached the API still cleared the cookie, and a second sign-in orphans the row of the first.
+
+A revoked session is kept until its own expiry rather than deleted with the rest. It costs nothing and it keeps a record of the revocation for as long as the token it invalidated could still have been presented.
+
+The row is not the trail. An issuance is logged where sessions are issued, naming the session and the account but never the token, and the sign-in endpoint adds the client it came from and the peer it arrived from, mirroring the line a rejected attempt already writes; the layer that issues a session knows nothing about HTTP, which is why the attribution is a second record rather than a longer one. The admin revocation action logs the count, the accounts locked out and the operator who did it, by identifier rather than by address. Those records outlive the rows the purge deletes, which is what makes an incident reconstructable after 14 days.
+
 ## Quality gates
 
 The same commands run locally and in GitHub Actions. Each backend job installs only the dependency groups it needs, and CI sets `UV_NO_SYNC=1` so that `uv run` uses the environment as synced instead of silently re-adding the aggregate `dev` group.

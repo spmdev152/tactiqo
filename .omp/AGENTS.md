@@ -257,6 +257,8 @@ Use triple double quotes and the standard numpydoc section model where applicabl
 ### Documenting classes
 A class documents its non-method attributes in an `Attributes` section, below `Parameters` when both are present. This covers annotated fields, dataclass fields, `Protocol` members, and enum members. For an enum the serialized value is the part worth stating, because that string is the wire contract: `OK : str` described as "serialized as ``"ok"``" tells a reader something the member name does not.
 
+A private or protected attribute stays out, symmetrically with the private methods excluded below, and for the same reason: the section documents what a caller may use, and numpydoc does not list private members at all. `User._password` and `User._password_removed` are the standing examples. Both are instance state the credential-revocation seam depends on, neither is part of the class's surface, and the place that explains them is the method that writes each one. Where a declaration exists only because a stub omits it, the workaround comment above it carries the reason.
+
 Every method a class defines is documented in a `Methods` section, placed after `Attributes`, as a signature with a one-line description indented beneath it:
 
 ```
@@ -272,7 +274,7 @@ The signature carries the method name, its parameters as bare names without `sel
 
 Two deliberate deviations from the specification. It calls the section unnecessary and reserves it for a class with a wide method surface, and its examples stop before the return type. The project overrides both: "add it once the class grows" is a threshold nobody can evaluate, and truncating a signature before its return is arbitrary when the parameters are already written in Python syntax rather than prose. That is also why this does not conflict with the prose-type rule above, which governs the type field of a `Parameters` or `Returns` entry, not a signature line.
 
-Private methods stay out of the section, which the specification forbids listing, and keep their own numpydoc docstring. A class that defines no method, such as an enum or a Django Ninja `Schema`, carries no section.
+Private methods stay out of the section, which the specification forbids listing, and keep their own numpydoc docstring. A class that defines no method, such as an enum or a Django Ninja `Schema`, carries no section. A method a class overrides only to extend is documented like any other, since a reader of the subclass needs to know it behaves differently: `set_unusable_password() -> None` appears in `User`'s `Methods` section for exactly that reason.
 
 Do not mechanically add sections that provide no information. Three consequences of that rule are worth stating, because each one was violated once and fixed:
 

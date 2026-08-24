@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -9,6 +10,8 @@ from django.utils import timezone
 
 from apps.accounts.domain.exceptions import InvalidCredentialsError
 from apps.accounts.models import AuthSession, User, normalize_email
+
+logger = logging.getLogger(__name__)
 
 SESSION_LIFETIME = timedelta(days=14)
 TOKEN_BYTES = 32
@@ -60,6 +63,12 @@ def issue_session(user: User) -> IssuedSession:
     """
     Issue a bearer token for an account and persist only its digest.
 
+    The issuance is recorded in the log because the row is the only durable
+    evidence that a token was ever handed out, and the purge deletes it once it
+    expires. The record names identifiers rather than the token, and it cannot
+    name the client: this layer knows nothing about HTTP, so the sign-in endpoint
+    owns that half of the trail.
+
     Parameters
     ----------
     user : User
@@ -74,7 +83,11 @@ def issue_session(user: User) -> IssuedSession:
     token = secrets.token_urlsafe(TOKEN_BYTES)
     expires_at = timezone.now() + SESSION_LIFETIME
 
-    AuthSession.objects.create(user=user, token_digest=_digest(token), expires_at=expires_at)
+    session = AuthSession.objects.create(
+        user=user, token_digest=_digest(token), expires_at=expires_at
+    )
+
+    logger.info("Issued authentication session %s for account %s.", session.pk, user.pk)
 
     return IssuedSession(token=token, expires_at=expires_at, user=user)
 
@@ -187,3 +200,29 @@ def revoke_session(token: str) -> bool:
         return False
 
     return revoke_sessions(AuthSession.objects.filter(token_digest=_digest(token))) > 0
+
+
+def delete_expired_sessions(at: datetime) -> int:
+    """
+    Delete every session whose expiry has passed at a given instant.
+
+    A revoked session survives until its own expiry, so the row that recorded a
+    revocation outlives every moment the token it invalidated could have been
+    presented. Expiry alone decides deletion, which is what makes the call
+    idempotent and safe to run beside itself: a single conditional delete stops
+    matching a row another run already removed.
+
+    Parameters
+    ----------
+    at : datetime
+        Timezone-aware instant expiry is evaluated against.
+
+    Returns
+    -------
+    int
+        Number of sessions this call deleted.
+    """
+
+    _, deleted_per_model = AuthSession.objects.filter(expires_at__lte=at).delete()
+
+    return deleted_per_model.get(AuthSession._meta.label, 0)
