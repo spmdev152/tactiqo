@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -9,6 +10,8 @@ from django.utils import timezone
 
 from apps.accounts.domain.exceptions import InvalidCredentialsError
 from apps.accounts.models import AuthSession, User, normalize_email
+
+logger = logging.getLogger(__name__)
 
 SESSION_LIFETIME = timedelta(days=14)
 TOKEN_BYTES = 32
@@ -60,6 +63,12 @@ def issue_session(user: User) -> IssuedSession:
     """
     Issue a bearer token for an account and persist only its digest.
 
+    The issuance is recorded in the log because the row is the only durable
+    evidence that a token was ever handed out, and the purge deletes it once it
+    expires. The record names identifiers rather than the token, and it cannot
+    name the client: this layer knows nothing about HTTP, so the sign-in endpoint
+    owns that half of the trail.
+
     Parameters
     ----------
     user : User
@@ -74,7 +83,11 @@ def issue_session(user: User) -> IssuedSession:
     token = secrets.token_urlsafe(TOKEN_BYTES)
     expires_at = timezone.now() + SESSION_LIFETIME
 
-    AuthSession.objects.create(user=user, token_digest=_digest(token), expires_at=expires_at)
+    session = AuthSession.objects.create(
+        user=user, token_digest=_digest(token), expires_at=expires_at
+    )
+
+    logger.info("Issued authentication session %s for account %s.", session.pk, user.pk)
 
     return IssuedSession(token=token, expires_at=expires_at, user=user)
 

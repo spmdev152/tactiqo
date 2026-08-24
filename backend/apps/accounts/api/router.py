@@ -50,9 +50,10 @@ def login(
     ----------
     request : HttpRequest
         Inbound HTTP request, whose identified client and whose peer are both
-        logged when an attempt fails, so that repeated failures can be traced
-        without recording a credential and a forwarded attribution is always
-        visible next to the address the connection really came from.
+        logged whether an attempt fails or succeeds, so that repeated failures
+        can be traced and a token can be attributed to the client that obtained
+        it, without recording a credential, and a forwarded attribution is
+        always visible next to the address the connection really came from.
     payload : LoginRequest
         Submitted address and password.
 
@@ -72,6 +73,13 @@ def login(
         )
 
         return Status(HTTPStatus.UNAUTHORIZED, ErrorResponse(detail=INVALID_CREDENTIALS_DETAIL))
+
+    logger.info(
+        "Opened a session for account %s from %s (peer %s)",
+        session.user.pk,
+        resolve_client_identity(request),
+        request.META.get("REMOTE_ADDR", "unknown"),
+    )
 
     return Status(
         HTTPStatus.OK,

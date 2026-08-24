@@ -168,6 +168,8 @@ Nothing else deletes a row, so a Beat entry does. `accounts-purge-expired-sessio
 
 A revoked session is kept until its own expiry rather than deleted with the rest. It costs nothing and it keeps a record of the revocation for as long as the token it invalidated could still have been presented.
 
+The row is not the trail. An issuance is logged where sessions are issued, naming the session and the account but never the token, and the sign-in endpoint adds the client it came from and the peer it arrived from, mirroring the line a rejected attempt already writes; the layer that issues a session knows nothing about HTTP, which is why the attribution is a second record rather than a longer one. The admin revocation action logs the count, the accounts locked out and the operator who did it, by identifier rather than by address. Those records outlive the rows the purge deletes, which is what makes an incident reconstructable after 14 days.
+
 ## Quality gates
 
 The same commands run locally and in GitHub Actions. Each backend job installs only the dependency groups it needs, and CI sets `UV_NO_SYNC=1` so that `uv run` uses the environment as synced instead of silently re-adding the aggregate `dev` group.

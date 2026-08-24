@@ -5,13 +5,15 @@ import pytest
 from django.test import Client
 
 from apps.accounts.api.router import INVALID_CREDENTIALS_DETAIL
-from tests.conftest import ApiGet, ApiPost, UserFactory
+from apps.accounts.models import AuthSession
+from tests.conftest import ApiGet, ApiPost, CapturedRecord, UserFactory
 
 LOGIN_URL = "/api/v1/auth/login"
 ME_URL = "/api/v1/auth/me"
 LOGOUT_URL = "/api/v1/auth/logout"
 
 UNKNOWN_EMAIL = "unknown@example.com"
+PEER = "127.0.0.1"
 
 
 @pytest.mark.django_db
@@ -40,6 +42,31 @@ def test_login_returns_a_token_and_the_signed_in_account(
         "email": account.email,
         "full_name": account.full_name,
     }
+
+
+@pytest.mark.django_db
+def test_a_successful_sign_in_is_logged_against_the_account_and_its_client(
+    api_post: ApiPost,
+    user: UserFactory,
+    user_password: str,
+    loguru_records: list[CapturedRecord],
+) -> None:
+    """
+    GIVEN an active account signing in
+    WHEN the operator trail is read
+    THEN it names the account, the session it received, and the client it came from
+    """
+
+    account = user()
+
+    api_post(LOGIN_URL, {"email": account.email, "password": user_password})
+
+    session = AuthSession.objects.get()
+    trail = [message for level, message, _ in loguru_records if level == "INFO"]
+    attribution = f"Opened a session for account {account.pk} from {PEER} (peer {PEER})"
+
+    assert f"Issued authentication session {session.pk} for account {account.pk}." in trail
+    assert attribution in trail
 
 
 @pytest.mark.django_db

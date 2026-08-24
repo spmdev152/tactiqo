@@ -8,7 +8,7 @@ from django.test import RequestFactory
 from apps.accounts.admin import AuthSessionAdmin
 from apps.accounts.application.services import issue_session, revoke_session
 from apps.accounts.models import AuthSession, User
-from tests.conftest import UserFactory
+from tests.conftest import CapturedRecord, UserFactory
 
 SESSION_FIELDS = ("user", "token_digest", "created_at", "expires_at", "revoked_at")
 
@@ -129,3 +129,33 @@ def test_the_admin_action_revokes_current_sessions_and_keeps_the_first_instant(
 
     assert current_session.revoked_at is not None
     assert revoked_session.revoked_at == first_revocation
+
+
+@pytest.mark.django_db
+def test_the_admin_action_records_the_operator_and_the_locked_out_accounts(
+    session_admin: AuthSessionAdmin,
+    admin_request: HttpRequest,
+    operator: User,
+    user: UserFactory,
+    loguru_records: list[CapturedRecord],
+) -> None:
+    """
+    GIVEN an operator revoking the two sessions of an account
+    WHEN the operator trail is read
+    THEN it names the count, the account locked out, and the operator
+    """
+
+    account = user()
+
+    issue_session(account)
+    issue_session(account)
+
+    session_admin.revoke_selected_sessions(admin_request, AuthSession.objects.all())
+
+    trail = [message for level, message, _ in loguru_records if level == "INFO"]
+    revocation = (
+        f"Revoked 2 authentication session(s) of account(s) [{account.pk}] "
+        f"for operator {operator.pk}"
+    )
+
+    assert revocation in trail

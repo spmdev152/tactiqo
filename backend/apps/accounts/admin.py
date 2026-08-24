@@ -185,6 +185,10 @@ class AuthSessionAdmin(admin.ModelAdmin):
         """
         Revoke the selected sessions that are still current.
 
+        The outcome is reported to the operator on screen and to the log, where
+        it outlives the rows: it names the accounts locked out and the operator
+        who did it, by identifier rather than by address.
+
         Parameters
         ----------
         request : HttpRequest
@@ -193,6 +197,14 @@ class AuthSessionAdmin(admin.ModelAdmin):
             Sessions the operator selected in the change list.
         """
 
+        locked_out_accounts = sorted(set(queryset.values_list("user_id", flat=True)))
         revoked_count = revoke_sessions(queryset)
+
+        logger.info(
+            "Revoked %d authentication session(s) of account(s) %s for operator %s",
+            revoked_count,
+            locked_out_accounts,
+            request.user.pk,
+        )
 
         self.message_user(request, f"Sessions revoked: {revoked_count}.", messages.SUCCESS)
