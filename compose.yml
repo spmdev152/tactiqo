@@ -80,9 +80,10 @@ services:
     build:
       context: ./frontend
     image: tactiqo-frontend:local
-    command: bun run dev
+    command: sh -c "bun install --frozen-lockfile && exec bun run dev"
     environment:
       BACKEND_API_BASE_URL: ${BACKEND_API_BASE_URL?missing, pass --env-file .env.local}
+      SESSION_COOKIE_INSECURE: ${SESSION_COOKIE_INSECURE?missing, pass --env-file .env.local}
     ports:
       - "3000:3000"
     volumes:

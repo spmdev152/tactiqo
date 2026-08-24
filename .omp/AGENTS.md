@@ -132,7 +132,7 @@ A single committed `.env.example` documents every required variable. Per-environ
 
 Compose has exactly one selection mechanism, and it must stay that way. `compose.yml` declares per service which variables it receives, using `${NAME?hint}` interpolation, and no service uses `env_file:`. Because interpolation is the only source, `docker compose --env-file <file>` moves every service at once and there is no second mechanism to forget. The local file is `.env.local`, so every command carries `--env-file .env.local`.
 
-Two details are deliberate. Declaring variables per service keeps least privilege explicit and reviewable: `api`, `worker`, and `beat` receive the 16 variables Django needs, the 15 the settings modules read plus `DJANGO_SETTINGS_MODULE` that selects them, `postgres` receives only its 3 credentials, `redis` none, and `web` only `BACKEND_API_BASE_URL`, so the frontend container never holds `SPORTMONKS_API_TOKEN` or `POSTGRES_PASSWORD`. And the `?` form without a colon rejects an absent variable while accepting a legitimately empty one, which matters because `SPORTMONKS_API_TOKEN=` is a documented empty default. Do not reintroduce `env_file:`, and do not switch to `:?`.
+Two details are deliberate. Declaring variables per service keeps least privilege explicit and reviewable: `api`, `worker`, and `beat` receive the 16 variables Django needs, the 15 the settings modules read plus `DJANGO_SETTINGS_MODULE` that selects them, `postgres` receives only its 3 credentials, `redis` none, and `web` only `BACKEND_API_BASE_URL` and `SESSION_COOKIE_INSECURE`, neither of which is a credential, so the frontend container never holds `SPORTMONKS_API_TOKEN` or `POSTGRES_PASSWORD`. And the `?` form without a colon rejects an absent variable while accepting a legitimately empty one, which matters because `SPORTMONKS_API_TOKEN=` is a documented empty default. Do not reintroduce `env_file:`, and do not switch to `:?`.
 
 ## Language policy
 English is mandatory for the engineering codebase:
@@ -656,6 +656,17 @@ fix(sportmonks): handle unavailable prediction payloads
 refactor(fixtures): extract repository query boundary
 ops(ci): add pyright quality gate
 ```
+
+### Issue and pull request titles
+Conventional Commits governs commit messages only. An issue or pull request title is a short, descriptive noun phrase naming the work, with no `type(scope):` prefix and no imperative verb copied from a commit. Reusing a commit subject is the mistake to avoid: a reader scanning a list of issues wants the subject, not the change type, and the type is already carried by every commit in the branch and by the labels.
+
+| Instead of | Write |
+| --- | --- |
+| `feat(auth): add email and password sign-in across both services` | `Email and password sign-in` |
+| `feat(auth): rate-limit the sign-in endpoint` | `Sign-in rate limiting` |
+| `ops(ci): gate compose validity, test documentation and test placement` | `CI gates for compose, test docs and test placement` |
+
+Start with an uppercase letter, keep it under roughly sixty characters, and put the detail in the body where it belongs. The body still carries the scope, the acceptance criteria and the technical implications.
 
 ## Git branch convention
 Branch names follow Conventional Branch 1.1.0:

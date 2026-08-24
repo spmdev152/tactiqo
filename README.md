@@ -50,7 +50,23 @@ Apply database migrations once the stack is running:
 docker compose --env-file .env.local exec api uv run python manage.py migrate
 ```
 
+Accounts are identified by an e-mail address rather than a username, so `createsuperuser` prompts for an e-mail address and stores it lowercased:
+
+```bash
+docker compose --env-file .env.local exec api uv run python manage.py createsuperuser
+```
+
+A database provisioned before the `accounts` application existed cannot be migrated onto it. `AUTH_USER_MODEL` is a swapped dependency of `django.contrib.admin`, so an older volume already has `admin.0001_initial` applied against Django's built-in user and `migrate` refuses with `InconsistentMigrationHistory`. Discard the volume, which holds no product data yet:
+
+```bash
+docker compose --env-file .env.local down --volumes
+docker compose --env-file .env.local up --detach
+docker compose --env-file .env.local exec api uv run python manage.py migrate
+```
+
 Source directories are bind-mounted into the containers, so local edits hot-reload without shadowing installed dependencies. The backend virtual environment lives at `/opt/venv` inside the API image, outside the bind-mounted `/app`, and the web image keeps `node_modules` in a named volume so the container's Linux install never shadows the host one.
+
+Both services reconcile their dependencies at container start, which is what makes a `bun add` or a `uv add` on the host visible inside the stack. The `web` command is `bun install --frozen-lockfile && bun run dev`, because Docker copies an image's content into a named volume only while that volume is empty: without the install, `frontend-node-modules` would keep whatever the first `up` put there and every package added afterwards would fail to resolve at build time. The API needs no equivalent, since `uv run` syncs `/opt/venv` against the bind-mounted `uv.lock` on its own. Both installs are frozen, so a `package.json` or `pyproject.toml` that has drifted from its lockfile fails loudly instead of resolving something the lockfile never pinned.
 
 The `web` container runs as its image's `bun` user, uid and gid 1000, rather than as root. That is what keeps `frontend/.next` owned by the developer: Docker creates a named-volume mountpoint on the host as root, so `.next` deliberately has no volume and lives in the bind mount, written by an unprivileged container. Without this, the first `docker compose up` on a fresh clone would leave `frontend/.next` root-owned and every host `bun run` command would fail with `EACCES`. A host account whose uid is not 1000 needs `user: "${UID}:${GID}"` on the service.
 
@@ -75,7 +91,9 @@ The `web` container runs as its image's `bun` user, uid and gid 1000, rather tha
 
 All variables are documented in `.env.example`. Copy the file to `.env.local` and keep real credentials out of version control. Every `docker compose` command takes `--env-file .env.local`, and that flag is the single thing that selects an environment.
 
-`compose.yml` declares explicitly which variables each service receives, so the exposure is readable at a glance and verifiable: `api`, `worker`, and `beat` receive the 16 variables the Django settings actually read, `postgres` receives only its 3 credentials, `redis` receives none, and `web` receives only `BACKEND_API_BASE_URL`. Every variable is declared as `${NAME?...}`, so a forgotten `--env-file` fails immediately with `required variable ... is missing a value` instead of silently starting a stack full of blank configuration. The form without a colon is deliberate: it accepts a legitimately empty value such as `SPORTMONKS_API_TOKEN=` while still rejecting an absent one.
+`compose.yml` declares explicitly which variables each service receives, so the exposure is readable at a glance and verifiable: `api`, `worker`, and `beat` receive the 16 variables the Django settings actually read, `postgres` receives only its 3 credentials, `redis` receives none, and `web` receives only `BACKEND_API_BASE_URL` and `SESSION_COOKIE_INSECURE`. Neither of those is a credential, so the frontend container still never holds `SPORTMONKS_API_TOKEN` or `POSTGRES_PASSWORD`. Every variable is declared as `${NAME?...}`, so a forgotten `--env-file` fails immediately with `required variable ... is missing a value` instead of silently starting a stack full of blank configuration. The form without a colon is deliberate: it accepts a legitimately empty value such as `SPORTMONKS_API_TOKEN=` while still rejecting an absent one.
+
+`SESSION_COOKIE_INSECURE` exists so that dropping the `Secure` attribute from the session cookie is a deliberate declaration rather than a side effect. Only the exact value `true` drops it, which is correct for local development over plain HTTP and wrong everywhere else. Deriving it from `NODE_ENV` instead would have tied a transport security control to a build mode, and `frontend/Dockerfile` pins `NODE_ENV=development`, so the first deployed image built from it would have shipped a cookie with no `Secure` attribute and nothing in the types, the tests, or the quality gates would have said so.
 
 ### Logging
 

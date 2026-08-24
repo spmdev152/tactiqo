@@ -15,7 +15,7 @@ dependencies = [
 
 [dependency-groups]
 lint = ["ruff>=0.9", "taplo>=0.9.3"]
-typecheck = ["pyright>=1.1.393"]
+typecheck = ["django-stubs>=5.1", "pyright>=1.1.393"]
 test = ["pytest>=8.3", "pytest-django>=4.9"]
 dev = [
   { include-group = "lint" },
@@ -69,9 +69,26 @@ docstring-code-format = true
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
-include = ["config", "tests", "manage.py"]
+include = ["apps", "config", "tests", "manage.py"]
 exclude = ["**/migrations/**", "**/__pycache__", ".venv"]
 reportMissingTypeStubs = false
+
+# django-stubs declares `Model.objects` as `ClassVar[Manager[Self]]`. A mutable
+# class variable is invariant, so a model cannot declare its own manager type at
+# all: the declaration below is correct and the stub simply cannot express it.
+[[tool.pyright.executionEnvironments]]
+root = "apps/accounts/models.py"
+extraPaths = ["."]
+reportIncompatibleVariableOverride = "none"
+
+# django-stubs types the nested `Meta` of the bundled auth forms against the
+# concrete `django.contrib.auth.models.User` and types
+# `UserChangeForm.Meta.fields` as a plain string, so no `Meta` that binds a
+# swapped user model to a tuple of fields can ever be assignable to it.
+[[tool.pyright.executionEnvironments]]
+root = "apps/accounts/admin.py"
+extraPaths = ["."]
+reportIncompatibleVariableOverride = "none"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

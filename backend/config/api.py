@@ -1,6 +1,7 @@
 from django.conf import settings
 from ninja import NinjaAPI
 
+from apps.accounts.api.router import router as auth_router
 from config.health import router as health_router
 
 api = NinjaAPI(
@@ -10,3 +11,4 @@ api = NinjaAPI(
 )
 
 api.add_router("/", health_router)
+api.add_router("/auth", auth_router)
