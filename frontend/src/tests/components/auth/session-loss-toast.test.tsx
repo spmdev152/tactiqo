@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionLossToast } from "@/features/auth/components/session-loss-toast";
 
-const { replace, warning } = vi.hoisted(() => ({
+const { hookSearch, replace, warning } = vi.hoisted(() => ({
+  hookSearch: { value: null as string | null },
   replace: vi.fn<(href: string, options?: { scroll?: boolean }) => void>(),
   warning: vi.fn(),
 }));
@@ -12,7 +13,8 @@ vi.mock("sonner", () => ({ toast: { warning } }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
-  useSearchParams: () => new URLSearchParams(window.location.search),
+  useSearchParams: () =>
+    new URLSearchParams(hookSearch.value ?? window.location.search),
 }));
 
 /**
@@ -21,6 +23,8 @@ vi.mock("next/navigation", () => ({
  * @param query - Query string the arrival carries, without its leading marker.
  */
 function arriveWith(query: string): void {
+  hookSearch.value = null;
+
   window.history.replaceState(
     null,
     "",
@@ -44,6 +48,28 @@ describe("SessionLossToast", () => {
     replace.mockReset();
     warning.mockReset();
     arriveWith("session=lost");
+  });
+
+  /**
+   * GIVEN the router reporting no parameters yet, as it does on a first client render
+   * WHEN the notice mounts on a url that plainly carries the marker
+   * THEN it warns anyway, because the address bar decides and the hook only re-arms
+   */
+  it("warns even when the router reports no parameters yet", async () => {
+    hookSearch.value = "";
+
+    render(<SessionLossToast sessionTokenPresent={false} />);
+
+    await waitFor(() =>
+      expect(warning).toHaveBeenCalledExactlyOnceWith(
+        "Sign in required",
+        expect.anything(),
+      ),
+    );
+
+    expect(replace).toHaveBeenCalledExactlyOnceWith("/login", {
+      scroll: false,
+    });
   });
 
   /**

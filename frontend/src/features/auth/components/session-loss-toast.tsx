@@ -46,16 +46,27 @@ export interface SessionLossToastProps {
  * function never ran, the component never mounted, and the arrival passed in
  * silence with the marker left in the address bar until a full reload.
  *
- * The trigger is the live parameter, not the copy. The copy is identical on
- * every arrival for the same cause, and a search-param change does not remount
- * a page subtree, so an effect keyed on the copy ran once and never again.
+ * The address bar decides whether to fire; `useSearchParams` only says when to
+ * look again. That split is the fix for the last and longest-lived failure.
+ * Next lets the hook return an empty set on the first client render of a
+ * boundary and fill it in on a later one, so an effect that *guarded* on the
+ * hook could run once with no marker and, if that later render never came,
+ * never look again — no toast, no cleanup, marker stranded, and a reload the
+ * only cure. A screen recording pinned it: the same navigation, repeated,
+ * warned at 13.5s and stayed silent at 8s and 16.5s. `window.location` cannot
+ * be empty when the browser is showing the URL, so the guard reads that, while
+ * the hook stays in the dependency list to re-arm the effect on the next
+ * arrival.
  *
- * Both the read and the write are the router's. `useSearchParams` reports what
- * the router believes the URL is, so pairing it with `history.replaceState`,
- * which writes the address bar behind the router's back, let the two disagree:
- * the marker could stay `lost` in React's view after the URL had lost it, and
- * then the next arrival changed no dependency and fired nothing. `router.replace`
- * cannot disagree with `useSearchParams`, because the router performs it.
+ * Keying it on the copy instead was an earlier version of the same mistake: the
+ * copy is identical on every arrival for the same cause, and a search-param
+ * change does not remount a page subtree, so the effect ran once and never
+ * again.
+ *
+ * The write is the router's, which is what keeps it from disagreeing with the
+ * hook. `history.replaceState` writes the address bar behind the router's back,
+ * so the marker could stay `lost` in React's view after the URL had lost it,
+ * and then the next arrival changed no dependency and fired nothing.
  *
  * The copy arrives as a boolean rather than as resolved text so that a cached
  * segment cannot withhold it. That boolean is server state and could in
@@ -96,7 +107,9 @@ export function SessionLossToast({
   const marker = useSearchParams().get(SESSION_LOSS_PARAMETER);
 
   useEffect(() => {
-    if (marker !== SESSION_LOSS_VALUE) {
+    const url = new URL(window.location.href);
+
+    if (url.searchParams.get(SESSION_LOSS_PARAMETER) !== SESSION_LOSS_VALUE) {
       return;
     }
 
@@ -108,8 +121,6 @@ export function SessionLossToast({
         id: TOAST_ID,
         richColors: true,
       });
-
-      const url = new URL(window.location.href);
 
       url.searchParams.delete(SESSION_LOSS_PARAMETER);
 
