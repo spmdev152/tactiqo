@@ -4,12 +4,15 @@ import pytest
 from django.test import RequestFactory, override_settings
 
 from config.client_identity import resolve_client_identity
+from tests.conftest import CapturedRecord
 
 BACKEND_FOR_FRONTEND_ADDRESS = "192.0.2.10"
 
 CLIENT_ADDRESS = "198.51.100.7"
 
 FORGED_ADDRESS = "203.0.113.99"
+
+EDGE_ADDRESS = "203.0.113.10"
 
 TRUSTED_NETWORKS = [ip_network(BACKEND_FOR_FRONTEND_ADDRESS)]
 
@@ -233,20 +236,18 @@ def test_a_configured_hop_is_discarded_from_the_right(requests: RequestFactory) 
     request = requests.post(
         "/",
         REMOTE_ADDR=BACKEND_FOR_FRONTEND_ADDRESS,
-        headers={"X-Forwarded-For": f"{CLIENT_ADDRESS}, {BACKEND_FOR_FRONTEND_ADDRESS}"},
+        headers={"X-Forwarded-For": f"{CLIENT_ADDRESS}, {EDGE_ADDRESS}"},
     )
 
     assert resolve_client_identity(request) == CLIENT_ADDRESS
 
 
 @override_settings(TRUSTED_PROXY_NETWORKS=TRUSTED_NETWORKS, TRUSTED_PROXY_HOPS=1)
-def test_a_chain_shorter_than_the_configured_hops_falls_back_to_the_peer(
-    requests: RequestFactory,
-) -> None:
+def test_a_visitor_supplying_no_chain_cannot_be_promoted(requests: RequestFactory) -> None:
     """
-    GIVEN a chain holding fewer entries than the configured hops imply
-    WHEN a request is identified
-    THEN the peer is used, so a short chain cannot promote a visitor's entry
+    GIVEN a configured depth deeper than the chain a request carries
+    WHEN the request is identified
+    THEN the peer is used, so an entry nothing appended to cannot be promoted
     """
 
     request = requests.post(
@@ -254,3 +255,62 @@ def test_a_chain_shorter_than_the_configured_hops_falls_back_to_the_peer(
     )
 
     assert resolve_client_identity(request) == BACKEND_FOR_FRONTEND_ADDRESS
+
+
+@override_settings(TRUSTED_PROXY_NETWORKS=TRUSTED_NETWORKS, TRUSTED_PROXY_HOPS=1)
+def test_a_depth_deeper_than_the_topology_believes_a_visitor_entry(
+    requests: RequestFactory,
+) -> None:
+    """
+    GIVEN a depth of one configured against an edge that appends only the visitor
+    WHEN the visitor supplies an entry of its own
+    THEN that entry is believed, which is why the depth is bounded and documented
+    """
+
+    request = requests.post(
+        "/",
+        REMOTE_ADDR=BACKEND_FOR_FRONTEND_ADDRESS,
+        headers={"X-Forwarded-For": f"{FORGED_ADDRESS}, {CLIENT_ADDRESS}"},
+    )
+
+    assert resolve_client_identity(request) == FORGED_ADDRESS
+
+
+@override_settings(TRUSTED_PROXY_NETWORKS=TRUSTED_NETWORKS)
+def test_an_unparseable_peer_is_reported(
+    requests: RequestFactory, loguru_records: list[CapturedRecord]
+) -> None:
+    """
+    GIVEN a server reporting a peer that is not an address
+    WHEN the request is identified
+    THEN the peer is used and the shared bucket it implies is logged
+    """
+
+    request = requests.post("/", REMOTE_ADDR="", headers={"X-Forwarded-For": CLIENT_ADDRESS})
+
+    assert resolve_client_identity(request) == ""
+
+    assert [
+        level for level, _message, _carries_exception in loguru_records if level == "WARNING"
+    ] == ["WARNING"]
+
+
+@override_settings(TRUSTED_PROXY_NETWORKS=TRUSTED_NETWORKS, TRUSTED_PROXY_HOPS=2)
+def test_a_chain_too_short_for_the_configured_depth_is_reported(
+    requests: RequestFactory, loguru_records: list[CapturedRecord]
+) -> None:
+    """
+    GIVEN a chain that arrived with fewer entries than the configured depth
+    WHEN the request is identified
+    THEN the mismatch is logged, since it is the only signal the depth is wrong
+    """
+
+    request = requests.post(
+        "/", REMOTE_ADDR=BACKEND_FOR_FRONTEND_ADDRESS, headers={"X-Forwarded-For": CLIENT_ADDRESS}
+    )
+
+    assert resolve_client_identity(request) == BACKEND_FOR_FRONTEND_ADDRESS
+
+    assert [
+        level for level, _message, _carries_exception in loguru_records if level == "WARNING"
+    ] == ["WARNING"]

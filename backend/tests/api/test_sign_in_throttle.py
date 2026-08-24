@@ -65,6 +65,20 @@ class SignInAttempt(Protocol):
         ...
 
 
+@pytest.fixture(autouse=True)
+def fixed_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Count every attempt of a test in one window.
+
+    Each window has its own counter key, so a test spanning a real window
+    boundary would see its later attempts land in a fresh budget. Pinning the
+    window is what keeps these tests off the clock; the derivation of the
+    ordinal is covered by ``tests/unit/test_sign_in_throttle_counter.py``.
+    """
+
+    monkeypatch.setattr(sign_in_throttle, "current_window", lambda: 0)
+
+
 @pytest.fixture
 def sign_in_attempt(user_password: str) -> SignInAttempt:
     """

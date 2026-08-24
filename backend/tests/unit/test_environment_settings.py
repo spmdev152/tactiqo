@@ -45,6 +45,8 @@ PROVIDED_TRUSTED_PROXY_NETWORKS = "10.4.0.0/16, 192.0.2.10"
 
 EXPECTED_TRUSTED_PROXY_NETWORKS = [ip_network("10.4.0.0/16"), ip_network("192.0.2.10")]
 
+PROVIDED_TRUSTED_PROXY_HOPS = "1"
+
 DEFAULT_SIGN_IN_THROTTLE_RATE = "5/m"
 
 ONE_YEAR_IN_SECONDS = 31_536_000
@@ -201,6 +203,7 @@ def load_deployed_settings(
         DJANGO_DEBUG="true",
         DJANGO_ALLOWED_HOSTS=hosts,
         DJANGO_TRUSTED_PROXY_NETWORKS=PROVIDED_TRUSTED_PROXY_NETWORKS,
+        DJANGO_TRUSTED_PROXY_HOPS=PROVIDED_TRUSTED_PROXY_HOPS,
         **extra_variables,
     )
 
@@ -287,6 +290,26 @@ def test_deployed_settings_reject_a_missing_forwarding_tier(
             **PROVIDED_DATABASE_VARIABLES,
             DJANGO_SECRET_KEY=PROVIDED_SECRET_KEY,
             DJANGO_ALLOWED_HOSTS=PROVIDED_HOSTS,
+        )
+
+
+@pytest.mark.parametrize("module_name", DEPLOYED_SETTINGS_MODULES)
+def test_deployed_settings_reject_a_missing_forwarding_depth(
+    module_name: str, settings_loader: SettingsModuleLoader
+) -> None:
+    """
+    GIVEN a deployment that names its forwarding tier but not how deep it is
+    WHEN the environment settings module is imported
+    THEN the import fails loudly, because a wrong depth throttles everyone as one
+    """
+
+    with pytest.raises(ImproperlyConfigured, match="DJANGO_TRUSTED_PROXY_HOPS"):
+        settings_loader.load(
+            module_name,
+            **PROVIDED_DATABASE_VARIABLES,
+            DJANGO_SECRET_KEY=PROVIDED_SECRET_KEY,
+            DJANGO_ALLOWED_HOSTS=PROVIDED_HOSTS,
+            DJANGO_TRUSTED_PROXY_NETWORKS=PROVIDED_TRUSTED_PROXY_NETWORKS,
         )
 
 

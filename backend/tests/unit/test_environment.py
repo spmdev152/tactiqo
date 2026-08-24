@@ -241,42 +241,51 @@ def test_require_env_proxy_networks_rejects_an_empty_value(
         require_env_proxy_networks(VARIABLE_NAME)
 
 
-def test_env_proxy_networks_rejects_a_default_route(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("default_route", ["0.0.0.0/0", "::/0"])
+def test_env_proxy_networks_rejects_a_default_route(
+    default_route: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """
     GIVEN a trust list widened to a default route
     WHEN it is read as a forwarding tier
     THEN ImproperlyConfigured is raised, because that trusts every peer
     """
 
-    monkeypatch.setenv(VARIABLE_NAME, "10.4.0.0/16, 0.0.0.0/0")
+    monkeypatch.setenv(VARIABLE_NAME, f"10.4.0.0/16, {default_route}")
 
     with pytest.raises(ImproperlyConfigured, match="default route"):
         env_proxy_networks(VARIABLE_NAME, default=[])
 
 
-def test_env_int_reads_a_value_within_its_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("raw_value, expected", [("0", 0), (f" {APPENDED_HOPS} ", APPENDED_HOPS)])
+def test_env_int_reads_a_value_inside_its_bound(
+    raw_value: str, expected: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """
-    GIVEN a variable holding an integer at or above the bound
+    GIVEN a variable holding an integer inside the bound, its own edge included
     WHEN it is read as a bounded integer setting
     THEN the parsed value is returned
     """
 
-    monkeypatch.setenv(VARIABLE_NAME, f" {APPENDED_HOPS} ")
+    monkeypatch.setenv(VARIABLE_NAME, raw_value)
 
-    assert env_int(VARIABLE_NAME, default=0, minimum=0) == APPENDED_HOPS
+    assert env_int(VARIABLE_NAME, default=9, minimum=0, maximum=APPENDED_HOPS) == expected
 
 
-def test_env_int_rejects_a_value_below_its_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("raw_value", ["-1", "999999", "one"])
+def test_env_int_rejects_a_value_outside_its_bound(
+    raw_value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """
-    GIVEN a variable holding an integer below the bound
+    GIVEN a variable holding an integer outside the bound, or no integer at all
     WHEN it is read as a bounded integer setting
     THEN ImproperlyConfigured is raised instead of a nonsensical setting
     """
 
-    monkeypatch.setenv(VARIABLE_NAME, "-1")
+    monkeypatch.setenv(VARIABLE_NAME, raw_value)
 
     with pytest.raises(ImproperlyConfigured, match=VARIABLE_NAME):
-        env_int(VARIABLE_NAME, default=0, minimum=0)
+        env_int(VARIABLE_NAME, default=0, minimum=0, maximum=APPENDED_HOPS)
 
 
 def test_load_environment_file_reads_values_without_overriding_the_process(

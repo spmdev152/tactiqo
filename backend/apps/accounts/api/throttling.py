@@ -1,4 +1,5 @@
 import logging
+from time import time
 
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest
@@ -7,6 +8,8 @@ from ninja.throttling import SimpleRateThrottle
 from config.client_identity import resolve_client_identity
 
 logger = logging.getLogger(__name__)
+
+KEY_LIFETIME_WINDOWS = 2
 
 
 class SignInRateThrottle(SimpleRateThrottle):
@@ -20,24 +23,24 @@ class SignInRateThrottle(SimpleRateThrottle):
     outcome, and a client legitimately signing in more than a handful of times
     per window is not a shape this product has.
 
-    The counter is a fixed window over cache primitives that each mutate the
-    counter in one operation, rather than the sliding window the base class
+    The counter is a fixed window rather than the sliding window the base class
     implements. That is a correctness requirement, not a preference: the base
-    class reads the history, mutates it and writes it back, keeping the
+    class reads the attempt history, mutates it and writes it back, keeping the
     intermediate state on an instance that every request shares, so concurrent
-    attempts all read the same pre-state and a Redis round trip is long enough
-    to let a credential-stuffing client far exceed the rate. A fixed window
-    admits up to twice the rate across a window boundary, which is the price of
-    counting without a read-modify-write.
+    attempts all act on the same pre-state and one Redis round trip is enough
+    for a client opening several connections to exceed the rate several-fold.
+    A fixed window admits up to twice the rate across a window boundary, which
+    is the price of counting without a read-modify-write.
 
-    Two edges of that counter are handled explicitly. Django's Redis backend
-    implements ``incr`` as an existence check followed by ``INCRBY``, and
-    ``INCRBY`` recreates a key that expired in between *without* a lifetime, so
-    an attempt that observes a count of one after a failed ``add`` re-arms the
-    lifetime; leaving it unset would answer that one client HTTP 429 forever,
-    with no recovery short of deleting the key by hand. When the key vanishes
-    before the increment instead, Django raises and the attempt is allowed as
-    the first of a new window.
+    Each window has its own key, named after the window's ordinal, and the key
+    outlives its window. Both details are load-bearing. Django implements
+    ``incr`` as an existence check followed by ``INCRBY``, and ``INCRBY``
+    recreates a key that expired in between without a lifetime, which would
+    answer one client HTTP 429 forever and no later attempt could repair it;
+    a key that cannot expire while its own window is current makes that race
+    unreachable. And should a key end up immortal anyway, the next window uses
+    a different key, so the damage expires on its own instead of needing a
+    hand-run ``DEL``.
 
     A cache failure allows the request and logs a warning with its cause.
     Denying every sign-in while Redis is unreachable would turn a degraded
@@ -57,6 +60,8 @@ class SignInRateThrottle(SimpleRateThrottle):
     -------
     allow_request(request) -> bool
         Count the attempt and report whether it may proceed.
+    current_window() -> int
+        Return the ordinal of the window the current instant falls in.
     get_cache_key(request) -> str
         Return the bucket the request is counted against.
     wait() -> None
@@ -115,15 +120,10 @@ class SignInRateThrottle(SimpleRateThrottle):
         key = self.get_cache_key(request)
 
         try:
-            if self.cache.add(key, 1, self.window_seconds):
+            if self.cache.add(key, 1, KEY_LIFETIME_WINDOWS * self.window_seconds):
                 return True
 
-            attempts = self.cache.incr(key)
-
-            if attempts == 1:
-                self.cache.touch(key, self.window_seconds)
-
-            return attempts <= self.permitted_attempts
+            return self.cache.incr(key) <= self.permitted_attempts
         except ValueError:
             return True
         except Exception:
@@ -145,13 +145,26 @@ class SignInRateThrottle(SimpleRateThrottle):
         Returns
         -------
         str
-            Cache key naming the scope and the identified client.
+            Cache key naming the scope, the identified client, and the ordinal
+            of the window the attempt falls in.
         """
 
-        return self.cache_format % {
-            "scope": self.scope,
-            "ident": resolve_client_identity(request),
-        }
+        window = self.current_window()
+
+        return f"throttle_{self.scope}_{resolve_client_identity(request)}_{window}"
+
+    def current_window(self) -> int:
+        """
+        Return the ordinal of the window the current instant falls in.
+
+        Returns
+        -------
+        int
+            Count of whole windows since the epoch, which changes exactly when
+            one window ends and the next begins.
+        """
+
+        return int(time()) // self.window_seconds
 
     def wait(self) -> None:
         """

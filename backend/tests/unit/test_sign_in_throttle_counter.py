@@ -8,7 +8,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest
 from django.test import RequestFactory
 
-from apps.accounts.api.throttling import SignInRateThrottle
+from apps.accounts.api.throttling import KEY_LIFETIME_WINDOWS, SignInRateThrottle
+from tests.conftest import CapturedRecord
 
 CLIENT_ADDRESS = "198.51.100.7"
 
@@ -17,6 +18,82 @@ PERMITTED_ATTEMPTS = 5
 CONCURRENT_ATTEMPTS = 20
 
 SLOW_READ_SECONDS = 0.005
+
+
+class RecordingCache:
+    """
+    Cache delegate recording the lifetime each counter was seeded with.
+
+    Attributes
+    ----------
+    delegate : BaseCache
+        Real cache every operation is forwarded to.
+    added_timeouts : list of float
+        Lifetime each ``add`` asked for, in call order.
+
+    Methods
+    -------
+    add(key, value, timeout=None) -> bool
+        Seed a counter, recording the lifetime asked for.
+    incr(key, delta=1) -> int
+        Increment an existing counter.
+    """
+
+    def __init__(self, delegate: BaseCache) -> None:
+        """
+        Wrap a cache.
+
+        Parameters
+        ----------
+        delegate : BaseCache
+            Real cache every operation is forwarded to.
+        """
+
+        self.delegate = delegate
+        self.added_timeouts: list[float] = []
+
+    def add(self, key: str, value: object, timeout: float | None = None) -> bool:
+        """
+        Seed a counter, recording the lifetime asked for.
+
+        Parameters
+        ----------
+        key : str
+            Cache key to seed.
+        value : object
+            Value to store.
+        timeout : float or None
+            Lifetime of the entry in seconds.
+
+        Returns
+        -------
+        bool
+            ``True`` when this call created the entry.
+        """
+
+        if timeout is not None:
+            self.added_timeouts.append(timeout)
+
+        return self.delegate.add(key, value, timeout)
+
+    def incr(self, key: str, delta: int = 1) -> int:
+        """
+        Increment an existing counter.
+
+        Parameters
+        ----------
+        key : str
+            Cache key to increment.
+        delta : int
+            Amount to add.
+
+        Returns
+        -------
+        int
+            Value after the increment.
+        """
+
+        return self.delegate.incr(key, delta)
 
 
 class SlowReadCache:
@@ -215,44 +292,21 @@ class FailingCache:
         raise ConnectionError("Error 111 connecting to redis:6379")
 
 
-class ResurrectingCache:
+class VanishingCache:
     """
-    Cache delegate reproducing what Redis does to a counter that expires mid-increment.
+    Cache delegate whose counter is gone by the time the increment reaches it.
 
-    Django implements ``incr`` as an existence check followed by ``INCRBY``, and
-    ``INCRBY`` recreates a key that expired between the two commands with no
-    lifetime at all. A counter left in that state never resets, so the client it
-    belongs to is refused forever.
-
-    Attributes
-    ----------
-    delegate : BaseCache
-        Real cache every operation is forwarded to.
-    touched_timeouts : list of float
-        Lifetime each ``touch`` asked for, recorded for assertion.
+    Django implements ``incr`` as an existence check followed by an increment
+    and raises when the key is absent, which a cache eviction can produce even
+    though the window-keyed counter cannot expire inside its own window.
 
     Methods
     -------
     add(*_args, **_kwargs) -> bool
         Report the key as already present, as a live counter does.
-    incr(key, delta=1) -> int
-        Recreate the key without a lifetime and report the first count.
-    touch(key, timeout=None) -> bool
-        Record the requested lifetime and apply it.
+    incr(*_args, **_kwargs) -> int
+        Raise as Django does for a key that is no longer there.
     """
-
-    def __init__(self, delegate: BaseCache) -> None:
-        """
-        Wrap a cache.
-
-        Parameters
-        ----------
-        delegate : BaseCache
-            Real cache every operation is forwarded to.
-        """
-
-        self.delegate = delegate
-        self.touched_timeouts: list[float] = []
 
     def add(self, *_args: object, **_kwargs: object) -> bool:
         """
@@ -273,48 +327,24 @@ class ResurrectingCache:
 
         return False
 
-    def incr(self, key: str, delta: int = 1) -> int:
+    def incr(self, *_args: object, **_kwargs: object) -> int:
         """
-        Recreate the key without a lifetime and report the first count.
+        Raise as Django does for a key that is no longer there.
 
         Parameters
         ----------
-        key : str
-            Cache key to recreate.
-        delta : int
-            Amount the recreated counter starts at.
+        *_args : object
+            Ignored positional arguments of the replaced operation.
+        **_kwargs : object
+            Ignored keyword arguments of the replaced operation.
 
-        Returns
-        -------
-        int
-            The recreated count, which is ``delta``.
+        Raises
+        ------
+        ValueError
+            Always.
         """
 
-        self.delegate.set(key, delta, None)
-
-        return delta
-
-    def touch(self, key: str, timeout: float | None = None) -> bool:
-        """
-        Record the requested lifetime and apply it.
-
-        Parameters
-        ----------
-        key : str
-            Cache key whose lifetime is being set.
-        timeout : float or None
-            Lifetime in seconds.
-
-        Returns
-        -------
-        bool
-            ``True`` when the key was still present.
-        """
-
-        if timeout is not None:
-            self.touched_timeouts.append(timeout)
-
-        return self.delegate.touch(key, timeout)
+        raise ValueError("Key 'throttle_sign-in' not found.")
 
 
 @pytest.fixture
@@ -372,35 +402,81 @@ def test_an_unreachable_cache_allows_the_attempt(
     throttle: SignInRateThrottle,
     sign_in_request: HttpRequest,
     monkeypatch: pytest.MonkeyPatch,
+    loguru_records: list[CapturedRecord],
 ) -> None:
     """
     GIVEN a cache that refuses every operation
     WHEN an attempt is counted
-    THEN it is allowed, because a degraded cache must not deny every sign-in
+    THEN it is allowed and the warning carries the cause, not just the fact
     """
 
     monkeypatch.setattr(throttle, "cache", FailingCache())
 
     assert throttle.allow_request(sign_in_request) is True
 
+    assert [
+        (level, carries_exception) for level, _message, carries_exception in loguru_records
+    ] == [("WARNING", True)]
 
-def test_a_counter_recreated_by_the_increment_is_given_a_lifetime(
+
+def test_a_counter_the_cache_lost_allows_the_attempt_quietly(
+    throttle: SignInRateThrottle,
+    sign_in_request: HttpRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    loguru_records: list[CapturedRecord],
+) -> None:
+    """
+    GIVEN a counter the cache no longer holds when the increment reaches it
+    WHEN the attempt is counted
+    THEN it is allowed without a warning, because an evicted counter is routine
+    """
+
+    monkeypatch.setattr(throttle, "cache", VanishingCache())
+
+    assert throttle.allow_request(sign_in_request) is True
+    assert loguru_records == []
+
+
+def test_a_counter_stuck_without_a_lifetime_stops_being_consulted_next_window(
     throttle: SignInRateThrottle,
     sign_in_request: HttpRequest,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    GIVEN a counter whose key expires between the existence check and the increment
-    WHEN the attempt is counted
-    THEN the recreated key is given a lifetime, so the client is not refused forever
+    GIVEN a counter left above the limit and without a lifetime by a failed increment
+    WHEN the window rolls over
+    THEN the client is allowed again, because each window carries its own key
     """
 
-    resurrecting_cache = ResurrectingCache(cache)
+    monkeypatch.setattr(throttle, "current_window", lambda: 0)
 
-    monkeypatch.setattr(throttle, "cache", resurrecting_cache)
+    cache.set(throttle.get_cache_key(sign_in_request), PERMITTED_ATTEMPTS + 99, None)
+
+    assert throttle.allow_request(sign_in_request) is False
+
+    monkeypatch.setattr(throttle, "current_window", lambda: 1)
 
     assert throttle.allow_request(sign_in_request) is True
-    assert resurrecting_cache.touched_timeouts == [throttle.window_seconds]
+
+
+def test_a_counter_outlives_the_window_it_counts(
+    throttle: SignInRateThrottle,
+    sign_in_request: HttpRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN an attempt seeding the counter of the current window
+    WHEN the lifetime it asks the cache for is inspected
+    THEN it is longer than the window, so the counter cannot expire inside it
+    """
+
+    recording_cache = RecordingCache(cache)
+
+    monkeypatch.setattr(throttle, "cache", recording_cache)
+
+    assert throttle.allow_request(sign_in_request) is True
+    assert recording_cache.added_timeouts == [KEY_LIFETIME_WINDOWS * throttle.window_seconds]
+    assert min(recording_cache.added_timeouts) > throttle.window_seconds
 
 
 @pytest.mark.parametrize("rate", ["0/m", "-1/m", "5/0m", "5/-1m"])

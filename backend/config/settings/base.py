@@ -23,9 +23,13 @@ SECRET_KEY = env_str("DJANGO_SECRET_KEY", default="")
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env_str_list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
+MAXIMUM_TRUSTED_PROXY_HOPS = 8
+
 TRUSTED_PROXY_NETWORKS = env_proxy_networks("DJANGO_TRUSTED_PROXY_NETWORKS", default=[])
 
-TRUSTED_PROXY_HOPS = env_int("DJANGO_TRUSTED_PROXY_HOPS", default=0, minimum=0)
+TRUSTED_PROXY_HOPS = env_int(
+    "DJANGO_TRUSTED_PROXY_HOPS", default=0, minimum=0, maximum=MAXIMUM_TRUSTED_PROXY_HOPS
+)
 
 SIGN_IN_THROTTLE_RATE = env_str("DJANGO_SIGN_IN_THROTTLE_RATE", default="5/m")
 

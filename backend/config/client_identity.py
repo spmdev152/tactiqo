@@ -84,7 +84,10 @@ def _forwarded_client(forwarded_for: str) -> IPAddress | None:
     IPAddress or None
         Entry sitting ``TRUSTED_PROXY_HOPS`` places left of the end of the
         chain, or ``None`` when the chain is shorter than that or that entry is
-        not an address.
+        not an address. A chain that arrived but was too short is the one signal
+        an operator gets that the configured depth does not match the topology,
+        so it is logged; the volume is bounded, because those requests all land
+        in the peer's own throttled bucket.
     """
 
     entries = [
@@ -94,6 +97,14 @@ def _forwarded_client(forwarded_for: str) -> IPAddress | None:
     position = settings.TRUSTED_PROXY_HOPS + 1
 
     if len(entries) < position:
+        if entries:
+            logger.warning(
+                "Ignoring a forwarding chain of %d entries: %d were expected, so the request is "
+                "attributed to its peer.",
+                len(entries),
+                position,
+            )
+
         return None
 
     return _parse_address(entries[-position])

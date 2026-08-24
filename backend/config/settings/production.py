@@ -2,6 +2,7 @@ from config.logging import deployed_log_level
 from config.settings.base import *
 from config.settings.environment import (
     env_str,
+    require_env_int,
     require_env_proxy_networks,
     require_env_str,
     require_env_str_list,
@@ -22,6 +23,10 @@ DATABASES = {
 }
 
 TRUSTED_PROXY_NETWORKS = require_env_proxy_networks("DJANGO_TRUSTED_PROXY_NETWORKS")
+
+TRUSTED_PROXY_HOPS = require_env_int(
+    "DJANGO_TRUSTED_PROXY_HOPS", minimum=0, maximum=MAXIMUM_TRUSTED_PROXY_HOPS
+)
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = True

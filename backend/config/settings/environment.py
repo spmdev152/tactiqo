@@ -121,9 +121,9 @@ def env_bool(name: str, *, default: bool) -> bool:
     raise ImproperlyConfigured(f"Environment variable {name} must be a boolean, got {raw_value!r}.")
 
 
-def env_int(name: str, *, default: int, minimum: int) -> int:
+def env_int(name: str, *, default: int, minimum: int, maximum: int) -> int:
     """
-    Read an integer variable that must not fall below a bound.
+    Read an integer variable that must fall inside a bound.
 
     Parameters
     ----------
@@ -133,6 +133,8 @@ def env_int(name: str, *, default: int, minimum: int) -> int:
         Value used when the variable is absent.
     minimum : int
         Smallest value the setting accepts.
+    maximum : int
+        Largest value the setting accepts.
 
     Returns
     -------
@@ -142,13 +144,71 @@ def env_int(name: str, *, default: int, minimum: int) -> int:
     Raises
     ------
     ImproperlyConfigured
-        If the variable is present but is not an integer, or is below the bound.
+        If the variable is present but is not an integer, or falls outside the
+        bound.
     """
 
     raw_value = os.environ.get(name)
 
     if raw_value is None:
         return default
+
+    return _bounded_int(name, raw_value, minimum=minimum, maximum=maximum)
+
+
+def require_env_int(name: str, *, minimum: int, maximum: int) -> int:
+    """
+    Read an integer variable that must be provided and must fall inside a bound.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+    minimum : int
+        Smallest value the setting accepts.
+    maximum : int
+        Largest value the setting accepts.
+
+    Returns
+    -------
+    int
+        Parsed integer value.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the variable is missing or empty, is not an integer, or falls
+        outside the bound.
+    """
+
+    return _bounded_int(name, require_env_str(name), minimum=minimum, maximum=maximum)
+
+
+def _bounded_int(name: str, raw_value: str, *, minimum: int, maximum: int) -> int:
+    """
+    Parse an integer and hold it to its bound.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name, used in every failure message.
+    raw_value : str
+        Declared value.
+    minimum : int
+        Smallest value the setting accepts.
+    maximum : int
+        Largest value the setting accepts.
+
+    Returns
+    -------
+    int
+        Parsed integer value.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the value is not an integer or falls outside the bound.
+    """
 
     try:
         value = int(raw_value.strip())
@@ -157,9 +217,9 @@ def env_int(name: str, *, default: int, minimum: int) -> int:
             f"Environment variable {name} must be an integer, got {raw_value!r}."
         ) from error
 
-    if value < minimum:
+    if not minimum <= value <= maximum:
         raise ImproperlyConfigured(
-            f"Environment variable {name} must be {minimum} or greater, got {value}."
+            f"Environment variable {name} must be between {minimum} and {maximum}, got {value}."
         )
 
     return value
