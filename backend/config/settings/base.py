@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "apps.accounts",
+    "apps.fixtures",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -110,12 +111,22 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 SESSION_PURGE_EXPIRY_SECONDS = 3000
 
+FIXTURE_SYNCHRONIZATION_PAST_DAYS = 2
+FIXTURE_SYNCHRONIZATION_FUTURE_DAYS = 14
+FIXTURE_SYNCHRONIZATION_LOCK_SECONDS = 900
+FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS = 3000
+
 CELERY_BEAT_SCHEDULE = {
     "accounts-purge-expired-sessions": {
         "task": "accounts.purge_expired_sessions",
         "schedule": crontab(minute="15"),
         "options": {"expires": SESSION_PURGE_EXPIRY_SECONDS},
-    }
+    },
+    "fixtures-synchronize": {
+        "task": "fixtures.synchronize_fixtures",
+        "schedule": crontab(minute="5", hour="*/6"),
+        "options": {"expires": FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS},
+    },
 }
 
 SPORTMONKS_API_TOKEN = env_str("SPORTMONKS_API_TOKEN", default="")
