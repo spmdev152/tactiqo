@@ -27,6 +27,8 @@
   --color-border: var(--border);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive: var(--destructive);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -79,6 +81,16 @@
   --accent-foreground: oklch(0.3394 0.0441 1.7583);
   --destructive: oklch(0.6332 0.1578 22.6734);
   --destructive-foreground: oklch(0.9777 0.0041 301.4256);
+
+  /* `amethyst-haze` ships no warning token, so one is defined here rather than
+     borrowed from `--chart-4`: a data-visualisation colour restyled later would
+     silently restyle every warning surface with it. Solid amber with the dark
+     plum foreground, mirroring how `--destructive` is used, reaches 8.16:1 in
+     this theme and 9.94:1 in `.dark`. `components/ui/sonner.tsx` maps the pair
+     onto Sonner's `--warning-*` rich-colour variables. */
+  --warning: oklch(0.7686 0.1647 70.0804);
+  --warning-foreground: oklch(0.2166 0.0215 292.8474);
+
   --border: oklch(0.8447 0.0226 300.1421);
   --input: oklch(0.9329 0.0124 301.2783);
   --ring: oklch(0.6104 0.0767 299.7335);
@@ -129,6 +141,8 @@
   --accent-foreground: oklch(0.8391 0.0692 2.6681);
   --destructive: oklch(0.6875 0.142 21.4566);
   --destructive-foreground: oklch(0.2166 0.0215 292.8474);
+  --warning: oklch(0.8214 0.1611 82.5337);
+  --warning-foreground: oklch(0.2166 0.0215 292.8474);
   --border: oklch(0.3063 0.0359 293.3367);
   --input: oklch(0.2847 0.0346 291.2726);
   --ring: oklch(0.7058 0.0777 302.0489);
