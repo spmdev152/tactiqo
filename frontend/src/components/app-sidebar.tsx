@@ -1,7 +1,6 @@
 import Link from "next/link";
 
-import { UserRound } from "lucide-react";
-
+import { SidebarAccountLink } from "@/components/sidebar-account-link";
 import { SidebarNavigation } from "@/components/sidebar-navigation";
 import { TactiqoWordmark } from "@/components/tactiqo-wordmark";
 import {
@@ -15,20 +14,11 @@ import {
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
 
 /**
- * Props of {@link AppSidebar}.
- */
-export interface AppSidebarProps {
-  /** E-mail address the current session is signed in as. */
-  readonly email: string;
-}
-
-/**
  * Renders the navigation shell of the authenticated application.
  *
  * @remarks
- * A Server Component wrapping one client leaf. The identity and the sign-out
- * form are rendered on the server, so the session's e-mail address never
- * travels as client state and the form keeps working before hydration.
+ * A Server Component wrapping two client leaves. The sign-out form is rendered
+ * on the server, so it keeps working before hydration.
  *
  * The sidebar collapses to icons rather than off-canvas, so navigation survives
  * a collapse on a laptop instead of disappearing behind the trigger. Every
@@ -36,20 +26,22 @@ export interface AppSidebarProps {
  * mark and the wordmark swap places rather than sitting side by side, since a
  * mark repeating the initial of the word next to it says nothing twice; the
  * mark is set in the same typeface as the wordmark so the swap reads as one
- * brand rather than two. The wordmark and the e-mail address turn
- * screen-reader-only rather than being removed, which would leave the link and
- * the identity line with no accessible text at all.
+ * brand rather than two. The wordmark turns screen-reader-only rather than
+ * being removed, which would leave the link with no accessible name at all.
  *
  * Only the desktop sidebar carries the `group` those variants key off, so the
  * mobile sheet keeps the wordmark at its full width, which is what it has room
  * for.
  *
- * The e-mail address is deliberately not a control. It states which account is
- * signed in, and there is no account page for it to lead to.
+ * The footer holds what belongs to the session rather than to the platform: the
+ * account the visitor is signed in as, and the control that ends it. The
+ * signed-in address itself lives on the account page, because a sidebar this
+ * narrow truncates an e-mail address to the point of uselessness and a
+ * collapsed sidebar cannot show it at all.
  *
  * @returns The sidebar tree.
  */
-export function AppSidebar({ email }: AppSidebarProps) {
+export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -75,13 +67,7 @@ export function AppSidebar({ email }: AppSidebarProps) {
       <SidebarSeparator />
 
       <SidebarFooter>
-        <p className="flex items-center gap-2 px-2 py-1 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <UserRound aria-hidden className="size-3.5 shrink-0" />
-
-          <span className="truncate group-data-[collapsible=icon]:sr-only">
-            {email}
-          </span>
-        </p>
+        <SidebarAccountLink />
 
         <SignOutButton />
       </SidebarFooter>

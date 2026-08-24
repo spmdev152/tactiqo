@@ -54,7 +54,7 @@ export function SidebarNavigation() {
       <SidebarGroupLabel>Platform</SidebarGroupLabel>
 
       <SidebarGroupContent>
-        <SidebarMenu>
+        <SidebarMenu className="gap-1.5">
           {NAVIGATION_ENTRIES.map((entry) => (
             <SidebarMenuItem key={entry.href}>
               <SidebarMenuButton

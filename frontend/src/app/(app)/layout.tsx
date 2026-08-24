@@ -26,11 +26,12 @@ interface AuthenticatedLayoutProps {
  * page would offer navigation to a visitor with no session, so `/login` and
  * `/signup` stay in the public group and keep the plain header.
  *
- * The session is resolved here for the sidebar's identity line, not as the
- * access check. A layout is not re-rendered when navigation stays inside it, so
- * a page that reached this shell once would keep rendering after its session was
- * revoked. Every page therefore gates on its own, and `getCurrentUser` is memoized
- * per request, so doing both costs one backend round trip rather than two.
+ * The session is resolved here as the shell's own gate, not for the sidebar,
+ * which no longer states the address. A layout is not re-rendered when
+ * navigation stays inside it, so a page that reached this shell once would keep
+ * rendering after its session was revoked. Every page therefore gates on its
+ * own, and `getCurrentUser` is memoized per request, so doing both costs one
+ * backend round trip rather than two.
  *
  * The collapsed state is read from the cookie the primitive writes, because the
  * server otherwise renders the sidebar expanded and hydration snaps it shut in
@@ -45,14 +46,14 @@ interface AuthenticatedLayoutProps {
 export default async function AuthenticatedLayout({
   children,
 }: AuthenticatedLayoutProps) {
-  const [user, cookieStore] = await Promise.all([requireUser(), cookies()]);
+  const [, cookieStore] = await Promise.all([requireUser(), cookies()]);
 
   const storedState = cookieStore.get(SIDEBAR_STATE_COOKIE_NAME)?.value;
 
   return (
     <TooltipProvider>
       <SidebarProvider defaultOpen={storedState !== SIDEBAR_COLLAPSED_STATE}>
-        <AppSidebar email={user.email} />
+        <AppSidebar />
 
         <SidebarInset>
           <AppHeader />

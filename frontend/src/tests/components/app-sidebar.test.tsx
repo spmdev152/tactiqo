@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -15,29 +15,50 @@ vi.mock("@/features/auth/server/actions", () => ({ signOutAction: vi.fn() }));
 
 /**
  * Renders the sidebar inside the providers the shell mounts around it.
- *
- * @param email - Address the rendered session is signed in as.
  */
-function renderSidebar(email = "ada@example.com") {
+function renderSidebar() {
   render(
     <TooltipProvider>
       <SidebarProvider>
-        <AppSidebar email={email} />
+        <AppSidebar />
       </SidebarProvider>
     </TooltipProvider>,
   );
 }
 
 describe("AppSidebar", () => {
+  beforeEach(() => {
+    usePathname.mockReturnValue("/");
+  });
+
   /**
    * GIVEN a confirmed session
    * WHEN the sidebar is rendered
-   * THEN the account it is signed in as is stated in the footer
+   * THEN the footer offers the account page rather than stating the address
    */
-  it("states the signed-in account", () => {
-    renderSidebar("grace@example.com");
+  it("offers the account page from the footer", () => {
+    renderSidebar();
 
-    expect(screen.getByText("grace@example.com")).toBeVisible();
+    const account = screen.getByRole("link", { name: "Account" });
+
+    expect(account).toHaveAttribute("href", "/account");
+    expect(account.closest("[data-slot=sidebar-footer]")).not.toBeNull();
+  });
+
+  /**
+   * GIVEN a visitor already on the account page
+   * WHEN the sidebar is rendered
+   * THEN the account entry is the one marked active
+   */
+  it("marks the account entry active on its own route", () => {
+    usePathname.mockReturnValue("/account");
+
+    renderSidebar();
+
+    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   });
 
   /**
