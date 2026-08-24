@@ -108,10 +108,13 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
+SESSION_PURGE_EXPIRY_SECONDS = 3000
+
 CELERY_BEAT_SCHEDULE = {
     "accounts-purge-expired-sessions": {
         "task": "accounts.purge_expired_sessions",
         "schedule": crontab(minute="15"),
+        "options": {"expires": SESSION_PURGE_EXPIRY_SECONDS},
     }
 }
 
