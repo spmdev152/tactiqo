@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
-import { loginPathAfterSessionLoss } from "@/features/auth/domain/session-loss";
+import { SESSION_LOSS_PATH } from "@/features/auth/domain/session-loss";
 import { getCurrentUser } from "@/features/auth/server/get-current-user";
 import { PlatformHealthCard } from "@/features/health/components/platform-health-card";
 import { getPlatformHealth } from "@/features/health/server/get-platform-health";
@@ -28,10 +28,13 @@ export const dynamic = "force-dynamic";
  * the session token never leaves the server. This check is authoritative, not
  * the proxy, which only knows whether a cookie exists.
  *
- * A cookie that fails that check is an involuntary session loss: it expired, it
- * was revoked, it was forged, or the API was unreachable. The redirect says so,
- * because the sign-in form on its own is indistinguishable from having been
- * asked for.
+ * An unconfirmed session is an involuntary loss: the token expired, was
+ * revoked, was forged, or the API was unreachable. The redirect says that much
+ * and no more, because the sign-in form on its own is indistinguishable from
+ * having been asked for. It deliberately does not claim which of the two
+ * messages applies: `null` here also covers a request that carried no cookie at
+ * all, which only the proxy's matcher keeps off this route today, so the login
+ * page reads the cookie itself rather than trusting a claim made here.
  *
  * @returns The landing page tree.
  */
@@ -39,7 +42,7 @@ export default async function HomePage() {
   const user = await getCurrentUser();
 
   if (user === null) {
-    redirect(loginPathAfterSessionLoss("expired"));
+    redirect(SESSION_LOSS_PATH);
   }
 
   const health = await getPlatformHealth();

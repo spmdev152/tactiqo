@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import HomePage from "@/app/page";
 
@@ -14,6 +14,10 @@ vi.mock("next/navigation", () => ({ redirect }));
 
 vi.mock("@/features/auth/server/get-current-user", () => ({ getCurrentUser }));
 
+vi.mock("@/features/health/server/get-platform-health", () => ({
+  getPlatformHealth: vi.fn().mockResolvedValue({ reported: false }),
+}));
+
 describe("HomePage", () => {
   beforeEach(() => {
     getCurrentUser.mockReset();
@@ -24,21 +28,17 @@ describe("HomePage", () => {
     });
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   /**
    * GIVEN a session cookie the backend refused to confirm, whether expired, revoked, forged or unreachable
    * WHEN the landing page renders
-   * THEN the visitor is sent to the login page with the reason attached
+   * THEN the visitor is sent to a login page marked as an involuntary arrival
    */
-  it("sends an unusable session to the login page with a reason", async () => {
+  it("sends an unusable session to a marked login page", async () => {
     getCurrentUser.mockResolvedValue(null);
 
     await expect(HomePage()).rejects.toThrow("NEXT_REDIRECT");
 
-    expect(redirect).toHaveBeenCalledExactlyOnceWith("/login?session=expired");
+    expect(redirect).toHaveBeenCalledExactlyOnceWith("/login?session=lost");
   });
 
   /**
@@ -48,8 +48,6 @@ describe("HomePage", () => {
    */
   it("keeps a confirmed session on the landing page", async () => {
     getCurrentUser.mockResolvedValue({ email: "ada@example.com" });
-
-    vi.stubEnv("BACKEND_API_BASE_URL", "");
 
     await HomePage();
 

@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -9,6 +11,7 @@ import {
   sessionLossWarning,
 } from "@/features/auth/domain/session-loss";
 import { getCurrentUser } from "@/features/auth/server/get-current-user";
+import { readSessionToken } from "@/features/auth/server/session-cookie";
 
 /**
  * Opts the route out of prerendering.
@@ -18,7 +21,10 @@ import { getCurrentUser } from "@/features/auth/server/get-current-user";
  * reaches, and now for a second reason: the page reads `searchParams` to decide
  * whether an involuntary session loss has to be reported. Stating it keeps the
  * dependency on the request visible instead of leaving it to be inferred from a
- * transitive call.
+ * transitive call. The `Suspense` boundary around the notice below covers the
+ * same ground from the other side: `useSearchParams` needs one on any route
+ * that is not dynamic, so the boundary is what keeps this page building if
+ * either of those two implicit reasons is ever removed.
  */
 export const dynamic = "force-dynamic";
 
@@ -27,11 +33,12 @@ export const dynamic = "force-dynamic";
  */
 interface LoginPageProps {
   /**
-   * Query the visitor arrived with. It may carry a session-loss reason, which
-   * is visitor-controllable and therefore only ever resolved against a closed
-   * set rather than rendered.
+   * Query the visitor arrived with. It may mark the arrival involuntary, which
+   * is visitor-controllable and therefore never rendered and never trusted to
+   * say more than that. Bound to Next's own generated type so a framework
+   * change cannot drift past a restatement of it.
    */
-  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+  readonly searchParams: PageProps<"/login">["searchParams"];
 }
 
 /**
@@ -46,9 +53,10 @@ interface LoginPageProps {
  * `lg`, because a decorative half screen pushed above the fold on a phone would
  * bury the only thing the page exists for.
  *
- * The warning for an involuntary arrival is resolved here, on the server, so
- * the page hands its client child copy from a closed set and the
- * visitor-controllable parameter never reaches the DOM.
+ * The warning is resolved here, on the server, from two inputs: the parameter
+ * says whether to speak, and the request's own cookie decides which of the two
+ * messages is true. Resolving it server-side also means the client child
+ * receives copy rather than the parameter, which is never rendered.
  *
  * @returns The sign-in page tree.
  */
@@ -59,13 +67,20 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     redirect("/");
   }
 
-  const query = await searchParams;
+  const [query, token] = await Promise.all([searchParams, readSessionToken()]);
 
-  const warning = sessionLossWarning(query[SESSION_LOSS_PARAMETER]);
+  const warning = sessionLossWarning(
+    query[SESSION_LOSS_PARAMETER],
+    token !== null,
+  );
 
   return (
     <div className="grid flex-1 lg:grid-cols-2">
-      {warning !== null && <SessionLossToast warning={warning} />}
+      {warning !== null && (
+        <Suspense>
+          <SessionLossToast warning={warning} />
+        </Suspense>
+      )}
 
       <main className="flex items-center justify-center px-6 py-16 sm:px-10">
         <div className="flex w-full max-w-sm flex-col gap-9">

@@ -1,83 +1,87 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  loginPathAfterSessionLoss,
+  SESSION_LOSS_PATH,
   sessionLossWarning,
 } from "@/features/auth/domain/session-loss";
 
-describe("loginPathAfterSessionLoss", () => {
-  /**
-   * GIVEN a session the backend refused to confirm
-   * WHEN the redirect target is built
-   * THEN it points at the login page and carries the reason
-   */
-  it("carries an expired session to the login page", () => {
-    expect(loginPathAfterSessionLoss("expired")).toBe("/login?session=expired");
-  });
+const EXPIRED = {
+  title: "Session expired",
+  description: "Sign in again to access the platform.",
+};
 
+const REQUIRED = {
+  title: "Sign in required",
+  description: "Sign in to access the platform.",
+};
+
+describe("SESSION_LOSS_PATH", () => {
   /**
-   * GIVEN a request for a protected path with no session cookie
-   * WHEN the redirect target is built
-   * THEN it points at the login page and carries the reason
+   * GIVEN a visitor whose session was lost rather than surrendered
+   * WHEN the redirect target is read
+   * THEN it points at the login page and marks the arrival involuntary
    */
-  it("carries a missing session to the login page", () => {
-    expect(loginPathAfterSessionLoss("required")).toBe(
-      "/login?session=required",
-    );
+  it("marks the login destination as an involuntary arrival", () => {
+    expect(SESSION_LOSS_PATH).toBe("/login?session=lost");
   });
 });
 
 describe("sessionLossWarning", () => {
   /**
-   * GIVEN an arrival caused by a session the backend refused to confirm
+   * GIVEN an involuntary arrival whose request still carries a session token
    * WHEN the warning is resolved
-   * THEN the session is reported as expired and the visitor told to sign in again
+   * THEN the session is reported expired, which the surviving cookie makes true
    */
-  it("reports an expired session", () => {
-    expect(sessionLossWarning("expired")).toEqual({
-      title: "Session expired",
-      description: "Sign in again to access the platform.",
-    });
+  it("reports an expired session when a token was still sent", () => {
+    expect(sessionLossWarning("lost", true)).toEqual(EXPIRED);
   });
 
   /**
-   * GIVEN an arrival caused by following a link into the application uncredentialed
+   * GIVEN an involuntary arrival whose request carries no session token
    * WHEN the warning is resolved
    * THEN a sign-in is required without claiming a session ever existed
    */
-  it("requires a sign-in without claiming a session expired", () => {
-    expect(sessionLossWarning("required")).toEqual({
-      title: "Sign in required",
-      description: "Sign in to access the platform.",
-    });
+  it("requires a sign-in when no token was sent", () => {
+    expect(sessionLossWarning("lost", false)).toEqual(REQUIRED);
   });
 
   /**
-   * GIVEN a deliberate arrival, whether a sign-out or a first visit, which sets no parameter
+   * GIVEN a forged marker sent to somebody who never held a session
+   * WHEN the warning is resolved
+   * THEN they are not told a session expired, because the cookie decides the copy
+   */
+  it("cannot be forged into claiming a session expired", () => {
+    expect(sessionLossWarning("lost", false)).not.toEqual(EXPIRED);
+    expect(sessionLossWarning("expired", false)).toBeNull();
+  });
+
+  /**
+   * GIVEN a deliberate arrival, whether a sign-out or a first visit, which marks nothing
+   * WHEN the warning is resolved
+   * THEN there is nothing to report, whatever the cookie says
+   */
+  it("stays silent when the arrival is unmarked", () => {
+    expect(sessionLossWarning(undefined, true)).toBeNull();
+    expect(sessionLossWarning(undefined, false)).toBeNull();
+  });
+
+  /**
+   * GIVEN a marker value the product does not recognise, since a visitor can write any
    * WHEN the warning is resolved
    * THEN there is nothing to report
    */
-  it("stays silent when no reason was given", () => {
-    expect(sessionLossWarning(undefined)).toBeNull();
+  it("stays silent on an unrecognised marker", () => {
+    expect(sessionLossWarning("<img onerror=alert(1)>", true)).toBeNull();
   });
 
   /**
-   * GIVEN a parameter value the product does not recognise, since a visitor can write any
-   * WHEN the warning is resolved
-   * THEN there is nothing to report
-   */
-  it("stays silent on an unrecognised reason", () => {
-    expect(sessionLossWarning("<img onerror=alert(1)>")).toBeNull();
-  });
-
-  /**
-   * GIVEN a reason inherited from the object prototype rather than declared
+   * GIVEN a marker inherited from the object prototype rather than declared
    * WHEN the warning is resolved
    * THEN there is nothing to report
    */
   it("stays silent on an inherited property name", () => {
-    expect(sessionLossWarning("toString")).toBeNull();
-    expect(sessionLossWarning("constructor")).toBeNull();
+    expect(sessionLossWarning("toString", true)).toBeNull();
+    expect(sessionLossWarning("constructor", true)).toBeNull();
   });
 
   /**
@@ -86,6 +90,6 @@ describe("sessionLossWarning", () => {
    * THEN there is nothing to report
    */
   it("stays silent on a repeated parameter", () => {
-    expect(sessionLossWarning(["expired", "required"])).toBeNull();
+    expect(sessionLossWarning(["lost", "lost"], true)).toBeNull();
   });
 });

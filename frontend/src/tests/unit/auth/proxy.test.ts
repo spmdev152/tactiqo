@@ -30,14 +30,14 @@ describe("proxy", () => {
   /**
    * GIVEN a request for a protected path without a session cookie
    * WHEN the proxy handles it
-   * THEN it is redirected to the login page, told why, so the form is not unexplained
+   * THEN it is redirected to the login page, marked involuntary, so the form is not unexplained
    */
-  it("sends an uncredentialed request to the login page with a reason", () => {
+  it("sends an uncredentialed request to a marked login page", () => {
     const response = proxy(navigationTo("/"));
 
     expect(response.status).toBe(TEMPORARY_REDIRECT);
     expect(response.headers.get("location")).toBe(
-      `${ORIGIN}/login?session=required`,
+      `${ORIGIN}/login?session=lost`,
     );
   });
 

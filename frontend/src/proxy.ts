@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME } from "@/features/auth/domain/session-cookie-name";
 import {
   LOGIN_PATH,
-  loginPathAfterSessionLoss,
+  SESSION_LOSS_PATH,
 } from "@/features/auth/domain/session-loss";
 
 const PUBLIC_PATHS: Record<string, true> = {
@@ -54,23 +54,24 @@ export const config = {
  * `getCurrentUser`, which asks the backend. Never grant access on the strength
  * of this function alone.
  *
- * The redirect carries a session-loss reason, because a visitor who followed a
+ * The redirect marks the arrival involuntary, because a visitor who followed a
  * link or a bookmark into the application has to be told why the sign-in form
- * appeared. Only this branch adds one: letting a request through must stay
- * silent, as must the sign-out redirect the action itself performs.
+ * appeared. It says only that, never which message to show: the login page
+ * derives that from the cookie the request carries, so the marker cannot be
+ * forged into a false statement. Only this branch adds it, since letting a
+ * request through must stay silent, as must the sign-out redirect the action
+ * itself performs.
  *
  * @param request - Incoming navigation request.
- * @returns A redirect to the login page, carrying the reason, when no session
- * cookie is present, otherwise an instruction to continue.
+ * @returns A redirect marking an involuntary arrival when no session cookie is
+ * present, otherwise an instruction to continue.
  */
 export function proxy(request: NextRequest) {
   const hasSessionCookie = request.cookies.has(SESSION_COOKIE_NAME);
   const isPublicRoute = PUBLIC_PATHS[request.nextUrl.pathname] === true;
 
   if (!hasSessionCookie && !isPublicRoute) {
-    return NextResponse.redirect(
-      new URL(loginPathAfterSessionLoss("required"), request.url),
-    );
+    return NextResponse.redirect(new URL(SESSION_LOSS_PATH, request.url));
   }
 
   return NextResponse.next();
