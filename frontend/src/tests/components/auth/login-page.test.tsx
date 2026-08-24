@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import LoginPage from "@/app/login/page";
@@ -20,7 +20,8 @@ vi.mock("@/features/auth/server/get-current-user", () => ({ getCurrentUser }));
 vi.mock("@/features/auth/server/actions", () => ({ signInAction: vi.fn() }));
 
 /**
- * Renders the login page as a visitor with no session would receive it.
+ * Renders the login page as a visitor with no session would receive it, and
+ * lets the frame the notice waits for elapse.
  *
  * @param query - Search parameters the arrival carries.
  */
@@ -28,6 +29,11 @@ async function renderArrival(
   query: Record<string, string | string[] | undefined>,
 ): Promise<void> {
   render(await LoginPage({ searchParams: Promise.resolve(query) }));
+
+  await act(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
 }
 
 describe("LoginPage", () => {
@@ -45,11 +51,13 @@ describe("LoginPage", () => {
   it("warns a visitor whose session was refused", async () => {
     await renderArrival({ session: "expired" });
 
-    expect(warning).toHaveBeenCalledExactlyOnceWith(
-      "Session expired",
-      expect.objectContaining({
-        description: "Sign in again to access the platform.",
-      }),
+    await waitFor(() =>
+      expect(warning).toHaveBeenCalledExactlyOnceWith(
+        "Session expired",
+        expect.objectContaining({
+          description: "Sign in again to access the platform.",
+        }),
+      ),
     );
   });
 
@@ -61,11 +69,13 @@ describe("LoginPage", () => {
   it("warns a visitor who followed a link into the application", async () => {
     await renderArrival({ session: "required" });
 
-    expect(warning).toHaveBeenCalledExactlyOnceWith(
-      "Sign in required",
-      expect.objectContaining({
-        description: "Sign in to access the platform.",
-      }),
+    await waitFor(() =>
+      expect(warning).toHaveBeenCalledExactlyOnceWith(
+        "Sign in required",
+        expect.objectContaining({
+          description: "Sign in to access the platform.",
+        }),
+      ),
     );
   });
 

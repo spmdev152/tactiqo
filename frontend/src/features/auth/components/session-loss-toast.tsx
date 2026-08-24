@@ -30,15 +30,23 @@ export interface SessionLossToastProps {
  * forever.
  *
  * The cleanup rewrites the address bar through `history.replaceState` rather
- * than through the router. It is not a navigation: nothing needs re-rendering
- * once the toast exists, and `router.replace` would pay for a server round trip
- * to re-render the page it is already on. Only the reason is dropped, from a
- * copy of the live query, so an unrelated parameter survives.
+ * than through the router. It is not a navigation: nothing on the page has to
+ * re-render, and `router.replace` would pay for a server round trip to
+ * re-render the page it is already on. Only the reason is dropped, from a copy
+ * of the live query, so an unrelated parameter survives.
  *
  * `richColors` is set per toast rather than on the shared `Toaster`, because
  * `--warning` is the only semantic colour the theme defines: a future success
  * or error toast should fall back to the themed neutral surface instead of
  * Sonner's stock palette.
+ *
+ * The request waits for the next animation frame, which is what makes the toast
+ * animate in. Sonner enters by transition rather than by keyframes: a toast is
+ * inserted with `data-mounted="false"` and flipped to `true` from its own
+ * effect. Asking for it directly from this effect puts both steps inside one
+ * React commit cycle, so the browser first paints the toast already mounted,
+ * the transition has no start value to interpolate from, and only the exit
+ * animates. Leaving the effect flush first gives the pre-mount state a paint.
  *
  * The fixed identifier makes the request idempotent. React invokes an effect
  * twice in development, and Sonner updates a toast it already shows rather than
@@ -53,10 +61,12 @@ export function SessionLossToast({ warning }: SessionLossToastProps) {
   const { title, description } = warning;
 
   useEffect(() => {
-    toast.warning(title, {
-      description,
-      id: TOAST_ID,
-      richColors: true,
+    const frame = requestAnimationFrame(() => {
+      toast.warning(title, {
+        description,
+        id: TOAST_ID,
+        richColors: true,
+      });
     });
 
     const url = new URL(window.location.href);
@@ -64,6 +74,8 @@ export function SessionLossToast({ warning }: SessionLossToastProps) {
     url.searchParams.delete(SESSION_LOSS_PARAMETER);
 
     window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+
+    return () => cancelAnimationFrame(frame);
   }, [description, title]);
 
   return null;

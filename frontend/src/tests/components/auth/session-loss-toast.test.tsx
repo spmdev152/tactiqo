@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionLossToast } from "@/features/auth/components/session-loss-toast";
@@ -30,16 +30,31 @@ describe("SessionLossToast", () => {
   /**
    * GIVEN a visitor who arrived at the login page having lost their session
    * WHEN the notice mounts
-   * THEN title and description are requested as a themed warning under a stable identifier
+   * THEN title and description are requested as a themed warning, once painted, under a stable identifier
    */
-  it("requests a warning toast for the resolved copy", () => {
+  it("requests a warning toast for the resolved copy", async () => {
     render(<SessionLossToast warning={WARNING} />);
 
-    expect(warning).toHaveBeenCalledExactlyOnceWith("Session expired", {
-      description: "Sign in again to access the platform.",
-      id: "session-loss",
-      richColors: true,
-    });
+    await waitFor(() =>
+      expect(warning).toHaveBeenCalledExactlyOnceWith("Session expired", {
+        description: "Sign in again to access the platform.",
+        id: "session-loss",
+        richColors: true,
+      }),
+    );
+  });
+
+  /**
+   * GIVEN Sonner entering by transition from a state the browser has to paint first
+   * WHEN the notice mounts
+   * THEN the request waits for a frame, since asking inside the commit skips the entry animation
+   */
+  it("defers the request past the mounting commit", async () => {
+    render(<SessionLossToast warning={WARNING} />);
+
+    expect(warning).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(warning).toHaveBeenCalledOnce());
   });
 
   /**
