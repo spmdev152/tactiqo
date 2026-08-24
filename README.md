@@ -105,31 +105,39 @@ Loguru is the single sink for every backend process, installed behind the standa
 
 ### Sign-in rate limiting
 
-`POST /api/v1/auth/login` is the only throttled operation. `DJANGO_SIGN_IN_THROTTLE_RATE` configures it per environment and defaults to `5/m`: a visitor needs two or three attempts to recover from a typo, and the credential behind this endpoint is issued by an administrator and never rotated by its owner, so an unlimited guessing rate against it is the wrong shape. Exceeding the rate answers `429` with `{"detail": "Too many requests."}`, which is uniform on purpose: the throttle counts attempts without reading the submitted address, so it cannot become the account oracle the `401` body deliberately refuses to be. Attempts are counted before the operation runs, which means a successful sign-in spends budget too — the throttle cannot know the outcome, and a client signing in more than a handful of times per minute is not a shape this product has. Account lockout stays out of scope: it is a denial-of-service surface of its own and wants its own decision.
+`POST /api/v1/auth/login` is the only throttled operation. `DJANGO_SIGN_IN_THROTTLE_RATE` configures it per environment and defaults to `5/m`: a visitor needs two or three attempts to recover from a typo, and the credential behind this endpoint is issued by an administrator and never rotated by its owner, so an unlimited guessing rate against it is the wrong shape. A rate that parses but permits no attempt, or spans no time, is refused at boot rather than silently bricking sign-in or silently disabling the throttle.
+
+Exceeding the rate answers `429` with `{"detail": "Too many requests."}`, which is uniform on purpose: the throttle counts attempts without reading the submitted address, so it cannot become the account oracle the `401` body deliberately refuses to be. Attempts are counted before the operation runs, which means a successful sign-in spends budget too — the throttle cannot know the outcome, and a client signing in more than a handful of times per minute is not a shape this product has.
 
 The scope is sign-in alone rather than the whole `NinjaAPI`, so a rejected password can never deny `/health` or a future read endpoint. The counter lives in the configured cache, so every API process shares one budget per client rather than each holding its own.
+
+Two properties of the counter are deliberate. It is a **fixed window** over two atomic cache operations rather than the sliding window Django Ninja implements: the sliding version reads the attempt history, mutates it and writes it back, so concurrent attempts all act on the same pre-state and one Redis round trip is enough for a client opening several connections to exceed the rate several-fold. The price is that a client can spend two windows' worth of attempts across a window boundary, which is a far smaller error than the one it replaces. And a **cache failure allows the attempt** and logs a warning, because denying every sign-in while Redis is unreachable would turn a degraded dependency into a total authentication outage; `config/health.py` already treats the cache as degradable rather than fatal.
 
 #### Which client a request is attributed to
 
 The browser never contacts the API, so `REMOTE_ADDR` is the Next.js server for every visitor and keying on it alone would collapse every sign-in on the platform into one bucket, where one attacker locks everybody out. The frontend therefore forwards the `X-Forwarded-For` chain of the incoming request verbatim on its login call, and the backend decides what to believe:
 
-- `DJANGO_TRUSTED_PROXY_NETWORKS` lists this project's own forwarding tier, as addresses or CIDR networks, and defaults to empty. An empty list means the header is ignored entirely and every request is attributed to its peer, which is the safe default.
-- When the peer is inside a trusted network, the request is attributed to the rightmost entry of the chain that is neither trusted infrastructure nor malformed. Entries further left were appended by hops closer to the visitor, and the leftmost may have been chosen by the visitor.
-- An entry that is not an IP address is skipped, so no header value can reach a cache key.
+- `DJANGO_TRUSTED_PROXY_NETWORKS` names the addresses the API accepts a forwarding header **from**: its own peer, which is the Next.js tier plus any proxy terminating between the two. Addresses and CIDR networks are both accepted. When the peer is outside that list the header is ignored entirely and the request is attributed to the peer.
+- When the peer is trusted, the request is attributed to the **rightmost** entry of the chain, because that is the one the edge appended; every entry to its left may have been chosen by the visitor. The entry is believed even if it happens to fall inside a trusted network, since skipping it is precisely what would promote a forged entry beside it.
+- An entry that is not an address, with or without a port, is refused rather than walked past, so the request falls back to the truthful peer instead of to a client-chosen value, and no header text can reach a cache key.
+- An IPv6 client is identified by its `/64` prefix. A delegated `/64` holds 2**64 addresses, so a per-address bucket would be free to escape.
 
-Two consequences are worth stating before this is deployed. The edge in front of the frontend must set `X-Forwarded-For` from the connecting address, appending as nginx does with `$proxy_add_x_forwarded_for`: Next.js fills the header in from the socket only when the request carries none, so a directly exposed frontend would pass a visitor-chosen value straight through and let one client mint unlimited buckets. With an appending edge a forged entry lands left of the real one and the rightmost-untrusted walk ignores it. And every address of that edge belongs in `DJANGO_TRUSTED_PROXY_NETWORKS`, or the request is attributed to the edge rather than to the visitor.
+**Before this is deployed**, two requirements. The edge in front of the frontend must set `X-Forwarded-For` from the connecting address, appending as nginx does with `$proxy_add_x_forwarded_for`: Next.js fills the header in from the socket only when the request carries none, so a directly exposed frontend would pass a visitor-chosen value straight through and let one client mint unlimited buckets. With an appending edge a forged entry lands left of the real one and is ignored. And the peer addresses must be listed, or every visitor is attributed to the frontend tier and shares one bucket — which is why `preproduction` and `production` refuse to boot without `DJANGO_TRUSTED_PROXY_NETWORKS`, the same way they refuse to boot without a secret key.
 
-Locally the value is `172.16.0.0/12`, which covers the Compose bridge network, so the `web` container is trusted and each browser is throttled separately. The same identification names the client in the warning logged for every rejected attempt, so the operator trail and the throttle agree on who the client was.
+Locally the list ships empty, and that is the honest setting rather than a placeholder: nothing appends `X-Forwarded-For` in front of a local `next dev`, so trusting the header would let any browser or `curl` pick its own bucket. The cost is that every local sign-in shares one bucket, which for a single developer is invisible. Fill it in locally only to exercise the deployed behaviour, and expect a forgeable throttle while it is filled.
+
+Every rejected attempt is logged at warning level with the identified client **and** the peer it arrived from, so a forwarded attribution is always visible next to the address the connection really came from.
 
 ### One file per environment
 
 There is a single `.env.example` rather than one template per environment, because the variable names are identical in `local`, `preproduction`, and `production`. Only the values and their strictness differ, and `DJANGO_SETTINGS_MODULE` selects which settings module reads them:
 
-| Variable                 | `local` and `test`                | `preproduction` and `production`          |
-| ------------------------ | --------------------------------- | ----------------------------------------- |
-| `DJANGO_SECRET_KEY`      | Optional, safe fallback           | Mandatory, `ImproperlyConfigured` when absent |
-| `DJANGO_ALLOWED_HOSTS`   | Optional, local default           | Mandatory, `ImproperlyConfigured` when absent |
-| Every other variable     | Read in `config/settings/base.py` | Same name and meaning in all environments |
+| Variable                        | `local` and `test`                | `preproduction` and `production`              |
+| ------------------------------- | --------------------------------- | --------------------------------------------- |
+| `DJANGO_SECRET_KEY`             | Optional, safe fallback           | Mandatory, `ImproperlyConfigured` when absent |
+| `DJANGO_ALLOWED_HOSTS`          | Optional, local default           | Mandatory, `ImproperlyConfigured` when absent |
+| `DJANGO_TRUSTED_PROXY_NETWORKS` | Optional, empty by design         | Mandatory, `ImproperlyConfigured` when absent |
+| Every other variable            | Read in `config/settings/base.py` | Same name and meaning in all environments     |
 
 The settings modules are the authoritative contract: they fail loudly on a missing value, whereas an extra template file can drift silently. Real preproduction and production secrets are injected by the deployment platform rather than read from a committed file.
 

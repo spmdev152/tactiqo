@@ -31,7 +31,9 @@ const TOO_MANY_REQUESTS_STATUS = 429;
  *
  * The forwarding chain of the current request travels with the call, because
  * the backend sees this server as its only peer and needs it to tell one
- * visitor from another.
+ * visitor from another. It is read before the `try`, so calling this outside a
+ * request scope surfaces as the programming error it is rather than as an
+ * unreachable API.
  *
  * @param email - E-mail address typed by the visitor.
  * @param password - Password typed by the visitor.
@@ -47,6 +49,8 @@ export async function signIn(
     return { ok: false, reason: "backend-not-configured" };
   }
 
+  const forwarding = await forwardingHeaders();
+
   let response: Response;
 
   try {
@@ -56,7 +60,7 @@ export async function signIn(
       headers: {
         accept: "application/json",
         "content-type": "application/json",
-        ...(await forwardingHeaders()),
+        ...forwarding,
       },
       body: JSON.stringify({ email, password }),
       signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),

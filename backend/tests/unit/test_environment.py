@@ -11,6 +11,7 @@ from config.settings.environment import (
     env_str,
     env_str_list,
     load_environment_file,
+    require_env_ip_network_list,
     require_env_str,
     require_env_str_list,
 )
@@ -204,6 +205,37 @@ def test_env_ip_network_list_rejects_an_entry_that_is_not_a_network(
 
     with pytest.raises(ImproperlyConfigured):
         env_ip_network_list(VARIABLE_NAME, default=[])
+
+
+def test_require_env_ip_network_list_reads_the_declared_networks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a deployment naming the addresses its forwarding tier speaks from
+    WHEN they are read as a mandatory network list
+    THEN every entry is parsed in the order it was declared
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "10.4.0.0/16, 192.0.2.10")
+
+    networks = require_env_ip_network_list(VARIABLE_NAME)
+
+    assert [str(network) for network in networks] == ["10.4.0.0/16", "192.0.2.10/32"]
+
+
+def test_require_env_ip_network_list_rejects_an_empty_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a deployment exporting the variable with nothing in it
+    WHEN it is read as a mandatory network list
+    THEN ImproperlyConfigured is raised rather than silently trusting no peer
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "  ")
+
+    with pytest.raises(ImproperlyConfigured, match=VARIABLE_NAME):
+        require_env_ip_network_list(VARIABLE_NAME)
 
 
 def test_load_environment_file_reads_values_without_overriding_the_process(

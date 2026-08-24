@@ -7,10 +7,11 @@ from django.conf import settings
 from django.test import Client, override_settings
 
 from apps.accounts.api.router import sign_in_throttle
-from tests.conftest import ApiPost, ApiResponse, UserFactory
+from tests.conftest import ApiPost, ApiResponse, CapturedRecord, UserFactory
 
 LOGIN_URL = "/api/v1/auth/login"
 HEALTH_URL = "/api/v1/health"
+OPENAPI_URL = "/api/v1/openapi.json"
 
 UNKNOWN_EMAIL = "unknown@example.com"
 
@@ -21,7 +22,9 @@ PROXY_ADDRESS = "127.0.0.1"
 
 THROTTLED_DETAIL = "Too many requests."
 
-PERMITTED_ATTEMPTS = cast(int, sign_in_throttle.num_requests)
+DEFAULT_RATE = "5/m"
+
+PERMITTED_ATTEMPTS = sign_in_throttle.permitted_attempts
 
 
 class SignInAttempt(Protocol):
@@ -120,13 +123,13 @@ def exhaust_budget(sign_in_attempt: SignInAttempt, **origin: str) -> None:
 
 def test_the_configured_rate_is_the_one_in_force() -> None:
     """
-    GIVEN the rate the environment configures
+    GIVEN a settings module configuring a rate other than the shipped default
     WHEN the throttle guarding the login endpoint is inspected
     THEN it enforces that rate rather than one written into the code
     """
 
     assert sign_in_throttle.rate == settings.SIGN_IN_THROTTLE_RATE
-    assert PERMITTED_ATTEMPTS > 0
+    assert sign_in_throttle.rate != DEFAULT_RATE
 
 
 @pytest.mark.django_db
@@ -244,3 +247,35 @@ def test_the_throttle_is_scoped_to_sign_in(sign_in_attempt: SignInAttempt) -> No
 
     assert exhausted.status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert health.status_code == HTTPStatus.OK
+
+
+@pytest.mark.django_db
+@override_settings(TRUSTED_PROXY_NETWORKS=[ip_network(PROXY_ADDRESS)])
+def test_a_rejected_attempt_is_logged_against_the_identified_client(
+    sign_in_attempt: SignInAttempt, loguru_records: list[CapturedRecord]
+) -> None:
+    """
+    GIVEN a rejected attempt reaching the API through a trusted proxy
+    WHEN the operator trail is read
+    THEN it names the forwarded client and the peer it arrived from
+    """
+
+    sign_in_attempt(client_address=PROXY_ADDRESS, forwarded=CLIENT_ADDRESS)
+
+    warnings = [message for level, message, _ in loguru_records if level == "WARNING"]
+
+    assert any(CLIENT_ADDRESS in message and PROXY_ADDRESS in message for message in warnings)
+
+
+def test_the_throttled_answer_is_part_of_the_published_contract() -> None:
+    """
+    GIVEN the OpenAPI document the API publishes
+    WHEN the login operation is read from it
+    THEN it declares the throttled answer a client has to handle
+    """
+
+    document = Client().get(OPENAPI_URL).json()
+
+    responses = document["paths"]["/api/v1/auth/login"]["post"]["responses"]
+
+    assert str(HTTPStatus.TOO_MANY_REQUESTS.value) in responses

@@ -1,6 +1,11 @@
 from config.logging import deployed_log_level
 from config.settings.base import *
-from config.settings.environment import env_str, require_env_str, require_env_str_list
+from config.settings.environment import (
+    env_str,
+    require_env_ip_network_list,
+    require_env_str,
+    require_env_str_list,
+)
 
 SECRET_KEY = require_env_str("DJANGO_SECRET_KEY")
 DEBUG = False
@@ -15,6 +20,8 @@ DATABASES = {
         "HOST": require_env_str("POSTGRES_HOST"),
     },
 }
+
+TRUSTED_PROXY_NETWORKS = require_env_ip_network_list("DJANGO_TRUSTED_PROXY_NETWORKS")
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = True

@@ -115,6 +115,22 @@ describe("LoginForm", () => {
   });
 
   /**
+   * GIVEN a sign-in attempt the backend throttled
+   * WHEN the credentials are submitted
+   * THEN the visitor is told to wait rather than to retype a password
+   */
+  it("announces a throttled attempt as its own failure", async () => {
+    signInAction.mockResolvedValue({ error: "rate-limited" });
+
+    render(<LoginForm />);
+    submitCredentials("ada@example.com");
+
+    await expect(screen.findByRole("alert")).resolves.toHaveTextContent(
+      "Too many sign-in attempts. Wait a moment before trying again.",
+    );
+  });
+
+  /**
    * GIVEN a failed sign-in attempt
    * WHEN the form has settled after the failure
    * THEN the typed e-mail is still in the field, because the form owns its state

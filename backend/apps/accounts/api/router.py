@@ -10,7 +10,7 @@ from apps.accounts.api.security import AuthenticatedRequest, SessionTokenAuth
 from apps.accounts.api.throttling import SignInRateThrottle
 from apps.accounts.application.services import revoke_session, sign_in
 from apps.accounts.domain.exceptions import InvalidCredentialsError
-from config.client_address import resolve_client_address
+from config.client_identity import resolve_client_identity
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,10 @@ def login(
     Parameters
     ----------
     request : HttpRequest
-        Inbound HTTP request, whose identified client is logged when an attempt
-        fails so that repeated failures can be traced without recording a
-        credential.
+        Inbound HTTP request, whose identified client and whose peer are both
+        logged when an attempt fails, so that repeated failures can be traced
+        without recording a credential and a forwarded attribution is always
+        visible next to the address the connection really came from.
     payload : LoginRequest
         Submitted address and password.
 
@@ -64,7 +65,11 @@ def login(
     try:
         session = sign_in(payload.email, payload.password)
     except InvalidCredentialsError:
-        logger.warning("Rejected a sign-in attempt from %s", resolve_client_address(request))
+        logger.warning(
+            "Rejected a sign-in attempt from %s (peer %s)",
+            resolve_client_identity(request),
+            request.META.get("REMOTE_ADDR", "unknown"),
+        )
 
         return Status(HTTPStatus.UNAUTHORIZED, ErrorResponse(detail=INVALID_CREDENTIALS_DETAIL))
 

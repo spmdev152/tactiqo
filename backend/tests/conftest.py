@@ -1,12 +1,18 @@
 import secrets
 from collections.abc import Iterator
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
 from django.core.cache import cache
 from django.test import Client
+from loguru import logger
 
 from apps.accounts.models import User
+
+if TYPE_CHECKING:
+    from loguru import Message
+
+CapturedRecord = tuple[str, str, bool]
 
 
 class ApiResponse(Protocol):
@@ -181,6 +187,34 @@ def isolated_cache() -> Iterator[None]:
     yield
 
     cache.clear()
+
+
+@pytest.fixture
+def loguru_records() -> Iterator[list[CapturedRecord]]:
+    """
+    Collect the level, message, and exception presence of every Loguru record.
+
+    Loguru bypasses the standard-library handlers that ``caplog`` inspects, so
+    assertions have to read from a Loguru sink instead.
+
+    Yields
+    ------
+    list of CapturedRecord
+        Captured records in emission order.
+    """
+
+    captured: list[CapturedRecord] = []
+
+    def sink(message: "Message") -> None:
+        record = message.record
+
+        captured.append((record["level"].name, record["message"], record["exception"] is not None))
+
+    sink_id = logger.add(sink, level="DEBUG")
+
+    yield captured
+
+    logger.remove(sink_id)
 
 
 @pytest.fixture

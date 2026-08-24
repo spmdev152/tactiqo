@@ -240,3 +240,35 @@ def env_ip_network_list(name: str, *, default: Sequence[str]) -> list[IPNetwork]
             f"Environment variable {name} must be a comma-separated list of "
             f"IP addresses or CIDR networks: {error}"
         ) from error
+
+
+def require_env_ip_network_list(name: str) -> list[IPNetwork]:
+    """
+    Read a comma-separated list of IP addresses and CIDR networks that must be provided.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+
+    Returns
+    -------
+    list of IPNetwork
+        Parsed networks, in the order they were declared.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If the variable is missing, empty, or holds an entry that is not an IP
+        address or CIDR network.
+    """
+
+    entries = require_env_str_list(name)
+
+    try:
+        return [ip_network(entry) for entry in entries]
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be a comma-separated list of "
+            f"IP addresses or CIDR networks: {error}"
+        ) from error
