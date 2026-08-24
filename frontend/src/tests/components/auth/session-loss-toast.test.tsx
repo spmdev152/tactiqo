@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionLossToast } from "@/features/auth/components/session-loss-toast";
 
-const MESSAGE = "Your session is no longer valid. Sign in again to continue.";
+const WARNING = {
+  title: "Session expired",
+  description: "Sign in again to access the platform.",
+};
 
 const { warning } = vi.hoisted(() => ({ warning: vi.fn() }));
 
@@ -27,12 +30,13 @@ describe("SessionLossToast", () => {
   /**
    * GIVEN a visitor who arrived at the login page having lost their session
    * WHEN the notice mounts
-   * THEN the message is requested as a themed warning under a stable identifier
+   * THEN title and description are requested as a themed warning under a stable identifier
    */
-  it("requests a warning toast for the resolved message", () => {
-    render(<SessionLossToast message={MESSAGE} />);
+  it("requests a warning toast for the resolved copy", () => {
+    render(<SessionLossToast warning={WARNING} />);
 
-    expect(warning).toHaveBeenCalledExactlyOnceWith(MESSAGE, {
+    expect(warning).toHaveBeenCalledExactlyOnceWith("Session expired", {
+      description: "Sign in again to access the platform.",
       id: "session-loss",
       richColors: true,
     });
@@ -44,7 +48,7 @@ describe("SessionLossToast", () => {
    * THEN the parameter is dropped so a refresh cannot repeat the warning
    */
   it("cleans the reason out of the url", () => {
-    render(<SessionLossToast message={MESSAGE} />);
+    render(<SessionLossToast warning={WARNING} />);
 
     expect(window.location.pathname).toBe("/login");
     expect(window.location.search).toBe("");
@@ -58,7 +62,7 @@ describe("SessionLossToast", () => {
   it("keeps every other parameter while cleaning the reason", () => {
     arriveWith("session=required&email=ada");
 
-    render(<SessionLossToast message={MESSAGE} />);
+    render(<SessionLossToast warning={WARNING} />);
 
     expect(window.location.search).toBe("?email=ada");
   });
@@ -69,7 +73,7 @@ describe("SessionLossToast", () => {
    * THEN it contributes no markup of its own
    */
   it("renders nothing itself", () => {
-    const { container } = render(<SessionLossToast message={MESSAGE} />);
+    const { container } = render(<SessionLossToast warning={WARNING} />);
 
     expect(container).toBeEmptyDOMElement();
   });

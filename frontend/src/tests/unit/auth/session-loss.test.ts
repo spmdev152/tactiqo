@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   loginPathAfterSessionLoss,
-  sessionLossMessage,
+  sessionLossWarning,
 } from "@/features/auth/session-loss";
 
 describe("loginPathAfterSessionLoss", () => {
@@ -27,61 +27,65 @@ describe("loginPathAfterSessionLoss", () => {
   });
 });
 
-describe("sessionLossMessage", () => {
+describe("sessionLossWarning", () => {
   /**
    * GIVEN an arrival caused by a session the backend refused to confirm
-   * WHEN the warning copy is resolved
-   * THEN a message asking the visitor to sign in again is returned
+   * WHEN the warning is resolved
+   * THEN the session is reported as expired and the visitor told to sign in again
    */
-  it("asks an involuntarily signed-out visitor to sign in again", () => {
-    expect(sessionLossMessage("expired")).toBe(
-      "Your session is no longer valid. Sign in again to continue.",
-    );
+  it("reports an expired session", () => {
+    expect(sessionLossWarning("expired")).toEqual({
+      title: "Session expired",
+      description: "Sign in again to access the platform.",
+    });
   });
 
   /**
    * GIVEN an arrival caused by following a link into the application uncredentialed
-   * WHEN the warning copy is resolved
-   * THEN a message asking the visitor to sign in is returned
+   * WHEN the warning is resolved
+   * THEN a sign-in is required without claiming a session ever existed
    */
-  it("asks an uncredentialed visitor to sign in", () => {
-    expect(sessionLossMessage("required")).toBe("Sign in to open that page.");
+  it("requires a sign-in without claiming a session expired", () => {
+    expect(sessionLossWarning("required")).toEqual({
+      title: "Sign in required",
+      description: "Sign in to access the platform.",
+    });
   });
 
   /**
    * GIVEN a deliberate arrival, whether a sign-out or a first visit, which sets no parameter
-   * WHEN the warning copy is resolved
+   * WHEN the warning is resolved
    * THEN there is nothing to report
    */
   it("stays silent when no reason was given", () => {
-    expect(sessionLossMessage(undefined)).toBeNull();
+    expect(sessionLossWarning(undefined)).toBeNull();
   });
 
   /**
    * GIVEN a parameter value the product does not recognise, since a visitor can write any
-   * WHEN the warning copy is resolved
+   * WHEN the warning is resolved
    * THEN there is nothing to report
    */
   it("stays silent on an unrecognised reason", () => {
-    expect(sessionLossMessage("<img onerror=alert(1)>")).toBeNull();
+    expect(sessionLossWarning("<img onerror=alert(1)>")).toBeNull();
   });
 
   /**
    * GIVEN a reason inherited from the object prototype rather than declared
-   * WHEN the warning copy is resolved
+   * WHEN the warning is resolved
    * THEN there is nothing to report
    */
   it("stays silent on an inherited property name", () => {
-    expect(sessionLossMessage("toString")).toBeNull();
-    expect(sessionLossMessage("constructor")).toBeNull();
+    expect(sessionLossWarning("toString")).toBeNull();
+    expect(sessionLossWarning("constructor")).toBeNull();
   });
 
   /**
    * GIVEN the parameter repeated, which arrives as a list
-   * WHEN the warning copy is resolved
+   * WHEN the warning is resolved
    * THEN there is nothing to report
    */
   it("stays silent on a repeated parameter", () => {
-    expect(sessionLossMessage(["expired", "required"])).toBeNull();
+    expect(sessionLossWarning(["expired", "required"])).toBeNull();
   });
 });

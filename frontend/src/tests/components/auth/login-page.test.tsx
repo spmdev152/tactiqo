@@ -46,8 +46,10 @@ describe("LoginPage", () => {
     await renderArrival({ session: "expired" });
 
     expect(warning).toHaveBeenCalledExactlyOnceWith(
-      "Your session is no longer valid. Sign in again to continue.",
-      expect.anything(),
+      "Session expired",
+      expect.objectContaining({
+        description: "Sign in again to access the platform.",
+      }),
     );
   });
 
@@ -60,8 +62,10 @@ describe("LoginPage", () => {
     await renderArrival({ session: "required" });
 
     expect(warning).toHaveBeenCalledExactlyOnceWith(
-      "Sign in to open that page.",
-      expect.anything(),
+      "Sign in required",
+      expect.objectContaining({
+        description: "Sign in to access the platform.",
+      }),
     );
   });
 

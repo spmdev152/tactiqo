@@ -4,7 +4,10 @@ import { useEffect } from "react";
 
 import { toast } from "sonner";
 
-import { SESSION_LOSS_PARAMETER } from "@/features/auth/session-loss";
+import {
+  SESSION_LOSS_PARAMETER,
+  type SessionLossWarning,
+} from "@/features/auth/session-loss";
 
 const TOAST_ID = "session-loss";
 
@@ -12,8 +15,8 @@ const TOAST_ID = "session-loss";
  * Props of {@link SessionLossToast}.
  */
 export interface SessionLossToastProps {
-  /** Warning copy, already resolved from the closed set of known reasons. */
-  readonly message: string;
+  /** Warning already resolved from the closed set of known reasons. */
+  readonly warning: SessionLossWarning;
 }
 
 /**
@@ -46,16 +49,22 @@ export interface SessionLossToastProps {
  * sees the toast or dismisses it immediately loses an explanation, not the
  * ability to continue.
  */
-export function SessionLossToast({ message }: SessionLossToastProps) {
+export function SessionLossToast({ warning }: SessionLossToastProps) {
+  const { title, description } = warning;
+
   useEffect(() => {
-    toast.warning(message, { id: TOAST_ID, richColors: true });
+    toast.warning(title, {
+      description,
+      id: TOAST_ID,
+      richColors: true,
+    });
 
     const url = new URL(window.location.href);
 
     url.searchParams.delete(SESSION_LOSS_PARAMETER);
 
     window.history.replaceState(null, "", `${url.pathname}${url.search}`);
-  }, [message]);
+  }, [description, title]);
 
   return null;
 }

@@ -31,16 +31,38 @@ export const SESSION_LOSS_PARAMETER = "session";
 export type SessionLossReason = "expired" | "required";
 
 /**
+ * Warning shown for an involuntary arrival at the sign-in page.
+ */
+export interface SessionLossWarning {
+  /** Short statement of what happened, read first and often alone. */
+  readonly title: string;
+  /** What the visitor has to do about it. */
+  readonly description: string;
+}
+
+/**
  * Copy shown for each involuntary arrival.
  *
  * @remarks
  * `expired` deliberately collapses expired, revoked, forged, and unreachable
- * into one sentence. `getCurrentUser` cannot distinguish them, and naming which
+ * into one title. `getCurrentUser` cannot distinguish them, and naming which
  * one applied would leak backend state to an unauthenticated surface.
+ *
+ * `required` is not titled "Session expired", even though a browser dropping an
+ * expired cookie is the likeliest cause. The branch also covers a link or a
+ * bookmark followed by somebody who never had a session, and telling them one
+ * expired would be the same class of lie as telling somebody who just signed
+ * out to sign in again.
  */
-const SESSION_LOSS_MESSAGES: Record<SessionLossReason, string> = {
-  expired: "Your session is no longer valid. Sign in again to continue.",
-  required: "Sign in to open that page.",
+const SESSION_LOSS_WARNINGS: Record<SessionLossReason, SessionLossWarning> = {
+  expired: {
+    title: "Session expired",
+    description: "Sign in again to access the platform.",
+  },
+  required: {
+    title: "Sign in required",
+    description: "Sign in to access the platform.",
+  },
 };
 
 /**
@@ -50,7 +72,7 @@ const SESSION_LOSS_MESSAGES: Record<SessionLossReason, string> = {
  * @returns Whether the value names a known reason.
  */
 function isSessionLossReason(value: string): value is SessionLossReason {
-  return Object.hasOwn(SESSION_LOSS_MESSAGES, value);
+  return Object.hasOwn(SESSION_LOSS_WARNINGS, value);
 }
 
 /**
@@ -64,22 +86,22 @@ export function loginPathAfterSessionLoss(reason: SessionLossReason): string {
 }
 
 /**
- * Resolves the warning copy an arrival at the sign-in page deserves.
+ * Resolves the warning an arrival at the sign-in page deserves.
  *
  * @remarks
  * `Object.hasOwn` rather than `in`, so an inherited key such as `toString`
- * cannot resolve to a message. A repeated parameter arrives as an array and a
+ * cannot resolve to a warning. A repeated parameter arrives as an array and a
  * deliberate arrival carries nothing; both mean no toast.
  *
  * @param value - Raw parameter value, as `searchParams` supplies it.
- * @returns The message to show, or `null` when no toast is warranted.
+ * @returns The warning to show, or `null` when no toast is warranted.
  */
-export function sessionLossMessage(
+export function sessionLossWarning(
   value: string | string[] | undefined,
-): string | null {
+): SessionLossWarning | null {
   if (typeof value !== "string" || !isSessionLossReason(value)) {
     return null;
   }
 
-  return SESSION_LOSS_MESSAGES[value];
+  return SESSION_LOSS_WARNINGS[value];
 }

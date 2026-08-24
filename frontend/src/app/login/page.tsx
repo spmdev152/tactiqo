@@ -7,7 +7,7 @@ import { SignInPanel } from "@/features/auth/components/sign-in-panel";
 import { getCurrentUser } from "@/features/auth/server/get-current-user";
 import {
   SESSION_LOSS_PARAMETER,
-  sessionLossMessage,
+  sessionLossWarning,
 } from "@/features/auth/session-loss";
 
 /**
@@ -47,7 +47,7 @@ interface LoginPageProps {
  * bury the only thing the page exists for.
  *
  * The warning for an involuntary arrival is resolved here, on the server, so
- * the page hands its client child a message from a closed set and the
+ * the page hands its client child copy from a closed set and the
  * visitor-controllable parameter never reaches the DOM.
  *
  * @returns The sign-in page tree.
@@ -61,11 +61,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   const query = await searchParams;
 
-  const message = sessionLossMessage(query[SESSION_LOSS_PARAMETER]);
+  const warning = sessionLossWarning(query[SESSION_LOSS_PARAMETER]);
 
   return (
     <div className="grid flex-1 lg:grid-cols-2">
-      {message !== null && <SessionLossToast message={message} />}
+      {warning !== null && <SessionLossToast warning={warning} />}
 
       <main className="flex items-center justify-center px-6 py-16 sm:px-10">
         <div className="flex w-full max-w-sm flex-col gap-9">
