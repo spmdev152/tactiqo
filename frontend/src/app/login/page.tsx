@@ -4,11 +4,11 @@ import { redirect } from "next/navigation";
 import { LoginForm } from "@/features/auth/components/login-form";
 import { SessionLossToast } from "@/features/auth/components/session-loss-toast";
 import { SignInPanel } from "@/features/auth/components/sign-in-panel";
-import { getCurrentUser } from "@/features/auth/server/get-current-user";
 import {
   SESSION_LOSS_PARAMETER,
   sessionLossWarning,
-} from "@/features/auth/session-loss";
+} from "@/features/auth/domain/session-loss";
+import { getCurrentUser } from "@/features/auth/server/get-current-user";
 
 /**
  * Opts the route out of prerendering.

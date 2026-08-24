@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   loginPathAfterSessionLoss,
   sessionLossWarning,
-} from "@/features/auth/session-loss";
+} from "@/features/auth/domain/session-loss";
 
 describe("loginPathAfterSessionLoss", () => {
   /**

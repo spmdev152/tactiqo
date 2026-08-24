@@ -1,10 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
+import { SESSION_COOKIE_NAME } from "@/features/auth/domain/session-cookie-name";
 import {
   LOGIN_PATH,
   loginPathAfterSessionLoss,
-} from "@/features/auth/session-loss";
+} from "@/features/auth/domain/session-loss";
 
 const PUBLIC_PATHS: Record<string, true> = {
   [LOGIN_PATH]: true,

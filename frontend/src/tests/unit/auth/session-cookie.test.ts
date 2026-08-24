@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SESSION_COOKIE_NAME } from "@/features/auth/domain/session-cookie-name";
 import {
   clearSessionCookie,
   readSessionToken,
   writeSessionCookie,
 } from "@/features/auth/server/session-cookie";
-import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
 
 // The server-only marker throws outside the React Server condition, which Vitest does not set.
 vi.mock("server-only", () => ({}));

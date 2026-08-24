@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
+import { loginPathAfterSessionLoss } from "@/features/auth/domain/session-loss";
 import { getCurrentUser } from "@/features/auth/server/get-current-user";
-import { loginPathAfterSessionLoss } from "@/features/auth/session-loss";
 import { PlatformHealthCard } from "@/features/health/components/platform-health-card";
 import { getPlatformHealth } from "@/features/health/server/get-platform-health";
 

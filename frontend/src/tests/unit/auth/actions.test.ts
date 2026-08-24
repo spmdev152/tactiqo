@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SESSION_LOSS_PARAMETER } from "@/features/auth/domain/session-loss";
 import { signInAction, signOutAction } from "@/features/auth/server/actions";
-import { SESSION_LOSS_PARAMETER } from "@/features/auth/session-loss";
 import type { SignInResult } from "@/features/auth/types/sign-in-result";
 
 const EMAIL = "ada@example.com";

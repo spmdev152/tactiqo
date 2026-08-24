@@ -2,7 +2,7 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
-import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
+import { SESSION_COOKIE_NAME } from "@/features/auth/domain/session-cookie-name";
 import { isSessionCookieInsecure } from "@/lib/env";
 
 /**

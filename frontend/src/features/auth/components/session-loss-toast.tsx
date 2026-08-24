@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   SESSION_LOSS_PARAMETER,
   type SessionLossWarning,
-} from "@/features/auth/session-loss";
+} from "@/features/auth/domain/session-loss";
 
 const TOAST_ID = "session-loss";
 

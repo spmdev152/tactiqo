@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
+import { SESSION_COOKIE_NAME } from "@/features/auth/domain/session-cookie-name";
 import { proxy } from "@/proxy";
 
 const ORIGIN = "https://tactiqo.test";
