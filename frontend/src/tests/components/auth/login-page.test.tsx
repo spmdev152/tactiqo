@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import LoginPage from "@/app/login/page";
+import LoginPage from "@/app/(public)/login/page";
 
 const { getCurrentUser, readSessionToken, redirect, replace, warning } =
   vi.hoisted(() => ({

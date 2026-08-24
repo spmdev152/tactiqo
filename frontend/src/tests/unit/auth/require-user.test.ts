@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import HomePage from "@/app/page";
+import { requireUser } from "@/features/auth/server/require-user";
 
 const { getCurrentUser, redirect } = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
@@ -14,11 +14,7 @@ vi.mock("next/navigation", () => ({ redirect }));
 
 vi.mock("@/features/auth/server/get-current-user", () => ({ getCurrentUser }));
 
-vi.mock("@/features/health/server/get-platform-health", () => ({
-  getPlatformHealth: vi.fn().mockResolvedValue({ reported: false }),
-}));
-
-describe("HomePage", () => {
+describe("requireUser", () => {
   beforeEach(() => {
     getCurrentUser.mockReset();
     redirect.mockReset();
@@ -30,26 +26,28 @@ describe("HomePage", () => {
 
   /**
    * GIVEN a session cookie the backend refused to confirm, whether expired, revoked, forged or unreachable
-   * WHEN the landing page renders
+   * WHEN an authenticated surface resolves the current user
    * THEN the visitor is sent to a login page marked as an involuntary arrival
    */
   it("sends an unusable session to a marked login page", async () => {
     getCurrentUser.mockResolvedValue(null);
 
-    await expect(HomePage()).rejects.toThrow("NEXT_REDIRECT");
+    await expect(requireUser()).rejects.toThrow("NEXT_REDIRECT");
 
     expect(redirect).toHaveBeenCalledExactlyOnceWith("/login?session=lost");
   });
 
   /**
    * GIVEN a session the backend confirmed
-   * WHEN the landing page renders
-   * THEN nothing navigates
+   * WHEN an authenticated surface resolves the current user
+   * THEN the user is returned and nothing navigates
    */
-  it("keeps a confirmed session on the landing page", async () => {
+  it("returns the confirmed user", async () => {
     getCurrentUser.mockResolvedValue({ email: "ada@example.com" });
 
-    await HomePage();
+    await expect(requireUser()).resolves.toStrictEqual({
+      email: "ada@example.com",
+    });
 
     expect(redirect).not.toHaveBeenCalled();
   });
