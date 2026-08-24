@@ -1,5 +1,3 @@
-import { Suspense } from "react";
-
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -15,10 +13,7 @@ import { readSessionToken } from "@/features/auth/server/session-cookie";
  * @remarks
  * Already true implicitly, through the `cookies()` call `getCurrentUser`
  * reaches, and stated so the dependency on the request is visible rather than
- * inferred from a transitive call. The `Suspense` boundary below covers the
- * same ground from the other side: the notice reads `useSearchParams`, which
- * needs a boundary on any route that is not dynamic, so it keeps this page
- * building if either reason is ever removed.
+ * inferred from a transitive call.
  */
 export const dynamic = "force-dynamic";
 
@@ -35,10 +30,11 @@ export const dynamic = "force-dynamic";
  * bury the only thing the page exists for.
  *
  * The notice is mounted on every render rather than only when a warning
- * applies, and it decides for itself from the live URL. Rendering it
- * conditionally made the toast depend on this function running per arrival,
- * which the client router's segment cache does not guarantee; the component
- * documents that failure. All the server owes it is whether this request
+ * applies, and it watches the address bar itself. Neither this function running
+ * per arrival nor any prop it passes turned out to be a dependable signal that
+ * an arrival happened: the client router may answer a navigation from a segment
+ * cache whose key excludes search params, so `/login` and `/login?session=lost`
+ * share an entry. All the server owes the notice is whether this request
  * carried a session token, which is what makes one of the two messages true.
  *
  * @returns The sign-in page tree.
@@ -54,9 +50,7 @@ export default async function LoginPage() {
 
   return (
     <div className="grid flex-1 lg:grid-cols-2">
-      <Suspense>
-        <SessionLossToast sessionTokenPresent={sessionTokenPresent} />
-      </Suspense>
+      <SessionLossToast sessionTokenPresent={sessionTokenPresent} />
 
       <main className="flex items-center justify-center px-6 py-16 sm:px-10">
         <div className="flex w-full max-w-sm flex-col gap-9">

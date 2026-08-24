@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import { toast } from "sonner";
 
@@ -13,6 +13,10 @@ import {
 } from "@/features/auth/domain/session-loss";
 
 const TOAST_ID = "session-loss";
+
+const POLL_INTERVAL_MS = 150;
+
+const REARM_DELAY_MS = 750;
 
 /**
  * Props of {@link SessionLossToast}.
@@ -35,38 +39,43 @@ export interface SessionLossToastProps {
  * cleanup a refresh would re-fire the warning and a bookmark would carry it
  * forever.
  *
- * Three properties make it fire on every arrival, and each one replaced a
- * version that did not.
+ * It watches the address bar on a timer, which is the boring answer after four
+ * clever ones failed. Every signal React and the router can offer proved able
+ * to go stale, and each failure looked identical from the outside: the marker
+ * stranded in the url, no toast, and a full reload the only cure.
  *
- * It is mounted on every render of the login page, not only when a warning
- * applies. Mounting it conditionally made the toast depend on the server
- * re-rendering per arrival, and the client router is entitled to answer a
- * navigation from its cached segment: that cache key excludes search params, so
- * `/login` and `/login?session=lost` can share an entry. When it did, the page
- * function never ran, the component never mounted, and the arrival passed in
- * silence with the marker left in the address bar until a full reload.
+ * - Keyed on the resolved copy, the effect ran once. The copy is identical on
+ *   every arrival for the same cause, and a search-param change does not remount
+ *   a page subtree.
+ * - Mounted only when a warning applied, the component depended on the page
+ *   function running per arrival, which the router does not promise.
+ * - Guarded on `useSearchParams`, it could run once against an empty set, since
+ *   Next may report that on a boundary's first client render and fill it in
+ *   later.
+ * - Triggered by `useSearchParams` or by a prop from the server, it went quiet
+ *   for good after a handful of client-side navigations. Both channels can
+ *   freeze: the router stops publishing a fresh context, and the segment cache
+ *   key excludes search params, so `/login` and `/login?session=lost` share an
+ *   entry and the props stop changing with them.
  *
- * The address bar decides whether to fire; `useSearchParams` only says when to
- * look again. That split is the fix for the last and longest-lived failure.
- * Next lets the hook return an empty set on the first client render of a
- * boundary and fill it in on a later one, so an effect that *guarded* on the
- * hook could run once with no marker and, if that later render never came,
- * never look again — no toast, no cleanup, marker stranded, and a reload the
- * only cure. A screen recording pinned it: the same navigation, repeated,
- * warned at 13.5s and stayed silent at 8s and 16.5s. `window.location` cannot
- * be empty when the browser is showing the URL, so the guard reads that, while
- * the hook stays in the dependency list to re-arm the effect on the next
- * arrival.
+ * `window.location` is the one source none of that can stale, because it is
+ * whatever the browser is showing. Reading it on an interval also covers
+ * arrivals that fire no React update at all, including a back-forward cache
+ * restore. The cost is a string comparison a few times a second, on one route,
+ * and it replaces every assumption about framework internals with an
+ * observation.
  *
- * Keying it on the copy instead was an earlier version of the same mistake: the
- * copy is identical on every arrival for the same cause, and a search-param
- * change does not remount a page subtree, so the effect ran once and never
- * again.
+ * One arrival gives one toast because the watch ignores the marker for a short
+ * window after acting, which is what stops it re-firing while the cleanup
+ * navigation is still in flight. A window rather than a flag cleared on seeing a
+ * clean url, because that flag made re-arming depend on a tick landing between
+ * two arrivals: an arrival closer than one interval would have been swallowed
+ * for good. With a window the worst case is a marker that lingers for the rest
+ * of it and is then picked up by the next tick, so the page always heals.
  *
- * The write is the router's, which is what keeps it from disagreeing with the
- * hook. `history.replaceState` writes the address bar behind the router's back,
- * so the marker could stay `lost` in React's view after the URL had lost it,
- * and then the next arrival changed no dependency and fired nothing.
+ * The write is still the router's. `history.replaceState` writes the address bar
+ * behind the router's back, which desynchronised it from the router's own view
+ * of the url.
  *
  * The copy arrives as a boolean rather than as resolved text so that a cached
  * segment cannot withhold it. That boolean is server state and could in
@@ -81,19 +90,14 @@ export interface SessionLossToastProps {
  * The request waits for the next animation frame, which is what makes the toast
  * animate in. Sonner enters by transition rather than by keyframes: a toast is
  * inserted with `data-mounted="false"` and flipped to `true` from its own
- * effect. Asking for it directly from this effect puts both steps inside one
+ * effect. Asking for it directly from the watch puts both steps inside one
  * React commit cycle, so the browser first paints the toast already mounted,
  * the transition has no start value to interpolate from, and only the exit
- * animates. Leaving the effect flush first gives the pre-mount state a paint.
+ * animates.
  *
  * The cleanup runs inside the frame, after the request, so the pair is atomic.
  * Cleaning first would lose the warning outright if the component unmounted
  * before the frame ran, rather than merely deferring it.
- *
- * The fixed identifier is insurance against a real remount, not against React's
- * development double-invoke: the cleanup cancels the first frame before it can
- * run, so only one request is ever made. Sonner updates a toast it already
- * shows rather than stacking a duplicate.
  *
  * The warning is deliberately not the only signal. The page it appears on is
  * the sign-in form, headed "Sign in to your account", so a visitor who never
@@ -104,31 +108,48 @@ export function SessionLossToast({
   sessionTokenPresent,
 }: SessionLossToastProps) {
   const router = useRouter();
-  const marker = useSearchParams().get(SESSION_LOSS_PARAMETER);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
+    let frame = 0;
+    let firedAt = 0;
 
-    if (url.searchParams.get(SESSION_LOSS_PARAMETER) !== SESSION_LOSS_VALUE) {
-      return;
-    }
+    const watch = () => {
+      const url = new URL(window.location.href);
 
-    const frame = requestAnimationFrame(() => {
-      const { title, description } = sessionLossWarning(sessionTokenPresent);
+      if (url.searchParams.get(SESSION_LOSS_PARAMETER) !== SESSION_LOSS_VALUE) {
+        return;
+      }
 
-      toast.warning(title, {
-        description,
-        id: TOAST_ID,
-        richColors: true,
+      if (Date.now() - firedAt < REARM_DELAY_MS) {
+        return;
+      }
+
+      firedAt = Date.now();
+
+      frame = requestAnimationFrame(() => {
+        const { title, description } = sessionLossWarning(sessionTokenPresent);
+
+        toast.warning(title, {
+          description,
+          id: TOAST_ID,
+          richColors: true,
+        });
+
+        url.searchParams.delete(SESSION_LOSS_PARAMETER);
+
+        router.replace(`${url.pathname}${url.search}`, { scroll: false });
       });
+    };
 
-      url.searchParams.delete(SESSION_LOSS_PARAMETER);
+    watch();
 
-      router.replace(`${url.pathname}${url.search}`, { scroll: false });
-    });
+    const timer = setInterval(watch, POLL_INTERVAL_MS);
 
-    return () => cancelAnimationFrame(frame);
-  }, [marker, router, sessionTokenPresent]);
+    return () => {
+      clearInterval(timer);
+      cancelAnimationFrame(frame);
+    };
+  }, [router, sessionTokenPresent]);
 
   return null;
 }

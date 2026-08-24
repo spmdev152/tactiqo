@@ -3,16 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionLossToast } from "@/features/auth/components/session-loss-toast";
 
-const { hookSearch, replace, warning } = vi.hoisted(() => ({
-  hookSearch: { value: null as string | null },
-  replace: vi.fn<(href: string, options?: { scroll?: boolean }) => void>(),
-  warning: vi.fn(),
-}));
+const { hookSearch, replace, router, warning } = vi.hoisted(() => {
+  const replaceMock =
+    vi.fn<(href: string, options?: { scroll?: boolean }) => void>();
+
+  return {
+    hookSearch: { value: null as string | null },
+    replace: replaceMock,
+    // Next memoizes the router, so a fresh object per render would re-run the
+    // effect on every render and hide whether its dependencies are right.
+    router: { replace: replaceMock },
+    warning: vi.fn(),
+  };
+});
 
 vi.mock("sonner", () => ({ toast: { warning } }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => router,
   useSearchParams: () =>
     new URLSearchParams(hookSearch.value ?? window.location.search),
 }));
@@ -66,6 +74,31 @@ describe("SessionLossToast", () => {
         expect.anything(),
       ),
     );
+
+    expect(replace).toHaveBeenCalledExactlyOnceWith("/login", {
+      scroll: false,
+    });
+  });
+
+  /**
+   * GIVEN an arrival that produces no React update at all, as a cached segment does
+   * WHEN the address bar alone starts carrying the marker
+   * THEN the warning still fires, because the watch reads the address bar rather than state
+   */
+  it("warns on an arrival that re-renders nothing", async () => {
+    arriveWith("");
+
+    render(<SessionLossToast sessionTokenPresent={false} />);
+
+    await settleDeferredRequest();
+
+    expect(warning).not.toHaveBeenCalled();
+
+    window.history.replaceState(null, "", "/login?session=lost");
+
+    await waitFor(() => expect(warning).toHaveBeenCalledOnce(), {
+      timeout: 3000,
+    });
 
     expect(replace).toHaveBeenCalledExactlyOnceWith("/login", {
       scroll: false,
@@ -205,18 +238,19 @@ describe("SessionLossToast", () => {
    * THEN the warning fires again rather than once per visit
    */
   it("warns again when the marker returns", async () => {
-    const view = render(<SessionLossToast sessionTokenPresent />);
+    render(<SessionLossToast sessionTokenPresent />);
 
     await waitFor(() => expect(warning).toHaveBeenCalledOnce());
 
     arriveWith("");
-    view.rerender(<SessionLossToast sessionTokenPresent />);
+
     await settleDeferredRequest();
 
     arriveWith("session=lost");
-    view.rerender(<SessionLossToast sessionTokenPresent />);
 
-    await waitFor(() => expect(warning).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(warning).toHaveBeenCalledTimes(2), {
+      timeout: 3000,
+    });
   });
 
   /**
