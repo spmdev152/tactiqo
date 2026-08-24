@@ -156,6 +156,16 @@ One caveat makes this rarely what you want. The non-local settings modules set `
 
 If you only want local development against remote data, do not change the settings module. Stay on `config.settings.local` and point `POSTGRES_*` and `REDIS_URL` at the remote services in your `.env.local`.
 
+## Session lifecycle
+
+A session is a row in `accounts.AuthSession` holding the SHA-256 digest of an opaque bearer token, never the token, and it authenticates for 14 days. `resolve_session` re-reads the row on every request, so revocation, expiry, and a deactivated account all take effect immediately.
+
+Setting a new password ends the sessions issued under the old one. The revocation hangs on the write rather than on a caller, so the admin, `changepassword`, and a bare `set_password` followed by a save all reach it through one `post_save` receiver: the obvious response to a suspected compromise is the effective one, and no future entry point can forget to call it. It fires after the row is written, so a failed write revokes nothing, and it distinguishes a new credential from a re-encoded one — Django clears the raw password before saving a hash it upgraded to the preferred hasher, so signing in against an outdated hasher does not sign anybody out. Revocation only ever stamps a row that carries no instant yet, so the first revocation of a session is permanent.
+
+Nothing else deletes a row, so a Beat entry does. `accounts-purge-expired-sessions` runs `accounts.purge_expired_sessions` hourly at minute 15 and deletes every session whose expiry has passed. It is one conditional delete, which is what makes it idempotent and safe to run beside itself: a row another run already removed simply stops matching. `expires_at` carries an index for that query and for nothing else. Two loose ends land here rather than needing machinery of their own: a sign-out whose revocation call never reached the API still cleared the cookie, and a second sign-in orphans the row of the first.
+
+A revoked session is kept until its own expiry rather than deleted with the rest. It costs nothing and it keeps a record of the revocation for as long as the token it invalidated could still have been presented.
+
 ## Quality gates
 
 The same commands run locally and in GitHub Actions. Each backend job installs only the dependency groups it needs, and CI sets `UV_NO_SYNC=1` so that `uv run` uses the environment as synced instead of silently re-adding the aggregate `dev` group.
