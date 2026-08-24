@@ -3,6 +3,7 @@ import { Antonio, Fira_Code, Geist } from "next/font/google";
 
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 import "./globals.css";
 
@@ -54,6 +55,10 @@ interface RootLayoutProps {
  * attributes like `cz-shortcut-listen` onto the element before React hydrates.
  * React reports that as an unfixable attribute mismatch even though the
  * application renders identically on both sides.
+ *
+ * `Toaster` is mounted once, here and inside `ThemeProvider`, because Sonner
+ * reads `useTheme` to pick its own light or dark surface and a second host
+ * would render every toast twice.
  */
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
@@ -67,6 +72,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
           <SiteHeader />
 
           {children}
+
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

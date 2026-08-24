@@ -2,8 +2,37 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/features/auth/components/login-form";
+import { SessionLossToast } from "@/features/auth/components/session-loss-toast";
 import { SignInPanel } from "@/features/auth/components/sign-in-panel";
 import { getCurrentUser } from "@/features/auth/server/get-current-user";
+import {
+  SESSION_LOSS_PARAMETER,
+  sessionLossMessage,
+} from "@/features/auth/session-loss";
+
+/**
+ * Opts the route out of prerendering.
+ *
+ * @remarks
+ * Already true implicitly, through the `cookies()` call `getCurrentUser`
+ * reaches, and now for a second reason: the page reads `searchParams` to decide
+ * whether an involuntary session loss has to be reported. Stating it keeps the
+ * dependency on the request visible instead of leaving it to be inferred from a
+ * transitive call.
+ */
+export const dynamic = "force-dynamic";
+
+/**
+ * Props of {@link LoginPage}.
+ */
+interface LoginPageProps {
+  /**
+   * Query the visitor arrived with. It may carry a session-loss reason, which
+   * is visitor-controllable and therefore only ever resolved against a closed
+   * set rather than rendered.
+   */
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
 
 /**
  * Renders the sign-in page and turns an already-authenticated visitor away.
@@ -17,17 +46,27 @@ import { getCurrentUser } from "@/features/auth/server/get-current-user";
  * `lg`, because a decorative half screen pushed above the fold on a phone would
  * bury the only thing the page exists for.
  *
+ * The warning for an involuntary arrival is resolved here, on the server, so
+ * the page hands its client child a message from a closed set and the
+ * visitor-controllable parameter never reaches the DOM.
+ *
  * @returns The sign-in page tree.
  */
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: LoginPageProps) {
   const user = await getCurrentUser();
 
   if (user !== null) {
     redirect("/");
   }
 
+  const query = await searchParams;
+
+  const message = sessionLossMessage(query[SESSION_LOSS_PARAMETER]);
+
   return (
     <div className="grid flex-1 lg:grid-cols-2">
+      {message !== null && <SessionLossToast message={message} />}
+
       <main className="flex items-center justify-center px-6 py-16 sm:px-10">
         <div className="flex w-full max-w-sm flex-col gap-9">
           <header className="flex flex-col gap-3">
