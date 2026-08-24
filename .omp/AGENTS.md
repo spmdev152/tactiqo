@@ -657,6 +657,17 @@ refactor(fixtures): extract repository query boundary
 ops(ci): add pyright quality gate
 ```
 
+### Issue and pull request titles
+Conventional Commits governs commit messages only. An issue or pull request title is a short, descriptive noun phrase naming the work, with no `type(scope):` prefix and no imperative verb copied from a commit. Reusing a commit subject is the mistake to avoid: a reader scanning a list of issues wants the subject, not the change type, and the type is already carried by every commit in the branch and by the labels.
+
+| Instead of | Write |
+| --- | --- |
+| `feat(auth): add email and password sign-in across both services` | `Email and password sign-in` |
+| `feat(auth): rate-limit the sign-in endpoint` | `Sign-in rate limiting` |
+| `ops(ci): gate compose validity, test documentation and test placement` | `CI gates for compose, test docs and test placement` |
+
+Start with an uppercase letter, keep it under roughly sixty characters, and put the detail in the body where it belongs. The body still carries the scope, the acceptance criteria and the technical implications.
+
 ## Git branch convention
 Branch names follow Conventional Branch 1.1.0:
 `https://conventionalbranch.org/`
