@@ -160,6 +160,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     -------
     save(force_insert=False, force_update=False, using=None, update_fields=None) -> None
         Normalize the address before writing the row.
+    has_new_password() -> bool
+        Report whether the credential of the account was just replaced.
     """
 
     email = models.EmailField(unique=True, verbose_name="email address")
@@ -173,6 +175,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     EMAIL_FIELD = "email"
     REQUIRED_FIELDS: ClassVar[list[str]] = []
+
+    # django-stubs omits the attribute `AbstractBaseUser.set_password` writes and
+    # `save` clears, which `has_new_password` reads. The annotation binds nothing
+    # at runtime and stays invisible to the model metaclass.
+    _password: str | None
 
     class Meta(AbstractBaseUser.Meta, PermissionsMixin.Meta):
         """
@@ -235,6 +242,25 @@ class User(AbstractBaseUser, PermissionsMixin):
             using=using,
             update_fields=update_fields,
         )
+
+    def has_new_password(self) -> bool:
+        """
+        Report whether the credential of the account was just replaced.
+
+        ``AbstractBaseUser.set_password`` keeps the raw password on the instance
+        and clears it only once ``save`` has written the row, so the value is
+        present exactly while a save is storing a credential the account did not
+        have before. Django draws the same line itself: the setter that re-hashes
+        a password verified against an outdated hasher clears the value before
+        saving, because a hash upgrade is not a password change.
+
+        Returns
+        -------
+        bool
+            ``True`` while a save is writing a new password of the account.
+        """
+
+        return self._password is not None
 
 
 class AuthSession(models.Model):
