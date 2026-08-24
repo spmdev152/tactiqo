@@ -12,6 +12,21 @@ const { warning } = vi.hoisted(() => ({ warning: vi.fn() }));
 
 vi.mock("sonner", () => ({ toast: { warning } }));
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
+
+/**
+ * Waits for the frame and the task the notice defers its request across.
+ */
+function settleDeferredRequest(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+
+  requestAnimationFrame(() => setTimeout(resolve, 0));
+
+  return promise;
+}
+
 /**
  * Places the browser on an arrival at the login page.
  *
@@ -24,13 +39,13 @@ function arriveWith(query: string): void {
 describe("SessionLossToast", () => {
   beforeEach(() => {
     warning.mockReset();
-    arriveWith("session=expired");
+    arriveWith("session=lost");
   });
 
   /**
    * GIVEN a visitor who arrived at the login page having lost their session
    * WHEN the notice mounts
-   * THEN title and description are requested as a themed warning, once painted, under a stable identifier
+   * THEN title and description are requested as a themed warning under a stable identifier
    */
   it("requests a warning toast for the resolved copy", async () => {
     render(<SessionLossToast warning={WARNING} />);
@@ -58,28 +73,44 @@ describe("SessionLossToast", () => {
   });
 
   /**
-   * GIVEN the reason still present in the address bar
+   * GIVEN the marker still present in the address bar
    * WHEN the toast has been requested
    * THEN the parameter is dropped so a refresh cannot repeat the warning
    */
-  it("cleans the reason out of the url", () => {
+  it("cleans the marker out of the url", async () => {
     render(<SessionLossToast warning={WARNING} />);
 
+    await waitFor(() => expect(window.location.search).toBe(""));
+
     expect(window.location.pathname).toBe("/login");
-    expect(window.location.search).toBe("");
   });
 
   /**
-   * GIVEN a query carrying the reason alongside an unrelated parameter
+   * GIVEN a query carrying the marker alongside an unrelated parameter
    * WHEN the toast has been requested
-   * THEN only the reason is dropped
+   * THEN only the marker is dropped
    */
-  it("keeps every other parameter while cleaning the reason", () => {
-    arriveWith("session=required&email=ada");
+  it("keeps every other parameter while cleaning the marker", async () => {
+    arriveWith("session=lost&email=ada");
 
     render(<SessionLossToast warning={WARNING} />);
 
-    expect(window.location.search).toBe("?email=ada");
+    await waitFor(() => expect(window.location.search).toBe("?email=ada"));
+  });
+
+  /**
+   * GIVEN the marker already cleaned, as it is after the first arrival
+   * WHEN the notice re-renders without it
+   * THEN nothing is requested, because only a marked arrival warrants a toast
+   */
+  it("requests nothing once the arrival is no longer marked", async () => {
+    window.history.replaceState(null, "", "/login");
+
+    render(<SessionLossToast warning={WARNING} />);
+
+    await settleDeferredRequest();
+
+    expect(warning).not.toHaveBeenCalled();
   });
 
   /**
