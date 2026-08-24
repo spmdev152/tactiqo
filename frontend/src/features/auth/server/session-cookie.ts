@@ -2,19 +2,28 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
-import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
+import { SESSION_COOKIE_NAME } from "@/features/auth/domain/session-cookie-name";
 import { isSessionCookieInsecure } from "@/lib/env";
 
 /**
  * Reads the session token carried by the current request.
  *
+ * @remarks
+ * An empty value counts as no token. `tactiqo_session=` is a cookie the
+ * browser still sends and `cookies().get` reports as `""`, so returning it
+ * verbatim would spend a backend round trip on a token that cannot
+ * authenticate anything, and would tell the login page a session was lost when
+ * none was ever held.
+ *
  * @returns The opaque session token, or `null` when the request carries no
- * session cookie.
+ * usable session cookie.
  */
 export async function readSessionToken(): Promise<string | null> {
   const cookieStore = await cookies();
 
-  return cookieStore.get(SESSION_COOKIE_NAME)?.value ?? null;
+  const value = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+
+  return value === undefined || value === "" ? null : value;
 }
 
 /**

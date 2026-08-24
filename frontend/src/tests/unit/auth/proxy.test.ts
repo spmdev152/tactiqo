@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_COOKIE_NAME } from "@/features/auth/session-cookie-name";
+import { SESSION_COOKIE_NAME } from "@/features/auth/domain/session-cookie-name";
 import { proxy } from "@/proxy";
 
 const ORIGIN = "https://tactiqo.test";
@@ -30,13 +30,15 @@ describe("proxy", () => {
   /**
    * GIVEN a request for a protected path without a session cookie
    * WHEN the proxy handles it
-   * THEN it is redirected to the login page
+   * THEN it is redirected to the login page, marked involuntary, so the form is not unexplained
    */
-  it("sends an uncredentialed request to the login page", () => {
+  it("sends an uncredentialed request to a marked login page", () => {
     const response = proxy(navigationTo("/"));
 
     expect(response.status).toBe(TEMPORARY_REDIRECT);
-    expect(response.headers.get("location")).toBe(`${ORIGIN}/login`);
+    expect(response.headers.get("location")).toBe(
+      `${ORIGIN}/login?session=lost`,
+    );
   });
 
   /**

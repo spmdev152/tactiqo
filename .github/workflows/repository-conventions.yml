@@ -37,7 +37,15 @@ jobs:
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
             commits=$(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA")
-          elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "$empty_sha" ]; then
+          # A force-push reports the replaced commit as `before`, and no ref
+          # points at it any more, so the clone does not have it and the range
+          # would abort the step under `set -e`. Fall through to the tip in that
+          # case: an amend, rebase or squash is a normal way to fix a subject.
+          elif
+            [ -n "${BEFORE_SHA:-}" ] &&
+            [ "$BEFORE_SHA" != "$empty_sha" ] &&
+            git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null
+          then
             commits=$(git rev-list --no-merges "$BEFORE_SHA..$CURRENT_SHA")
           else
             commits=$(git rev-list --no-merges -n 1 "$CURRENT_SHA")

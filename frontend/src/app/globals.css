@@ -25,6 +25,8 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
@@ -79,6 +81,27 @@
   --accent-foreground: oklch(0.3394 0.0441 1.7583);
   --destructive: oklch(0.6332 0.1578 22.6734);
   --destructive-foreground: oklch(0.9777 0.0041 301.4256);
+
+  /* `amethyst-haze` ships no warning token, so one is defined here rather than
+     borrowed from `--chart-4`: a data-visualisation colour restyled later would
+     silently restyle every warning surface with it. It does borrow that amber's
+     hue and stays near the palette's chroma register, so the two themes are one
+     colour in two coats rather than an orange and a yellow, and so a solid
+     warning is not louder than `--primary`.
+
+     This is a surface pair and the only one in the palette that does not flip
+     polarity: the amber is light in both themes, so it takes the dark plum
+     foreground in both, reaching 8.29:1 here and 9.95:1 in `.dark`. It is
+     deliberately not modelled on `--destructive`, which this codebase uses as a
+     tint behind saturated text rather than as a solid fill. That idiom is not
+     available here: `--warning` as text on this theme's background is 1.98:1,
+     so `text-warning` is not sanctioned on a light surface.
+
+     `components/ui/sonner.tsx` maps the pair onto Sonner's `--warning-*`
+     rich-colour variables. */
+  --warning: oklch(0.7686 0.12 76.8292);
+  --warning-foreground: oklch(0.2166 0.0215 292.8474);
+
   --border: oklch(0.8447 0.0226 300.1421);
   --input: oklch(0.9329 0.0124 301.2783);
   --ring: oklch(0.6104 0.0767 299.7335);
@@ -129,6 +152,11 @@
   --accent-foreground: oklch(0.8391 0.0692 2.6681);
   --destructive: oklch(0.6875 0.142 21.4566);
   --destructive-foreground: oklch(0.2166 0.0215 292.8474);
+  /* Lighter than the light theme's amber, same hue and chroma: the surface has
+     to lift off a dark background, and the foreground stays dark because the
+     surface is still light. */
+  --warning: oklch(0.8214 0.12 76.8292);
+  --warning-foreground: oklch(0.2166 0.0215 292.8474);
   --border: oklch(0.3063 0.0359 293.3367);
   --input: oklch(0.2847 0.0346 291.2726);
   --ring: oklch(0.7058 0.0777 302.0489);
@@ -169,6 +197,50 @@
 .dark [data-settling] [data-slot="switch-thumb"] {
   background-color: var(--color-primary-foreground) !important;
   translate: calc(100% + 2px) !important;
+}
+
+/* Rich colours force the description to inherit the title's colour, so weight
+   is the only separation left between two lines Sonner renders at the same
+   size. Sonner sets `font-weight` on `[data-title]` from
+   `[data-sonner-toast][data-styled='true'] [data-title]`, which is three
+   attribute selectors, and it appends its stylesheet after this one, so a tie
+   on specificity loses. Hence the fourth attribute rather than a utility class
+   or a three-selector restatement. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-title] {
+  font-weight: 600;
+}
+
+/* Sonner paints the close control as a bordered circle filled with the toast's
+   own surface, which reads as a second chip stuck to a corner. Only the glyph
+   is wanted, so the box is removed and the icon inherits the toast's text
+   colour, keeping whatever contrast the surface already passes.
+
+   `!important` rather than a longer selector: the winning declarations come
+   from `[data-rich-colors='true'][data-sonner-toast][data-type='warning']
+   [data-close-button]` and from a `:hover` pair that reaches five compound
+   parts, and Sonner appends its stylesheet after this one, so out-specifying
+   every one of them would take a selector nobody could maintain.
+
+   The resting opacity is measured, not chosen for looks: the glyph is a
+   non-text control, so it needs 3:1 against the surface it sits on. Composited
+   over the amber, the dark plum gives 2.60:1 at 0.7 and 3.96:1 at 0.85, so 0.7
+   would have been a regression dressed as restraint. `position` and `inset` are
+   left to Sonner's own custom properties, which `components/ui/sonner.tsx`
+   sets. */
+[data-sonner-toaster] [data-sonner-toast] [data-close-button],
+[data-sonner-toaster] [data-sonner-toast]:hover [data-close-button]:hover {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: inherit !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-close-button] {
+  opacity: 0.85;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-close-button]:hover,
+[data-sonner-toaster] [data-sonner-toast] [data-close-button]:focus-visible {
+  opacity: 1;
 }
 
 /* `disableTransitionOnChange` injects `*, *::before, *::after { transition: none

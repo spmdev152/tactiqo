@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { LOGIN_PATH } from "@/features/auth/domain/session-loss";
 import { credentialsSchema } from "@/features/auth/schemas/credentials";
 import { writeSessionCookie } from "@/features/auth/server/session-cookie";
 import { signIn } from "@/features/auth/server/sign-in";
@@ -51,9 +52,14 @@ export async function signInAction(
 
 /**
  * Signs the current visitor out and returns them to the login page.
+ *
+ * @remarks
+ * The destination carries no session-loss marker, which is what keeps the login
+ * page silent: this visitor asked to leave, and telling them to sign in again
+ * would be the one message a real person would resent.
  */
 export async function signOutAction(): Promise<void> {
   await signOut();
 
-  redirect("/login");
+  redirect(LOGIN_PATH);
 }

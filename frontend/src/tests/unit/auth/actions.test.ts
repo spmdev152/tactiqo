@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SESSION_LOSS_PARAMETER } from "@/features/auth/domain/session-loss";
 import { signInAction, signOutAction } from "@/features/auth/server/actions";
 import type { SignInResult } from "@/features/auth/types/sign-in-result";
 
@@ -99,5 +100,18 @@ describe("signOutAction", () => {
 
     expect(signOut).toHaveBeenCalledOnce();
     expect(redirect).toHaveBeenCalledWith("/login");
+  });
+
+  /**
+   * GIVEN a visitor who asked to sign out rather than losing the session
+   * WHEN the sign-out action runs
+   * THEN the redirect carries no session-loss reason, so nothing warns them to sign in again
+   */
+  it("returns to a login page that says nothing about a lost session", async () => {
+    await signOutAction();
+
+    const [target] = redirect.mock.calls[0] ?? [];
+
+    expect(target).not.toContain(SESSION_LOSS_PARAMETER);
   });
 });
