@@ -91,7 +91,7 @@ The `web` container runs as its image's `bun` user, uid and gid 1000, rather tha
 
 All variables are documented in `.env.example`. Copy the file to `.env.local` and keep real credentials out of version control. Every `docker compose` command takes `--env-file .env.local`, and that flag is the single thing that selects an environment.
 
-`compose.yml` declares explicitly which variables each service receives, so the exposure is readable at a glance and verifiable: `api`, `worker`, and `beat` receive the 16 variables the Django settings actually read, `postgres` receives only its 3 credentials, `redis` receives none, and `web` receives only `BACKEND_API_BASE_URL` and `SESSION_COOKIE_INSECURE`. Neither of those is a credential, so the frontend container still never holds `SPORTMONKS_API_TOKEN` or `POSTGRES_PASSWORD`. Every variable is declared as `${NAME?...}`, so a forgotten `--env-file` fails immediately with `required variable ... is missing a value` instead of silently starting a stack full of blank configuration. The form without a colon is deliberate: it accepts a legitimately empty value such as `SPORTMONKS_API_TOKEN=` while still rejecting an absent one.
+`compose.yml` declares explicitly which variables each service receives, so the exposure is readable at a glance and verifiable: `api`, `worker`, and `beat` receive the 18 variables the Django settings actually read, `postgres` receives only its 3 credentials, `redis` receives none, and `web` receives only `BACKEND_API_BASE_URL` and `SESSION_COOKIE_INSECURE`. Neither of those is a credential, so the frontend container still never holds `SPORTMONKS_API_TOKEN` or `POSTGRES_PASSWORD`. Every variable is declared as `${NAME?...}`, so a forgotten `--env-file` fails immediately with `required variable ... is missing a value` instead of silently starting a stack full of blank configuration. The form without a colon is deliberate: it accepts a legitimately empty value such as `SPORTMONKS_API_TOKEN=` while still rejecting an absent one.
 
 `SESSION_COOKIE_INSECURE` exists so that dropping the `Secure` attribute from the session cookie is a deliberate declaration rather than a side effect. Only the exact value `true` drops it, which is correct for local development over plain HTTP and wrong everywhere else. Deriving it from `NODE_ENV` instead would have tied a transport security control to a build mode, and `frontend/Dockerfile` pins `NODE_ENV=development`, so the first deployed image built from it would have shipped a cookie with no `Secure` attribute and nothing in the types, the tests, or the quality gates would have said so.
 
@@ -102,6 +102,24 @@ Loguru is the single sink for every backend process, installed behind the standa
 `DJANGO_LOG_LEVEL` controls verbosity. Local development defaults to `DEBUG` with human-readable colourized output; `preproduction` and `production` emit one JSON object per record and clamp the level, so exporting `DJANGO_LOG_LEVEL=DEBUG` against a deployed environment still yields `INFO`. That clamp is deliberate: debug records can carry request payloads, and Loguru's `diagnose` option, enabled only locally, prints the variable values around a traceback.
 
 `SPORTMONKS_API_TOKEN` is backend-only and never reaches the frontend container. Only `NEXT_PUBLIC_*` variables are exposed to browser code.
+
+### Sign-in rate limiting
+
+`POST /api/v1/auth/login` is the only throttled operation. `DJANGO_SIGN_IN_THROTTLE_RATE` configures it per environment and defaults to `5/m`: a visitor needs two or three attempts to recover from a typo, and the credential behind this endpoint is issued by an administrator and never rotated by its owner, so an unlimited guessing rate against it is the wrong shape. Exceeding the rate answers `429` with `{"detail": "Too many requests."}`, which is uniform on purpose: the throttle counts attempts without reading the submitted address, so it cannot become the account oracle the `401` body deliberately refuses to be. Attempts are counted before the operation runs, which means a successful sign-in spends budget too — the throttle cannot know the outcome, and a client signing in more than a handful of times per minute is not a shape this product has. Account lockout stays out of scope: it is a denial-of-service surface of its own and wants its own decision.
+
+The scope is sign-in alone rather than the whole `NinjaAPI`, so a rejected password can never deny `/health` or a future read endpoint. The counter lives in the configured cache, so every API process shares one budget per client rather than each holding its own.
+
+#### Which client a request is attributed to
+
+The browser never contacts the API, so `REMOTE_ADDR` is the Next.js server for every visitor and keying on it alone would collapse every sign-in on the platform into one bucket, where one attacker locks everybody out. The frontend therefore forwards the `X-Forwarded-For` chain of the incoming request verbatim on its login call, and the backend decides what to believe:
+
+- `DJANGO_TRUSTED_PROXY_NETWORKS` lists this project's own forwarding tier, as addresses or CIDR networks, and defaults to empty. An empty list means the header is ignored entirely and every request is attributed to its peer, which is the safe default.
+- When the peer is inside a trusted network, the request is attributed to the rightmost entry of the chain that is neither trusted infrastructure nor malformed. Entries further left were appended by hops closer to the visitor, and the leftmost may have been chosen by the visitor.
+- An entry that is not an IP address is skipped, so no header value can reach a cache key.
+
+Two consequences are worth stating before this is deployed. The edge in front of the frontend must set `X-Forwarded-For` from the connecting address, appending as nginx does with `$proxy_add_x_forwarded_for`: Next.js fills the header in from the socket only when the request carries none, so a directly exposed frontend would pass a visitor-chosen value straight through and let one client mint unlimited buckets. With an appending edge a forged entry lands left of the real one and the rightmost-untrusted walk ignores it. And every address of that edge belongs in `DJANGO_TRUSTED_PROXY_NETWORKS`, or the request is attributed to the edge rather than to the visitor.
+
+Locally the value is `172.16.0.0/12`, which covers the Compose bridge network, so the `web` container is trusted and each browser is throttled separately. The same identification names the client in the warning logged for every rejected attempt, so the operator trail and the throttle agree on who the client was.
 
 ### One file per environment
 
