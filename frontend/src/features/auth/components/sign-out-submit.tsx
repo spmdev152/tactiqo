@@ -25,6 +25,12 @@ import { Button } from "@/components/ui/button";
  * uses. The spinner has to state the same size because the registry hardcodes
  * its own.
  *
+ * The variant is destructive because ending the session is the one irreversible
+ * action in the shell: the token is revoked on the backend, so a mis-click
+ * cannot be undone by navigating back. The variant is a tinted surface rather
+ * than a solid red fill, which is what keeps a permanently visible footer
+ * control from reading as the loudest thing in the sidebar.
+ *
  * The collapsed-sidebar variant is expressed in classes rather than in state,
  * so the control needs no sidebar context and stays renderable on its own. The
  * label turns screen-reader-only rather than being removed, since removing it
@@ -40,7 +46,7 @@ export function SignOutSubmit() {
       disabled={pending}
       size="sm"
       type="submit"
-      variant="outline"
+      variant="destructive"
     >
       {pending ? (
         <ButtonSpinner className="size-3.5" />

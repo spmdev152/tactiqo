@@ -32,10 +32,17 @@ export interface AppSidebarProps {
  *
  * The sidebar collapses to icons rather than off-canvas, so navigation survives
  * a collapse on a laptop instead of disappearing behind the trigger. Every
- * element that carries text therefore has an icon-mode counterpart: the brand
- * mark stands in for the wordmark, and the wordmark and the e-mail address turn
+ * element that carries text therefore has an icon-mode counterpart. The brand
+ * mark and the wordmark swap places rather than sitting side by side, since a
+ * mark repeating the initial of the word next to it says nothing twice; the
+ * mark is set in the same typeface as the wordmark so the swap reads as one
+ * brand rather than two. The wordmark and the e-mail address turn
  * screen-reader-only rather than being removed, which would leave the link and
- * the button with no accessible name at all.
+ * the identity line with no accessible text at all.
+ *
+ * Only the desktop sidebar carries the `group` those variants key off, so the
+ * mobile sheet keeps the wordmark at its full width, which is what it has room
+ * for.
  *
  * The e-mail address is deliberately not a control. It states which account is
  * signed in, and there is no account page for it to lead to.
@@ -52,7 +59,7 @@ export function AppSidebar({ email }: AppSidebarProps) {
         >
           <span
             aria-hidden
-            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary font-display text-sm font-bold text-primary-foreground"
+            className="hidden size-7 shrink-0 items-center justify-center rounded-md bg-primary font-sans text-sm leading-none font-semibold tracking-tight text-primary-foreground group-data-[collapsible=icon]:flex"
           >
             t
           </span>
