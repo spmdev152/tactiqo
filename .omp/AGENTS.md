@@ -703,6 +703,10 @@ Branch descriptions:
 
 Trunk branches such as `main`, `master`, and `develop` do not use a prefix.
 
+Link an implementation branch to its issue in GitHub's development panel, not only by naming it after the issue. The name is a convention a reader has to trust; the link is a fact GitHub records on the issue. Create it with `gh issue develop`, from the issue's development panel, or with the GraphQL `createLinkedBranch` mutation, since the REST API has no equivalent, and verify it rather than assuming the call worked. Where it cannot be created, say so in the handover instead of letting the branch name imply it.
+
+A closing keyword closes an issue only when its pull request merges into the default branch, `main`. Feature work merges into `develop`, so `Closes #123` closes nothing on merge and must not be presented as if it did: close the issue explicitly with a state reason once the work lands. An issue left open after its work has merged is an incomplete handover.
+
 ## CI expectations
 GitHub Actions will enforce project quality gates.
 
