@@ -3,21 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import LoginPage from "@/app/login/page";
 
-const { getCurrentUser, readSessionToken, redirect, warning } = vi.hoisted(
-  () => ({
+const { getCurrentUser, readSessionToken, redirect, replace, warning } =
+  vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
     readSessionToken: vi.fn(),
     redirect: vi.fn<(path: string) => never>(),
+    replace: vi.fn(),
     warning: vi.fn(),
-  }),
-);
+  }));
 
 // The server-only marker throws outside the React Server condition, which Vitest does not set.
 vi.mock("server-only", () => ({}));
 
 vi.mock("next/navigation", () => ({
   redirect,
-  useSearchParams: () => new URLSearchParams(window.location.search),
+  useRouter: () => ({ replace }),
 }));
 
 vi.mock("sonner", () => ({ toast: { warning } }));

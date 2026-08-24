@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import { toast } from "sonner";
 
@@ -31,21 +31,24 @@ export interface SessionLossToastProps {
  * cleanup a refresh would re-fire the warning and a bookmark would carry it
  * forever.
  *
- * The effect keys off the live parameter rather than off the copy, because the
- * copy is identical on every arrival for the same cause and a search-param
- * change does not remount a page subtree. Keyed off the props, a second
- * involuntary arrival in the same client session reconciled this component in
- * place, the effect never re-ran, and the visitor got no toast and a parameter
- * that stayed in the address bar. Reading it through `useSearchParams` re-arms
- * the effect, since the cleanup below dispatches a router restore that clears
- * the value and the next arrival sets it again. The raw value is only ever a
- * dependency here; the server resolved the copy.
+ * The cleanup goes through the router, not `history.replaceState`. That is the
+ * whole reliability argument of this component, and it was learned twice.
+ * Keyed on the copy, a second involuntary arrival reconciled this component in
+ * place and the effect never re-ran, because the copy is identical every time
+ * and a search-param change does not remount a page subtree. Keying it on the
+ * live parameter instead only moved the failure: `replaceState` writes the
+ * address bar behind the router's back, so `useSearchParams` could keep
+ * reporting the stale `lost` while the URL no longer carried it, and then the
+ * next arrival changed no dependency at all — no toast, and a marker stuck in
+ * the address bar until a full reload.
  *
- * The cleanup rewrites the address bar through `history.replaceState` rather
- * than through the router. It is not a navigation: nothing on the page has to
- * re-render, and `router.replace` would pay for a server round trip to
- * re-render the page it is already on. Only the marker is dropped, from a copy
- * of the live URL, so an unrelated parameter and any fragment survive.
+ * A router navigation cannot desync, because the router performs it. The server
+ * re-renders `/login` without the marker, the page stops rendering this
+ * component, and the next arrival mounts a fresh one whose effect has never
+ * run. That costs one extra render of a route that is dynamic anyway, and it
+ * buys a component with no dependency on any state it does not own. Only the
+ * marker is dropped, from a copy of the live URL, so an unrelated parameter
+ * survives.
  *
  * It runs inside the frame, after the request, so the pair is atomic. Cleaning
  * first would lose the warning outright if the component unmounted before the
@@ -75,14 +78,10 @@ export interface SessionLossToastProps {
  * ability to continue.
  */
 export function SessionLossToast({ warning }: SessionLossToastProps) {
+  const router = useRouter();
   const { title, description } = warning;
-  const marker = useSearchParams().get(SESSION_LOSS_PARAMETER);
 
   useEffect(() => {
-    if (marker === null) {
-      return;
-    }
-
     const frame = requestAnimationFrame(() => {
       toast.warning(title, {
         description,
@@ -94,11 +93,11 @@ export function SessionLossToast({ warning }: SessionLossToastProps) {
 
       url.searchParams.delete(SESSION_LOSS_PARAMETER);
 
-      window.history.replaceState(null, "", url);
+      router.replace(`${url.pathname}${url.search}`, { scroll: false });
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [description, marker, title]);
+  }, [description, router, title]);
 
   return null;
 }

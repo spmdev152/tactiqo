@@ -1,5 +1,3 @@
-import { Suspense } from "react";
-
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -21,10 +19,7 @@ import { readSessionToken } from "@/features/auth/server/session-cookie";
  * reaches, and now for a second reason: the page reads `searchParams` to decide
  * whether an involuntary session loss has to be reported. Stating it keeps the
  * dependency on the request visible instead of leaving it to be inferred from a
- * transitive call. The `Suspense` boundary around the notice below covers the
- * same ground from the other side: `useSearchParams` needs one on any route
- * that is not dynamic, so the boundary is what keeps this page building if
- * either of those two implicit reasons is ever removed.
+ * transitive call.
  */
 export const dynamic = "force-dynamic";
 
@@ -76,11 +71,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   return (
     <div className="grid flex-1 lg:grid-cols-2">
-      {warning !== null && (
-        <Suspense>
-          <SessionLossToast warning={warning} />
-        </Suspense>
-      )}
+      {warning !== null && <SessionLossToast warning={warning} />}
 
       <main className="flex items-center justify-center px-6 py-16 sm:px-10">
         <div className="flex w-full max-w-sm flex-col gap-9">

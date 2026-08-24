@@ -8,24 +8,14 @@ const WARNING = {
   description: "Sign in again to access the platform.",
 };
 
-const { warning } = vi.hoisted(() => ({ warning: vi.fn() }));
+const { replace, warning } = vi.hoisted(() => ({
+  replace: vi.fn<(href: string, options?: { scroll?: boolean }) => void>(),
+  warning: vi.fn(),
+}));
 
 vi.mock("sonner", () => ({ toast: { warning } }));
 
-vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(window.location.search),
-}));
-
-/**
- * Waits for the frame and the task the notice defers its request across.
- */
-function settleDeferredRequest(): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-
-  requestAnimationFrame(() => setTimeout(resolve, 0));
-
-  return promise;
-}
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 
 /**
  * Places the browser on an arrival at the login page.
@@ -38,6 +28,7 @@ function arriveWith(query: string): void {
 
 describe("SessionLossToast", () => {
   beforeEach(() => {
+    replace.mockReset();
     warning.mockReset();
     arriveWith("session=lost");
   });
@@ -75,14 +66,16 @@ describe("SessionLossToast", () => {
   /**
    * GIVEN the marker still present in the address bar
    * WHEN the toast has been requested
-   * THEN the parameter is dropped so a refresh cannot repeat the warning
+   * THEN the router drops it, so the address bar cannot desync from router state
    */
-  it("cleans the marker out of the url", async () => {
+  it("cleans the marker out of the url through the router", async () => {
     render(<SessionLossToast warning={WARNING} />);
 
-    await waitFor(() => expect(window.location.search).toBe(""));
-
-    expect(window.location.pathname).toBe("/login");
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledExactlyOnceWith("/login", {
+        scroll: false,
+      }),
+    );
   });
 
   /**
@@ -95,22 +88,29 @@ describe("SessionLossToast", () => {
 
     render(<SessionLossToast warning={WARNING} />);
 
-    await waitFor(() => expect(window.location.search).toBe("?email=ada"));
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledExactlyOnceWith("/login?email=ada", {
+        scroll: false,
+      }),
+    );
   });
 
   /**
-   * GIVEN the marker already cleaned, as it is after the first arrival
-   * WHEN the notice re-renders without it
-   * THEN nothing is requested, because only a marked arrival warrants a toast
+   * GIVEN a warning requested and its marker already cleaned
+   * WHEN the same notice is mounted again, as a repeated arrival does
+   * THEN it warns again, because nothing about the first arrival is remembered
    */
-  it("requests nothing once the arrival is no longer marked", async () => {
-    window.history.replaceState(null, "", "/login");
+  it("warns again on every fresh mount", async () => {
+    const first = render(<SessionLossToast warning={WARNING} />);
+
+    await waitFor(() => expect(warning).toHaveBeenCalledOnce());
+
+    first.unmount();
+    arriveWith("session=lost");
 
     render(<SessionLossToast warning={WARNING} />);
 
-    await settleDeferredRequest();
-
-    expect(warning).not.toHaveBeenCalled();
+    await waitFor(() => expect(warning).toHaveBeenCalledTimes(2));
   });
 
   /**
