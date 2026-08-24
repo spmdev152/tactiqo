@@ -155,12 +155,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS : list of str
         Extra prompts of ``createsuperuser``, empty because the address and the
         password already cover every mandatory column.
-    _password : str or None
-        Raw password ``AbstractBaseUser.set_password`` records and ``save``
-        clears, declared because django-stubs omits it.
-    _password_removed : bool
-        Whether ``set_unusable_password`` destroyed the credential of this
-        instance since it was last written.
 
     Methods
     -------
@@ -235,7 +229,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         ``post_save`` inside it, and a receiver of this model revokes the
         sessions of a replaced credential. Without the transaction the password
         column would commit before the revocation ran, so a failure in between
-        would leave a rotated password whose old sessions still authenticate.
+        would leave a rotated password whose old sessions still authenticate. Once
+        the row is written, a credential destroyed by ``set_unusable_password`` is
+        no longer pending, so the record of it is cleared the way
+        ``AbstractBaseUser`` clears the raw password it kept.
 
         Parameters
         ----------
