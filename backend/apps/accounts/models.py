@@ -158,6 +158,8 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     Methods
     -------
+    __str__() -> str
+        Return the login identifier of the account.
     save(force_insert=False, force_update=False, using=None, update_fields=None) -> None
         Normalize the address and write the row with its receivers.
     set_unusable_password() -> None
@@ -323,6 +325,8 @@ class AuthSession(models.Model):
 
     Methods
     -------
+    __str__() -> str
+        Return a label naming the account and the expiry of the session.
     is_usable(at) -> bool
         Report whether the session authenticates at a given instant.
     """
