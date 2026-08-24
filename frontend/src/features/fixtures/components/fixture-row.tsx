@@ -1,6 +1,7 @@
 import Image from "next/image";
 
 import type { Fixture, FixtureTeam } from "@/features/fixtures/types/fixture";
+import { cn } from "@/lib/utils";
 
 const CREST_SIZE = 24;
 
@@ -57,6 +58,9 @@ function TeamCrest({ team }: TeamCrestProps) {
 interface TeamNameProps {
   /** Team whose name is shown. */
   readonly team: FixtureTeam;
+
+  /** Utility classes aligning the name within its side of the row. */
+  readonly className?: string;
 }
 
 /**
@@ -72,14 +76,16 @@ interface TeamNameProps {
  *
  * @returns The club name in both widths.
  */
-function TeamName({ team }: TeamNameProps) {
+function TeamName({ team, className }: TeamNameProps) {
   return (
     <>
-      <span className="truncate font-medium sm:hidden">
+      <span className={cn("truncate font-medium sm:hidden", className)}>
         {team.shortCode === "" ? team.name : team.shortCode}
       </span>
 
-      <span className="hidden truncate font-medium sm:inline">{team.name}</span>
+      <span className={cn("hidden truncate font-medium sm:inline", className)}>
+        {team.name}
+      </span>
     </>
   );
 }
@@ -109,7 +115,7 @@ export interface FixtureRowProps {
  */
 export function FixtureRow({ fixture }: FixtureRowProps) {
   return (
-    <li className="flex items-center gap-4 px-4 py-3">
+    <li className="flex items-center gap-3 px-4 py-3 sm:gap-4">
       <time
         className="w-12 shrink-0 font-mono text-sm text-muted-foreground tabular-nums"
         dateTime={fixture.kickoffAt.toISOString()}
@@ -117,13 +123,17 @@ export function FixtureRow({ fixture }: FixtureRowProps) {
         {KICKOFF_TIME_FORMAT.format(fixture.kickoffAt)}
       </time>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          <TeamName className="text-right" team={fixture.homeTeam} />
           <TeamCrest team={fixture.homeTeam} />
-          <TeamName team={fixture.homeTeam} />
         </div>
 
-        <div className="flex min-w-0 items-center gap-2">
+        <span className="shrink-0 font-mono text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase">
+          vs
+        </span>
+
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <TeamCrest team={fixture.awayTeam} />
           <TeamName team={fixture.awayTeam} />
         </div>

@@ -5,6 +5,8 @@ import { useCallback } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { Globe } from "lucide-react";
+
 import {
   Select,
   SelectContent,
@@ -31,6 +33,27 @@ const FLAG_HEIGHT = 14;
 interface LeagueLabelProps {
   /** Competition to label. */
   readonly league: League;
+}
+
+/**
+ * Renders the label of the option that clears the competition filter.
+ *
+ * @remarks
+ * The globe stands where a country flag stands on every other option, so the
+ * list reads as one column of marks rather than one indented item among five
+ * aligned ones. It is decorative for the same reason the flags are: the label
+ * beside it already says what it means.
+ *
+ * @returns The clear-filter label.
+ */
+function AllCompetitionsLabel() {
+  return (
+    <>
+      <Globe aria-hidden className="h-3.5 w-5 shrink-0 text-muted-foreground" />
+
+      {ALL_COMPETITIONS_LABEL}
+    </>
+  );
 }
 
 /**
@@ -131,7 +154,7 @@ export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
       <SelectTrigger aria-label={COMPETITION_LABEL} className="w-full sm:w-60">
         <SelectValue>
           {selectedLeague === undefined ? (
-            ALL_COMPETITIONS_LABEL
+            <AllCompetitionsLabel />
           ) : (
             <LeagueLabel league={selectedLeague} />
           )}
@@ -140,7 +163,7 @@ export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
 
       <SelectContent>
         <SelectItem value={ALL_COMPETITIONS_VALUE}>
-          {ALL_COMPETITIONS_LABEL}
+          <AllCompetitionsLabel />
         </SelectItem>
 
         {leagues.map((league) => (

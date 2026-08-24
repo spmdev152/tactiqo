@@ -1,6 +1,6 @@
 import { requireUser } from "@/features/auth/server/require-user";
 import { FixtureList } from "@/features/fixtures/components/fixture-list";
-import { FixturesCalendar } from "@/features/fixtures/components/fixtures-calendar";
+import { FixturesDatePicker } from "@/features/fixtures/components/fixtures-date-picker";
 import { LeagueSelect } from "@/features/fixtures/components/league-select";
 import {
   FIXTURE_DATE_PARAMETER,
@@ -97,23 +97,21 @@ export default async function FixturesPage({
         </h1>
       </header>
 
-      <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
-        <FixturesCalendar selectedDay={day} />
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <FixturesDatePicker selectedDay={day} />
 
-        <div className="flex min-w-0 flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <LeagueSelect
-              leagues={leagues.loaded ? leagues.leagues : []}
-              selectedLeagueId={leagueId}
-            />
+          <LeagueSelect
+            leagues={leagues.loaded ? leagues.leagues : []}
+            selectedLeagueId={leagueId}
+          />
 
-            <span className="font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground uppercase">
-              Kick-off times in UTC
-            </span>
-          </div>
-
-          <FixtureList result={fixtures} />
+          <span className="font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground uppercase sm:ml-auto">
+            Kick-off times in UTC
+          </span>
         </div>
+
+        <FixtureList result={fixtures} />
       </div>
     </div>
   );

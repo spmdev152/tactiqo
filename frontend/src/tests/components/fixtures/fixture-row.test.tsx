@@ -61,6 +61,29 @@ describe("FixtureRow", () => {
   });
 
   /**
+   * GIVEN a fixture between two clubs
+   * WHEN the row is rendered
+   * THEN the sides sit on one line, separated by a marker rather than stacked
+   */
+  it("separates the two sides with a visible marker", () => {
+    render(<FixtureRow fixture={buildFixture()} />);
+
+    const separator = screen.getByText("vs");
+    const home = screen.getByText("Liverpool");
+    const away = screen.getByText("Nottingham Forest");
+
+    expect(separator).toBeInTheDocument();
+    expect(
+      separator.compareDocumentPosition(home) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    expect(
+      separator.compareDocumentPosition(away) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  /**
    * GIVEN a fixture and a narrow viewport that cannot fit a full club name
    * WHEN the row is rendered
    * THEN each side also carries its abbreviation, so the server owes no guess
