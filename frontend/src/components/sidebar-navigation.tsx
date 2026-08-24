@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { LayoutDashboard, type LucideIcon } from "lucide-react";
+import { CalendarDays, LayoutDashboard, type LucideIcon } from "lucide-react";
 
 import {
   SidebarGroup,
@@ -28,6 +28,7 @@ interface NavigationEntry {
 
 const NAVIGATION_ENTRIES: readonly NavigationEntry[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/fixtures", label: "Fixtures", icon: CalendarDays },
 ];
 
 /**

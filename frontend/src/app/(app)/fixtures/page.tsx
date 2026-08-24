@@ -1,0 +1,120 @@
+import { requireUser } from "@/features/auth/server/require-user";
+import { FixtureList } from "@/features/fixtures/components/fixture-list";
+import { FixturesCalendar } from "@/features/fixtures/components/fixtures-calendar";
+import { LeagueSelect } from "@/features/fixtures/components/league-select";
+import {
+  FIXTURE_DATE_PARAMETER,
+  FIXTURE_LEAGUE_PARAMETER,
+  resolveLeagueId,
+  resolveUtcDay,
+} from "@/features/fixtures/domain/fixture-search-params";
+import { getFixtures } from "@/features/fixtures/server/get-fixtures";
+import { getLeagues } from "@/features/fixtures/server/get-leagues";
+
+const DAY_HEADING_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/**
+ * Opts the route out of prerendering.
+ *
+ * @remarks
+ * The page is rendered per session and per query: it gates on the session, it
+ * reads `searchParams` for the day and the competition, and it forwards the
+ * visitor's own bearer token to the API. A prerendered copy would be one
+ * visitor's fixtures served to another, and forcing dynamic rendering also keeps
+ * `next build` working while the API is unreachable, which is what happens in CI
+ * and on a first checkout.
+ */
+export const dynamic = "force-dynamic";
+
+/**
+ * Props of {@link FixturesPage}.
+ */
+interface FixturesPageProps {
+  /**
+   * Query the visitor arrived with. It carries the day and the competition, both
+   * visitor-controllable and therefore resolved rather than trusted. Bound to
+   * Next's own generated type so a framework change cannot drift past a
+   * restatement of it.
+   */
+  readonly searchParams: PageProps<"/fixtures">["searchParams"];
+}
+
+/**
+ * Renders the fixtures of one day for one competition.
+ *
+ * @remarks
+ * A Server Component: the session check and both API reads happen on the
+ * server, so the session token never leaves it and the browser never talks to
+ * the provider. The session is confirmed here rather than relied upon from the
+ * shell layout, because Next.js does not re-render a layout for a navigation
+ * that stays inside it, so a page that reached the shell once would keep
+ * rendering after its session was revoked.
+ *
+ * Both reads are issued together. Neither depends on the other's answer, and
+ * awaiting them in sequence would add the competition round trip to the time
+ * before the first fixture appears.
+ *
+ * The day and the competition are URL state and nothing else, which is what
+ * makes a view linkable and lets it survive a reload. The two controls navigate
+ * rather than hold state, so the server stays the single place either value is
+ * resolved.
+ *
+ * The page root is a `div` rather than a `main`, because `SidebarInset` is
+ * itself the `main` element of the shell.
+ *
+ * @returns The fixtures page tree.
+ */
+export default async function FixturesPage({
+  searchParams,
+}: FixturesPageProps) {
+  await requireUser();
+
+  const query = await searchParams;
+
+  const day = resolveUtcDay(query[FIXTURE_DATE_PARAMETER]);
+  const leagueId = resolveLeagueId(query[FIXTURE_LEAGUE_PARAMETER]);
+
+  const [leagues, fixtures] = await Promise.all([
+    getLeagues(),
+    getFixtures({ day, leagueId }),
+  ]);
+
+  return (
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
+      <header className="flex flex-col gap-3">
+        <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
+          Fixtures
+        </p>
+
+        <h1 className="font-display text-4xl leading-[0.95] font-bold tracking-tight uppercase">
+          {DAY_HEADING_FORMAT.format(new Date(`${day}T00:00:00Z`))}
+        </h1>
+      </header>
+
+      <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
+        <FixturesCalendar selectedDay={day} />
+
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <LeagueSelect
+              leagues={leagues.loaded ? leagues.leagues : []}
+              selectedLeagueId={leagueId}
+            />
+
+            <span className="font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground uppercase">
+              Kick-off times in UTC
+            </span>
+          </div>
+
+          <FixtureList result={fixtures} />
+        </div>
+      </div>
+    </div>
+  );
+}
