@@ -1,7 +1,9 @@
 import secrets
+from collections.abc import Iterator
 from typing import Protocol, cast
 
 import pytest
+from django.core.cache import cache
 from django.test import Client
 
 from apps.accounts.models import User
@@ -161,6 +163,24 @@ def bearer_headers(token: str | None) -> dict[str, str]:
     """
 
     return {"Authorization": f"Bearer {token}"} if token is not None else {}
+
+
+@pytest.fixture(autouse=True)
+def isolated_cache() -> Iterator[None]:
+    """
+    Empty the cache around every test.
+
+    The test settings back the cache with an in-process locmem store, which
+    outlives a single test. The sign-in throttle counts attempts there, so
+    without this the tests in a run would share one budget and their order
+    would decide which of them sees HTTP 429.
+    """
+
+    cache.clear()
+
+    yield
+
+    cache.clear()
 
 
 @pytest.fixture

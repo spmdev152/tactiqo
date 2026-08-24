@@ -10,6 +10,8 @@ x-backend: &backend
     DJANGO_DEBUG: ${DJANGO_DEBUG?missing, pass --env-file .env.local}
     DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS?missing, pass --env-file .env.local}
     DJANGO_LOG_LEVEL: ${DJANGO_LOG_LEVEL?missing, pass --env-file .env.local}
+    DJANGO_SIGN_IN_THROTTLE_RATE: ${DJANGO_SIGN_IN_THROTTLE_RATE?missing, pass --env-file .env.local}
+    DJANGO_TRUSTED_PROXY_NETWORKS: ${DJANGO_TRUSTED_PROXY_NETWORKS?missing, pass --env-file .env.local}
     POSTGRES_DB: ${POSTGRES_DB?missing, pass --env-file .env.local}
     POSTGRES_USER: ${POSTGRES_USER?missing, pass --env-file .env.local}
     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?missing, pass --env-file .env.local}

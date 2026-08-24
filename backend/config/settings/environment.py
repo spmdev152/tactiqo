@@ -1,5 +1,6 @@
 import os
 from collections.abc import Sequence
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -7,6 +8,8 @@ from dotenv import load_dotenv
 
 TRUTHY_VALUES = frozenset({"1", "true", "t", "yes", "y", "on"})
 FALSY_VALUES = frozenset({"0", "false", "f", "no", "n", "off"})
+
+type IPNetwork = IPv4Network | IPv6Network
 
 
 def load_environment_file(path: Path) -> bool:
@@ -200,4 +203,40 @@ def env_int_list(name: str, *, default: Sequence[int]) -> list[int]:
     except ValueError as error:
         raise ImproperlyConfigured(
             f"Environment variable {name} must be a comma-separated list of integers."
+        ) from error
+
+
+def env_ip_network_list(name: str, *, default: Sequence[str]) -> list[IPNetwork]:
+    """
+    Read a comma-separated list of IP addresses and CIDR networks.
+
+    A bare address is accepted and becomes a single-host network, so an
+    operator naming one proxy does not have to write its prefix length.
+
+    Parameters
+    ----------
+    name : str
+        Environment variable name.
+    default : Sequence of str
+        Entries used when the variable is absent.
+
+    Returns
+    -------
+    list of IPNetwork
+        Parsed networks, in the order they were declared.
+
+    Raises
+    ------
+    ImproperlyConfigured
+        If any entry is not an IP address or CIDR network, host bits included.
+    """
+
+    entries = env_str_list(name, default=default)
+
+    try:
+        return [ip_network(entry) for entry in entries]
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be a comma-separated list of "
+            f"IP addresses or CIDR networks: {error}"
         ) from error

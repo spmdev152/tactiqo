@@ -7,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from config.settings.environment import (
     env_bool,
     env_int_list,
+    env_ip_network_list,
     env_str,
     env_str_list,
     load_environment_file,
@@ -172,6 +173,37 @@ def test_env_int_list_rejects_a_non_numeric_entry(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(ImproperlyConfigured):
         env_int_list(VARIABLE_NAME, default=[])
+
+
+def test_env_ip_network_list_accepts_networks_and_bare_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a variable mixing a CIDR network with a single proxy address
+    WHEN it is read as a network list setting
+    THEN the bare address becomes a single-host network of its own
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "172.16.0.0/12, 192.0.2.10")
+
+    networks = env_ip_network_list(VARIABLE_NAME, default=[])
+
+    assert [str(network) for network in networks] == ["172.16.0.0/12", "192.0.2.10/32"]
+
+
+def test_env_ip_network_list_rejects_an_entry_that_is_not_a_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a variable whose entry carries host bits its prefix cannot hold
+    WHEN it is read as a network list setting
+    THEN ImproperlyConfigured is raised rather than the trust being widened
+    """
+
+    monkeypatch.setenv(VARIABLE_NAME, "192.0.2.10/24")
+
+    with pytest.raises(ImproperlyConfigured):
+        env_ip_network_list(VARIABLE_NAME, default=[])
 
 
 def test_load_environment_file_reads_values_without_overriding_the_process(
