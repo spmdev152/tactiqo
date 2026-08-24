@@ -18,6 +18,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
   redirect,
   useRouter: () => ({ replace }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("sonner", () => ({ toast: { warning } }));
@@ -30,21 +31,19 @@ vi.mock("@/features/auth/server/actions", () => ({ signInAction: vi.fn() }));
 
 /**
  * Renders the login page as a visitor with no usable session would receive it,
- * putting the browser on the matching URL as a real arrival would, then letting
- * the frame and the task the notice waits for elapse.
+ * putting the browser on the given URL as a real arrival would, then letting the
+ * frame and the task the notice waits for elapse.
  *
- * @param query - Search parameters the arrival carries.
+ * @param search - Query string the arrival carries, without its leading marker.
  */
-async function renderArrival(query: Record<string, string>): Promise<void> {
-  const search = new URLSearchParams(query).toString();
-
+async function renderArrival(search: string): Promise<void> {
   window.history.replaceState(
     null,
     "",
     search === "" ? "/login" : `/login?${search}`,
   );
 
-  render(await LoginPage({ searchParams: Promise.resolve(query) }));
+  render(await LoginPage());
 
   const { promise, resolve } = Promise.withResolvers<void>();
 
@@ -60,15 +59,15 @@ describe("LoginPage", () => {
     getCurrentUser.mockReset();
     getCurrentUser.mockResolvedValue(null);
     readSessionToken.mockReset();
-    readSessionToken.mockResolvedValue("stale-token");
+    readSessionToken.mockResolvedValue(null);
     redirect.mockReset();
 
     redirect.mockImplementation(() => {
       throw new Error("NEXT_REDIRECT");
     });
 
+    replace.mockReset();
     warning.mockReset();
-    window.history.replaceState(null, "", "/login");
   });
 
   /**
@@ -77,7 +76,9 @@ describe("LoginPage", () => {
    * THEN the visitor is told the session expired
    */
   it("warns a visitor whose session was refused", async () => {
-    await renderArrival({ session: "lost" });
+    readSessionToken.mockResolvedValue("stale-token");
+
+    await renderArrival("session=lost");
 
     await waitFor(() =>
       expect(warning).toHaveBeenCalledExactlyOnceWith(
@@ -95,9 +96,7 @@ describe("LoginPage", () => {
    * THEN a sign-in is requested without claiming a session expired
    */
   it("warns a visitor who followed a link into the application", async () => {
-    readSessionToken.mockResolvedValue(null);
-
-    await renderArrival({ session: "lost" });
+    await renderArrival("session=lost");
 
     await waitFor(() =>
       expect(warning).toHaveBeenCalledExactlyOnceWith(
@@ -110,32 +109,12 @@ describe("LoginPage", () => {
   });
 
   /**
-   * GIVEN a marker forged into a link sent to somebody who never held a session
-   * WHEN the login page renders
-   * THEN they are never told a session expired
-   */
-  it("never claims an expiry for a visitor carrying no cookie", async () => {
-    readSessionToken.mockResolvedValue(null);
-
-    await renderArrival({ session: "lost" });
-
-    await waitFor(() => expect(warning).toHaveBeenCalledOnce());
-
-    expect(warning).not.toHaveBeenCalledWith(
-      "Session expired",
-      expect.anything(),
-    );
-  });
-
-  /**
    * GIVEN an arrival after a deliberate sign-out, which marks nothing
    * WHEN the login page renders
    * THEN nothing is reported, because the visitor asked for this
    */
   it("stays silent after a deliberate sign-out", async () => {
-    readSessionToken.mockResolvedValue(null);
-
-    await renderArrival({});
+    await renderArrival("");
 
     expect(warning).not.toHaveBeenCalled();
   });
@@ -146,10 +125,28 @@ describe("LoginPage", () => {
    * THEN nothing is reported and the value reaches neither text nor markup
    */
   it("stays silent on an unrecognised marker without echoing it", async () => {
-    await renderArrival({ session: "sign-in-immediately" });
+    await renderArrival("session=sign-in-immediately");
 
     expect(warning).not.toHaveBeenCalled();
     expect(document.body.innerHTML).not.toContain("sign-in-immediately");
+  });
+
+  /**
+   * GIVEN the client router being free to answer a navigation from its segment cache
+   * WHEN the page renders without a marker, as it does on a plain visit
+   * THEN the notice is mounted anyway, so a later marked arrival cannot pass in silence
+   */
+  it("mounts the notice even when no warning applies", async () => {
+    window.history.replaceState(null, "", "/login");
+
+    const view = render(await LoginPage());
+
+    expect(warning).not.toHaveBeenCalled();
+
+    window.history.replaceState(null, "", "/login?session=lost");
+    view.rerender(await LoginPage());
+
+    await waitFor(() => expect(warning).toHaveBeenCalledOnce());
   });
 
   /**
@@ -160,9 +157,7 @@ describe("LoginPage", () => {
   it("turns an authenticated visitor away", async () => {
     getCurrentUser.mockResolvedValue({ email: "ada@example.com" });
 
-    await expect(
-      LoginPage({ searchParams: Promise.resolve({}) }),
-    ).rejects.toThrow("NEXT_REDIRECT");
+    await expect(LoginPage()).rejects.toThrow("NEXT_REDIRECT");
 
     expect(redirect).toHaveBeenCalledExactlyOnceWith("/");
   });
@@ -173,7 +168,7 @@ describe("LoginPage", () => {
    * THEN the sign-in form is present, so the toast is never the only signal
    */
   it("remains usable without the warning", async () => {
-    await renderArrival({});
+    await renderArrival("");
 
     expect(
       screen.getByRole("heading", { name: "Sign in to your account" }),

@@ -2,13 +2,14 @@
 
 import { useEffect } from "react";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { toast } from "sonner";
 
 import {
   SESSION_LOSS_PARAMETER,
-  type SessionLossWarning,
+  SESSION_LOSS_VALUE,
+  sessionLossWarning,
 } from "@/features/auth/domain/session-loss";
 
 const TOAST_ID = "session-loss";
@@ -17,8 +18,11 @@ const TOAST_ID = "session-loss";
  * Props of {@link SessionLossToast}.
  */
 export interface SessionLossToastProps {
-  /** Warning already resolved on the server from the parameter and the cookie. */
-  readonly warning: SessionLossWarning;
+  /**
+   * Whether the request that rendered the page carried a session token, which
+   * is what decides which of the two warnings is true.
+   */
+  readonly sessionTokenPresent: boolean;
 }
 
 /**
@@ -31,28 +35,32 @@ export interface SessionLossToastProps {
  * cleanup a refresh would re-fire the warning and a bookmark would carry it
  * forever.
  *
- * The cleanup goes through the router, not `history.replaceState`. That is the
- * whole reliability argument of this component, and it was learned twice.
- * Keyed on the copy, a second involuntary arrival reconciled this component in
- * place and the effect never re-ran, because the copy is identical every time
- * and a search-param change does not remount a page subtree. Keying it on the
- * live parameter instead only moved the failure: `replaceState` writes the
- * address bar behind the router's back, so `useSearchParams` could keep
- * reporting the stale `lost` while the URL no longer carried it, and then the
- * next arrival changed no dependency at all — no toast, and a marker stuck in
- * the address bar until a full reload.
+ * Three properties make it fire on every arrival, and each one replaced a
+ * version that did not.
  *
- * A router navigation cannot desync, because the router performs it. The server
- * re-renders `/login` without the marker, the page stops rendering this
- * component, and the next arrival mounts a fresh one whose effect has never
- * run. That costs one extra render of a route that is dynamic anyway, and it
- * buys a component with no dependency on any state it does not own. Only the
- * marker is dropped, from a copy of the live URL, so an unrelated parameter
- * survives.
+ * It is mounted on every render of the login page, not only when a warning
+ * applies. Mounting it conditionally made the toast depend on the server
+ * re-rendering per arrival, and the client router is entitled to answer a
+ * navigation from its cached segment: that cache key excludes search params, so
+ * `/login` and `/login?session=lost` can share an entry. When it did, the page
+ * function never ran, the component never mounted, and the arrival passed in
+ * silence with the marker left in the address bar until a full reload.
  *
- * It runs inside the frame, after the request, so the pair is atomic. Cleaning
- * first would lose the warning outright if the component unmounted before the
- * frame ran, rather than merely deferring it.
+ * The trigger is the live parameter, not the copy. The copy is identical on
+ * every arrival for the same cause, and a search-param change does not remount
+ * a page subtree, so an effect keyed on the copy ran once and never again.
+ *
+ * Both the read and the write are the router's. `useSearchParams` reports what
+ * the router believes the URL is, so pairing it with `history.replaceState`,
+ * which writes the address bar behind the router's back, let the two disagree:
+ * the marker could stay `lost` in React's view after the URL had lost it, and
+ * then the next arrival changed no dependency and fired nothing. `router.replace`
+ * cannot disagree with `useSearchParams`, because the router performs it.
+ *
+ * The copy arrives as a boolean rather than as resolved text so that a cached
+ * segment cannot withhold it. That boolean is server state and could in
+ * principle be one navigation stale, which would swap two truthful messages;
+ * unlike the parameter, nothing a visitor sends can influence it.
  *
  * `richColors` is set per toast rather than on the shared `Toaster`, because
  * `--warning` is the only semantic colour the theme defines: a future success
@@ -67,9 +75,13 @@ export interface SessionLossToastProps {
  * the transition has no start value to interpolate from, and only the exit
  * animates. Leaving the effect flush first gives the pre-mount state a paint.
  *
+ * The cleanup runs inside the frame, after the request, so the pair is atomic.
+ * Cleaning first would lose the warning outright if the component unmounted
+ * before the frame ran, rather than merely deferring it.
+ *
  * The fixed identifier is insurance against a real remount, not against React's
- * development double-invoke: the cleanup below cancels the first frame before it
- * can run, so only one request is ever made. Sonner updates a toast it already
+ * development double-invoke: the cleanup cancels the first frame before it can
+ * run, so only one request is ever made. Sonner updates a toast it already
  * shows rather than stacking a duplicate.
  *
  * The warning is deliberately not the only signal. The page it appears on is
@@ -77,12 +89,20 @@ export interface SessionLossToastProps {
  * sees the toast or dismisses it immediately loses an explanation, not the
  * ability to continue.
  */
-export function SessionLossToast({ warning }: SessionLossToastProps) {
+export function SessionLossToast({
+  sessionTokenPresent,
+}: SessionLossToastProps) {
   const router = useRouter();
-  const { title, description } = warning;
+  const marker = useSearchParams().get(SESSION_LOSS_PARAMETER);
 
   useEffect(() => {
+    if (marker !== SESSION_LOSS_VALUE) {
+      return;
+    }
+
     const frame = requestAnimationFrame(() => {
+      const { title, description } = sessionLossWarning(sessionTokenPresent);
+
       toast.warning(title, {
         description,
         id: TOAST_ID,
@@ -97,7 +117,7 @@ export function SessionLossToast({ warning }: SessionLossToastProps) {
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [description, router, title]);
+  }, [marker, router, sessionTokenPresent]);
 
   return null;
 }

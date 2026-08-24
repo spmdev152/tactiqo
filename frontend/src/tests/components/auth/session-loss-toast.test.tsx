@@ -3,11 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionLossToast } from "@/features/auth/components/session-loss-toast";
 
-const WARNING = {
-  title: "Session expired",
-  description: "Sign in again to access the platform.",
-};
-
 const { replace, warning } = vi.hoisted(() => ({
   replace: vi.fn<(href: string, options?: { scroll?: boolean }) => void>(),
   warning: vi.fn(),
@@ -15,7 +10,10 @@ const { replace, warning } = vi.hoisted(() => ({
 
 vi.mock("sonner", () => ({ toast: { warning } }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 
 /**
  * Places the browser on an arrival at the login page.
@@ -23,7 +21,22 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
  * @param query - Query string the arrival carries, without its leading marker.
  */
 function arriveWith(query: string): void {
-  window.history.replaceState(null, "", `/login?${query}`);
+  window.history.replaceState(
+    null,
+    "",
+    query === "" ? "/login" : `/login?${query}`,
+  );
+}
+
+/**
+ * Waits for the frame and the task the notice defers its request across.
+ */
+function settleDeferredRequest(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+
+  requestAnimationFrame(() => setTimeout(resolve, 0));
+
+  return promise;
 }
 
 describe("SessionLossToast", () => {
@@ -34,12 +47,12 @@ describe("SessionLossToast", () => {
   });
 
   /**
-   * GIVEN a visitor who arrived at the login page having lost their session
+   * GIVEN an involuntary arrival whose request still carried a session cookie
    * WHEN the notice mounts
-   * THEN title and description are requested as a themed warning under a stable identifier
+   * THEN the expiry is reported as a themed warning under a stable identifier
    */
-  it("requests a warning toast for the resolved copy", async () => {
-    render(<SessionLossToast warning={WARNING} />);
+  it("reports an expired session when a token was sent", async () => {
+    render(<SessionLossToast sessionTokenPresent />);
 
     await waitFor(() =>
       expect(warning).toHaveBeenCalledExactlyOnceWith("Session expired", {
@@ -51,12 +64,77 @@ describe("SessionLossToast", () => {
   });
 
   /**
+   * GIVEN an involuntary arrival carrying no session cookie at all
+   * WHEN the notice mounts
+   * THEN a sign-in is requested without claiming a session expired
+   */
+  it("requests a sign-in when no token was sent", async () => {
+    render(<SessionLossToast sessionTokenPresent={false} />);
+
+    await waitFor(() =>
+      expect(warning).toHaveBeenCalledExactlyOnceWith(
+        "Sign in required",
+        expect.objectContaining({
+          description: "Sign in to access the platform.",
+        }),
+      ),
+    );
+  });
+
+  /**
+   * GIVEN a marker forged into a link sent to somebody who never held a session
+   * WHEN the notice mounts
+   * THEN the cookie decides the copy, so no expiry is ever claimed
+   */
+  it("cannot be forged into claiming an expiry", async () => {
+    render(<SessionLossToast sessionTokenPresent={false} />);
+
+    await waitFor(() => expect(warning).toHaveBeenCalledOnce());
+
+    expect(warning).not.toHaveBeenCalledWith(
+      "Session expired",
+      expect.anything(),
+    );
+  });
+
+  /**
+   * GIVEN an arrival the redirecting side did not mark, such as a sign-out or a first visit
+   * WHEN the notice mounts, as it does on every render of the page
+   * THEN nothing is requested and the address bar is left alone
+   */
+  it("stays silent on an unmarked arrival", async () => {
+    arriveWith("");
+
+    render(<SessionLossToast sessionTokenPresent={false} />);
+
+    await settleDeferredRequest();
+
+    expect(warning).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  /**
+   * GIVEN a marker value the product does not recognise, since a visitor can write any
+   * WHEN the notice mounts
+   * THEN nothing is requested
+   */
+  it("stays silent on an unrecognised marker", async () => {
+    arriveWith("session=%3Cimg%20onerror%3Dalert(1)%3E");
+
+    render(<SessionLossToast sessionTokenPresent />);
+
+    await settleDeferredRequest();
+
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  /**
    * GIVEN Sonner entering by transition from a state the browser has to paint first
    * WHEN the notice mounts
    * THEN the request waits for a frame, since asking inside the commit skips the entry animation
    */
   it("defers the request past the mounting commit", async () => {
-    render(<SessionLossToast warning={WARNING} />);
+    render(<SessionLossToast sessionTokenPresent />);
 
     expect(warning).not.toHaveBeenCalled();
 
@@ -69,7 +147,7 @@ describe("SessionLossToast", () => {
    * THEN the router drops it, so the address bar cannot desync from router state
    */
   it("cleans the marker out of the url through the router", async () => {
-    render(<SessionLossToast warning={WARNING} />);
+    render(<SessionLossToast sessionTokenPresent />);
 
     await waitFor(() =>
       expect(replace).toHaveBeenCalledExactlyOnceWith("/login", {
@@ -86,7 +164,7 @@ describe("SessionLossToast", () => {
   it("keeps every other parameter while cleaning the marker", async () => {
     arriveWith("session=lost&email=ada");
 
-    render(<SessionLossToast warning={WARNING} />);
+    render(<SessionLossToast sessionTokenPresent />);
 
     await waitFor(() =>
       expect(replace).toHaveBeenCalledExactlyOnceWith("/login?email=ada", {
@@ -96,19 +174,21 @@ describe("SessionLossToast", () => {
   });
 
   /**
-   * GIVEN a warning requested and its marker already cleaned
-   * WHEN the same notice is mounted again, as a repeated arrival does
-   * THEN it warns again, because nothing about the first arrival is remembered
+   * GIVEN a marked arrival already warned about and cleaned
+   * WHEN the marker returns, as a repeated arrival at a protected path makes it
+   * THEN the warning fires again rather than once per visit
    */
-  it("warns again on every fresh mount", async () => {
-    const first = render(<SessionLossToast warning={WARNING} />);
+  it("warns again when the marker returns", async () => {
+    const view = render(<SessionLossToast sessionTokenPresent />);
 
     await waitFor(() => expect(warning).toHaveBeenCalledOnce());
 
-    first.unmount();
-    arriveWith("session=lost");
+    arriveWith("");
+    view.rerender(<SessionLossToast sessionTokenPresent />);
+    await settleDeferredRequest();
 
-    render(<SessionLossToast warning={WARNING} />);
+    arriveWith("session=lost");
+    view.rerender(<SessionLossToast sessionTokenPresent />);
 
     await waitFor(() => expect(warning).toHaveBeenCalledTimes(2));
   });
@@ -119,7 +199,7 @@ describe("SessionLossToast", () => {
    * THEN it contributes no markup of its own
    */
   it("renders nothing itself", () => {
-    const { container } = render(<SessionLossToast warning={WARNING} />);
+    const { container } = render(<SessionLossToast sessionTokenPresent />);
 
     expect(container).toBeEmptyDOMElement();
   });
