@@ -150,20 +150,6 @@ const MARKET_LABELS: Record<PredictionMarket, string> = {
   correct_score: "Correct score",
 };
 
-const EXCLUSIVE_MARKETS: Record<PredictionMarket, boolean> = {
-  fulltime_result: true,
-  double_chance: false,
-  both_teams_to_score: true,
-  over_under_1_5: true,
-  over_under_2_5: true,
-  over_under_3_5: true,
-  over_under_4_5: true,
-  team_to_score_first: true,
-  first_half_result: true,
-  half_time_full_time: true,
-  correct_score: true,
-};
-
 /**
  * Reads the shortest name that still identifies a club.
  *
@@ -345,21 +331,4 @@ export function selectionLabel(
   const labeller = overrides?.[selection] ?? SHARED_SELECTION_LABELS[selection];
 
   return labeller(sides);
-}
-
-/**
- * Reports whether a market's selections are mutually exclusive.
- *
- * @remarks
- * Only double chance is not. Its three selections each cover two of the three
- * results, so exactly two of them are always right and the probabilities sum to
- * roughly 200 rather than 100. A panel that drew that market the way it draws
- * the others would show a stack of bars overflowing its own scale, so the
- * distinction is published here rather than rediscovered by the component.
- *
- * @param market - Market to classify.
- * @returns `false` only for a market whose selections overlap.
- */
-export function isExclusiveMarket(market: PredictionMarket): boolean {
-  return EXCLUSIVE_MARKETS[market];
 }

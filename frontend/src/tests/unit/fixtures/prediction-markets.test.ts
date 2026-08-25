@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  isExclusiveMarket,
   marketLabel,
   PREDICTION_MARKETS,
   PREDICTION_SELECTIONS,
@@ -138,20 +137,5 @@ describe("selectionLabel", () => {
     expect(selectionLabel("double_chance", "home_or_draw", sides)).toBe(
       "Liverpool or draw",
     );
-  });
-});
-
-describe("isExclusiveMarket", () => {
-  /**
-   * GIVEN every market the platform publishes
-   * WHEN each is classified by whether its selections overlap
-   * THEN only double chance, whose selections sum to roughly 200, is not exclusive
-   */
-  it("reports only double chance as non-exclusive", () => {
-    const overlapping = PREDICTION_MARKETS.filter(
-      (market) => !isExclusiveMarket(market),
-    );
-
-    expect(overlapping).toEqual(["double_chance"]);
   });
 });

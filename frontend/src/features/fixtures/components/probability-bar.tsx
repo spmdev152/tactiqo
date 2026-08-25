@@ -1,19 +1,11 @@
 import { resolveProbabilityFill } from "@/features/fixtures/domain/probability-scale";
 
-const CERTAIN_PROBABILITY = 100;
-
 /**
  * Props of {@link ProbabilityBar}.
  */
 export interface ProbabilityBarProps {
   /** Probability of this selection, as a percentage between 0 and 100. */
   readonly probability: number;
-
-  /**
-   * Highest probability in the same market, as a percentage between 0 and 100.
-   * The marker is placed there, so every bar of a market agrees on where it is.
-   */
-  readonly marketMaximum: number;
 }
 
 /**
@@ -25,15 +17,9 @@ export interface ProbabilityBarProps {
  * comparison across markets: a 34% favourite and a 71% favourite would both
  * reach the end of their track, so the panel would say that eleven markets are
  * equally confident. Absolute width keeps one meaning for one length down the
- * whole panel.
- *
- * Intra-market comparison is what that costs, so it is bought back on a second
- * channel instead of by distorting the first. A hairline marker sits at the
- * market's own maximum, so the leading selection is the one whose fill reaches
- * it and the rest are read as the distance they fall short. It is painted only
- * below 100, where it has somewhere to be: a marker at the very end of the
- * track lands under the fill that reached it and is clipped by the track's own
- * rounding, so it would cost a paint and say nothing.
+ * whole panel, and the leading selection of a market is simply the longest bar
+ * in its list, read against the others rather than against a reference drawn
+ * for it.
  *
  * The fill colour is a `color-mix` of the two anchors the value falls between,
  * resolved by `domain/probability-scale.ts`. It is assigned to a custom
@@ -50,16 +36,13 @@ export interface ProbabilityBarProps {
  *
  * @returns The bar for one selection.
  */
-export function ProbabilityBar({
-  probability,
-  marketMaximum,
-}: ProbabilityBarProps) {
+export function ProbabilityBar({ probability }: ProbabilityBarProps) {
   const fill = resolveProbabilityFill(probability);
 
   return (
     <span
       aria-hidden="true"
-      className="relative block h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      className="block h-1.5 w-full overflow-hidden rounded-full bg-muted"
       data-slot="probability-track"
     >
       <span
@@ -72,14 +55,6 @@ export function ProbabilityBar({
           } as React.CSSProperties
         }
       />
-
-      {marketMaximum < CERTAIN_PROBABILITY && (
-        <span
-          className="absolute inset-y-0 w-px bg-foreground/45"
-          data-slot="probability-marker"
-          style={{ left: `${marketMaximum}%` }}
-        />
-      )}
     </span>
   );
 }

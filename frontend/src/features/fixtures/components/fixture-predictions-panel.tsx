@@ -265,7 +265,7 @@ export function FixturePredictionsPanel({
   sides,
 }: FixturePredictionsPanelProps) {
   return (
-    <div className="bg-muted/30 px-4 pt-1 pb-4">
+    <div className="bg-muted/30 p-4">
       <PredictionsBody pending={pending} result={result} sides={sides} />
     </div>
   );

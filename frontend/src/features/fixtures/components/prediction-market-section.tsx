@@ -1,7 +1,11 @@
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ProbabilityBar } from "@/features/fixtures/components/probability-bar";
 import {
-  isExclusiveMarket,
   marketLabel,
   type PredictionReliability,
   type PredictionSides,
@@ -10,9 +14,6 @@ import {
 import type { PredictionMarketProbabilities } from "@/features/fixtures/types/prediction";
 
 const UNGRADED_LABEL = "Reliability not graded";
-
-const OVERLAP_NOTICE =
-  "These selections overlap, so they sum to about 200% rather than 100%.";
 
 const RELIABILITY_LABEL: Record<PredictionReliability, string> = {
   poor: "Poor reliability",
@@ -45,6 +46,9 @@ const HIT_RATE_FORMAT = new Intl.NumberFormat("en-GB", {
 interface ReliabilityChipProps {
   /** How the provider grades its own model here, `null` when it does not. */
   readonly reliability: PredictionReliability | null;
+
+  /** The measured hit rate behind that grade, `null` when there is none. */
+  readonly hitRatio: number | null;
 }
 
 /**
@@ -64,9 +68,30 @@ interface ReliabilityChipProps {
  * which is how the fixture list and the competition picker already paint a
  * state that is absent rather than bad.
  *
- * @returns The grade chip.
+ * The hit rate the grade stands on moves into a tooltip. Printed beside eleven
+ * headings it was a second number competing with the fifty the panel is
+ * actually about, and it answers a question a reader only asks once they doubt
+ * a grade. The chip therefore takes `tabIndex`, which is what makes the
+ * tooltip reachable without a pointer: a chip is a `span` and would otherwise
+ * be unfocusable, and the number would be available to a mouse alone. Radix
+ * points the trigger's `aria-describedby` at the content, so the grade stays
+ * the chip's name and the hit rate becomes its description rather than being
+ * folded into one announcement.
+ *
+ * It opens to the right, into the space the printed hit rate used to occupy,
+ * because the first market's heading sits directly under the fixture row: a
+ * tooltip above it would cover the two clubs the whole panel is about, and one
+ * below it would cover the selections being read. Radix flips it leftwards on
+ * its own where the column has no room.
+ *
+ * A grade with no hit rate renders as a plain chip. The provider publishes the
+ * two together, so this is unreachable through the synchronization as it
+ * stands, but the contract types them independently and a chip that opens an
+ * empty tooltip is worse than one that opens none.
+ *
+ * @returns The grade chip, and the hit rate behind it when there is one.
  */
-function ReliabilityChip({ reliability }: ReliabilityChipProps) {
+function ReliabilityChip({ reliability, hitRatio }: ReliabilityChipProps) {
   if (reliability === null) {
     return (
       <Badge
@@ -78,10 +103,27 @@ function ReliabilityChip({ reliability }: ReliabilityChipProps) {
     );
   }
 
-  return (
+  const chip = (
     <Badge variant={RELIABILITY_VARIANT[reliability]}>
       {RELIABILITY_LABEL[reliability]}
     </Badge>
+  );
+
+  if (hitRatio === null) {
+    return chip;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild tabIndex={0}>
+        {chip}
+      </TooltipTrigger>
+
+      <TooltipContent align="center" side="right">
+        Right on {HIT_RATE_FORMAT.format(hitRatio)} of this market&apos;s
+        predictions in this competition.
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -105,16 +147,10 @@ export interface PredictionMarketSectionProps {
  * the bar be hidden from the accessibility tree and lets the colour scale be a
  * second reading of the value instead of the only one.
  *
- * A market whose selections overlap says so. Double chance covers two outcomes
- * per selection, so its three add up to roughly 200, and a panel showing eleven
- * markets that sum to 100 and one that sums to 200 looks broken rather than
- * different. Which markets those are is not decided here: the domain owns
- * {@link isExclusiveMarket}, because the same fact governs how the numbers may
- * be read anywhere else in the product.
- *
- * The marker on every bar is placed at this market's own maximum, computed once
- * here rather than per bar, so the leading selection is the one whose fill
- * reaches its marker.
+ * Nothing here says that double chance sums to about 200. Its three selections
+ * are named as the pairs they are — the home side or a draw, either side — so a
+ * reader who can add already knows why they overlap, and a notice under one
+ * heading in eleven was a paragraph spent restating its own labels.
  *
  * The percentages are shown to one decimal. The platform stores two, which is
  * what the provider publishes, but fifty rows of two decimals is a wall of
@@ -128,28 +164,16 @@ export function PredictionMarketSection({
   market,
   sides,
 }: PredictionMarketSectionProps) {
-  const marketMaximum = market.selections.reduce(
-    (highest, selection) => Math.max(highest, selection.probability),
-    0,
-  );
-
   return (
     <section className="flex min-w-0 flex-col gap-2">
       <header className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h3 className="text-sm font-medium">{marketLabel(market.market)}</h3>
 
-        <ReliabilityChip reliability={market.reliability} />
-
-        {market.hitRatio !== null && (
-          <span className="font-mono text-[0.68rem] text-muted-foreground tabular-nums">
-            {HIT_RATE_FORMAT.format(market.hitRatio)} hit rate
-          </span>
-        )}
+        <ReliabilityChip
+          hitRatio={market.hitRatio}
+          reliability={market.reliability}
+        />
       </header>
-
-      {!isExclusiveMarket(market.market) && (
-        <p className="text-xs text-muted-foreground">{OVERLAP_NOTICE}</p>
-      )}
 
       <ul className="flex flex-col gap-1.5">
         {market.selections.map((selection) => (
@@ -158,10 +182,7 @@ export function PredictionMarketSection({
               {selectionLabel(market.market, selection.selection, sides)}
             </span>
 
-            <ProbabilityBar
-              marketMaximum={marketMaximum}
-              probability={selection.probability}
-            />
+            <ProbabilityBar probability={selection.probability} />
 
             <span className="w-12 shrink-0 text-right font-mono text-xs tabular-nums">
               {PROBABILITY_FORMAT.format(selection.probability / 100)}
