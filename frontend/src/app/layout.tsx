@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Antonio, Fira_Code, Geist } from "next/font/google";
 
-import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -60,6 +59,10 @@ interface RootLayoutProps {
  * reads `useTheme` to pick its own light or dark surface and a second host
  * would render every toast twice.
  *
+ * The header is not mounted here. Each route group brings its own: the public
+ * group keeps `SiteHeader`, and the authenticated group replaces it with the
+ * sidebar shell.
+ *
  * Its five settings are host policy rather than per-message data, which is why
  * they live here and not at the call site. `top-center` keeps a toast off the
  * primary action: bottom-right lands on the sign-in artwork's headline above
@@ -83,8 +86,6 @@ export default function RootLayout({ children }: RootLayoutProps) {
     >
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <ThemeProvider>
-          <SiteHeader />
-
           {children}
 
           <Toaster

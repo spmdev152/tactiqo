@@ -58,6 +58,8 @@ class SignInRateThrottle(SimpleRateThrottle):
 
     Methods
     -------
+    __init__(rate) -> None
+        Parse and validate the configured rate.
     allow_request(request) -> bool
         Count the attempt and report whether it may proceed.
     current_window() -> int

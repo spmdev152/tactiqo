@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "apps.accounts",
+    "apps.fixtures",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -110,12 +111,33 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 SESSION_PURGE_EXPIRY_SECONDS = 3000
 
+FIXTURE_SYNCHRONIZATION_PAST_DAYS = 2
+FIXTURE_SYNCHRONIZATION_FUTURE_DAYS = 14
+
+# The lease covers a run long enough that the previous 900 seconds could not,
+# and stays below the 3600-second Redis visibility timeout after which Celery
+# redelivers an unacknowledged task: a task redelivered under
+# CELERY_TASK_ACKS_LATE therefore always finds the lease free rather than
+# skipping itself as a duplicate. A run that still outlives the lease keeps its
+# successor's lock intact, because the task releases a lease only on a match.
+FIXTURE_SYNCHRONIZATION_LOCK_SECONDS = 1800
+
+# A queued run stays valid until shortly before the next scheduled one, so a
+# worker outage shorter than the six-hour interval delays a refresh instead of
+# discarding it and leaving fixtures unrefreshed for twelve hours.
+FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS = 21000
+
 CELERY_BEAT_SCHEDULE = {
     "accounts-purge-expired-sessions": {
         "task": "accounts.purge_expired_sessions",
         "schedule": crontab(minute="15"),
         "options": {"expires": SESSION_PURGE_EXPIRY_SECONDS},
-    }
+    },
+    "fixtures-synchronize": {
+        "task": "fixtures.synchronize_fixtures",
+        "schedule": crontab(minute="5", hour="*/6"),
+        "options": {"expires": FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS},
+    },
 }
 
 SPORTMONKS_API_TOKEN = env_str("SPORTMONKS_API_TOKEN", default="")

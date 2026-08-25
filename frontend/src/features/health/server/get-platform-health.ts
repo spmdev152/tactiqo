@@ -18,15 +18,24 @@ const PROBE_TIMEOUT_MS = 3_000;
  * contract mismatch rather than as an unreachable API, so rendering this feature
  * cannot break a page or a production build when the API misbehaves.
  *
+ * An absent base URL is a deployment fault rather than a fact about the
+ * platform, so the reason it produces names no environment variable. The
+ * variable is an operator's concern and reaches the server log; the visitor is
+ * told only that the platform cannot be reached.
+ *
  * @returns The normalized platform health for the configured backend.
  */
 export async function getPlatformHealth(): Promise<PlatformHealth> {
   const baseUrl = getBackendApiBaseUrl();
 
   if (baseUrl === null) {
+    console.error(
+      "BACKEND_API_BASE_URL is not configured, so platform health cannot be probed.",
+    );
+
     return {
       reported: false,
-      reason: "BACKEND_API_BASE_URL is not configured for this environment.",
+      reason: "The platform could not be reached.",
     };
   }
 

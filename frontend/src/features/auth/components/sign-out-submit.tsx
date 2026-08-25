@@ -4,7 +4,9 @@ import { Power } from "lucide-react";
 import { useFormStatus } from "react-dom";
 
 import { ButtonSpinner } from "@/components/button-spinner";
-import { Button } from "@/components/ui/button";
+import { SidebarMenuButton } from "@/components/ui/sidebar";
+
+const SIGN_OUT_LABEL = "Sign out";
 
 /**
  * Renders the submit control of the sign-out form.
@@ -15,33 +17,38 @@ import { Button } from "@/components/ui/button";
  * {@link SignOutButton} a Server Component and the submit itself working before
  * hydration and with JavaScript disabled.
  *
- * The busy state matches the sign-in button deliberately: the label never
- * changes, only the trailing icon becomes a spinner, and `aria-busy` reports
- * what the icon shows.
+ * It is built from `SidebarMenuButton` rather than from a plain button, because
+ * it is a sidebar menu entry and has to share the height, padding, radius, icon
+ * size and collapsed behaviour of every other one. Restating those measurements
+ * on a generic button is how they drift apart, and the collapsed variant then
+ * comes for free instead of being re-derived in classes here. The primitive
+ * needs the sidebar context, so this component is no longer renderable on its
+ * own; there is exactly one sign-out control and it lives in the sidebar.
  *
- * Both icons are 12 pixels rather than the 16 the sign-in button uses, and
- * rather than the 14 an `sm` button gives its own unsized icons. A power symbol
- * is a full-height circle, so anything above the roughly 9 pixel cap height of
- * the 12.8 pixel label beside it reads as the dominant element of the control.
- * The spinner has to state the same size because the registry hardcodes its own.
+ * Only the colour is overridden, from the destructive variant of the button
+ * primitive. Ending the session is the one irreversible action in the shell —
+ * the token is revoked on the backend, so a mis-click cannot be undone by
+ * navigating back — and a tinted surface says so without a solid red fill
+ * becoming the loudest thing in a permanently visible footer.
+ *
+ * The busy state matches the sign-in button deliberately: the label never
+ * changes, only the icon becomes a spinner, and `aria-busy` reports what the
+ * icon shows.
  */
 export function SignOutSubmit() {
   const { pending } = useFormStatus();
 
   return (
-    <Button
+    <SidebarMenuButton
       aria-busy={pending}
+      className="bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive active:bg-destructive/20 active:text-destructive dark:bg-destructive/20 dark:hover:bg-destructive/30"
       disabled={pending}
-      size="sm"
+      tooltip={SIGN_OUT_LABEL}
       type="submit"
-      variant="outline"
     >
-      Sign out
-      {pending ? (
-        <ButtonSpinner className="size-3" />
-      ) : (
-        <Power className="size-3" />
-      )}
-    </Button>
+      {pending ? <ButtonSpinner className="size-4" /> : <Power />}
+
+      <span>{SIGN_OUT_LABEL}</span>
+    </SidebarMenuButton>
   );
 }

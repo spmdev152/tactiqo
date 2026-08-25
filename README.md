@@ -26,7 +26,7 @@ Out of scope for the MVP: live ingestion, WebSockets, AI-generated insights, cus
 ## Repository layout
 
 ```text
-backend/     Django project, Django Ninja API, Celery application, and tests
+backend/     Django project, Django Ninja API, Celery application, Sportmonks integration, and tests
 frontend/    Next.js application, features, and tests
 compose.yml  Local orchestration for every runnable service
 .env.example Environment variable reference for every environment
@@ -169,6 +169,26 @@ Nothing else deletes a row, so a Beat entry does. `accounts-purge-expired-sessio
 A revoked session is kept until its own expiry rather than deleted with the rest. It costs nothing and it keeps a record of the revocation for as long as the token it invalidated could still have been presented.
 
 The row is not the trail. An issuance is logged where sessions are issued, naming the session and the account but never the token, and the sign-in endpoint adds the client it came from and the peer it arrived from, mirroring the line a rejected attempt already writes; the layer that issues a session knows nothing about HTTP, which is why the attribution is a second record rather than a longer one. The admin revocation action logs the count, the accounts locked out and the operator who did it, by identifier rather than by address. Those records outlive the rows the purge deletes, which is what makes an incident reconstructable after 14 days.
+
+## Fixture ingestion
+
+Fixture scheduling is close to static: a day's fixture list changes when a match is postponed, not by the minute. So neither the browser nor the API talks to Sportmonks on a date change. `fixtures-synchronize` runs `fixtures.synchronize_fixtures` every six hours at minute 5, refreshing a rolling window from two days back to fourteen days ahead, and `GET /api/v1/fixtures` then serves entirely from PostgreSQL.
+
+`integrations/sportmonks/` is the only code that knows the provider exists. It owns authentication, timeouts, bounded retries, pagination and error mapping, and it normalizes a window into `ProviderFixture` dataclasses. Nothing past it sees a Sportmonks field name, and the public schemas expose the internal primary key rather than the provider identifier.
+
+The token travels in the `Authorization` header, although the provider also accepts it as a query parameter. `httpx` logs the full request URL at info level and every standard-library record reaches the Loguru sink, so a token in the query string would be written verbatim into the serialized logs of every deployed environment. The pagination cursor gets the same treatment from the other direction: the provider advertises the next page as an absolute URL, and because the credential is a header on the connection it would travel to whatever host that URL named. Only the cursor token is lifted out of it and re-merged onto the URL the client built itself, so a response body can contribute a scalar and never a destination.
+
+Two provider calls make one window. The fixture payload carries a competition badge but no country flag, so the competitions are read once per window with their country included; the fixtures themselves come from `/fixtures/between` filtered to the five subscribed leagues. Those competitions are stored in full rather than only as the ones a fixture mentioned, so a league keeps being listed through its winter break. At `per_page=50` — the documented maximum, above which the provider silently falls back to 25 — a seventeen-day window is four requests, against a budget of 2000 per entity per hour.
+
+The task is guarded by `cache.add`, which is one atomic Redis command that both tests and sets; a read followed by a write leaves a window in which two runs both believe they hold the lock. A run that finds the lock taken returns without writing, because the run holding it is fetching the same window. The lease carries a per-run token and is released only when that token is still the one stored, so a run that outlived its lease cannot free a successor's; the check is not itself atomic, and what makes an overlap harmless rather than merely unlikely is that the write is idempotent. The upsert is keyed on the provider identifier, so re-ingesting a window is a no-op and a postponed fixture moves its row instead of duplicating it, and it collapses a repeated identifier before the statement reaches PostgreSQL, since `ON CONFLICT DO UPDATE` refuses to touch the same row twice in one statement. Within the range it just read, the run also deletes the fixtures the provider no longer places there, which is what stops a match postponed past the window from being listed for months on a day it will not be played. That deletion is only sound because a truncated read raises instead of returning a prefix.
+
+Beat populates an empty database within six hours. To fill it immediately:
+
+```bash
+docker compose --env-file .env.local exec worker uv run celery -A config call fixtures.synchronize_fixtures
+```
+
+Kick-off times are stored and rendered in UTC, and the view leaves them unlabelled: the zone is carried only by the machine-readable `dateTime` each row emits. The visitor's timezone is not knowable during a server render, and every alternative either flashes the wrong time after hydration or mismatches outright; resolving it properly needs a stored preference and a product decision. The visible marker the view once carried was dropped when the rows were narrowed, because it cost a column in every row to repeat a fact that never varies.
 
 ## Quality gates
 
