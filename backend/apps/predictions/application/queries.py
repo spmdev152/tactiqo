@@ -100,7 +100,9 @@ def get_fixture_predictions(fixture_id: int) -> FixtureProbabilities | None:
     the stored selections, and one reading that competition's grades. Grouping
     and ordering then happen in memory against ``MARKET_ORDER`` and
     ``MARKET_SELECTIONS``, so eleven markets cost exactly what one does, and a
-    fixture that does not exist costs the first statement alone.
+    fixture that does not exist costs the first statement alone. Both reads
+    clear the model's default ordering, because an ``ORDER BY`` whose result is
+    poured straight into a dictionary is work the database does for nobody.
 
     Each read takes only the columns the payload needs. A fixture carrying
     every market stores roughly fifty rows, and instantiating fifty model
@@ -112,6 +114,18 @@ def get_fixture_predictions(fixture_id: int) -> FixtureProbabilities | None:
     interface cannot draw are the same thing to the reader. Iterating the
     contracted order rather than the stored rows also means a selection the
     provider invents can never reach the response.
+
+    The graded quality is turned into ``PredictionReliability`` without the
+    defensive treatment the market gets, and the asymmetry is deliberate rather
+    than an oversight. The market is iterated out of ``MARKET_ORDER`` because
+    the contracted order has to be applied anyway, so passing over a value that
+    order does not name costs nothing there. The quality has no such loop to
+    hide behind and needs none: the column declares the enumeration as its
+    ``choices``, and its one writer fills it from a closed mapping of the four
+    words the provider publishes, logging and dropping anything else. A word
+    outside the enumeration is therefore not a state this system can reach, a
+    branch for it would be unreachable, and swallowing it would hide a
+    corrupted column rather than report it.
 
     Parameters
     ----------
@@ -135,8 +149,10 @@ def get_fixture_predictions(fixture_id: int) -> FixtureProbabilities | None:
     probabilities: StoredProbabilities = {}
     synchronized_at: datetime | None = None
 
-    stored = FixturePrediction.objects.filter(fixture_id=fixture_id).values_list(
-        "market", "selection", "probability", "synchronized_at"
+    stored = (
+        FixturePrediction.objects.filter(fixture_id=fixture_id)
+        .order_by()
+        .values_list("market", "selection", "probability", "synchronized_at")
     )
 
     for market, selection, probability, stamp in stored:
@@ -145,11 +161,14 @@ def get_fixture_predictions(fixture_id: int) -> FixtureProbabilities | None:
         if synchronized_at is None or stamp > synchronized_at:
             synchronized_at = stamp
 
+    stored_grades = (
+        LeagueMarketReliability.objects.filter(league_id=league_id)
+        .order_by()
+        .values_list("market", "quality", "hit_ratio")
+    )
+
     grades: MarketGrades = {
-        market: (quality, hit_ratio)
-        for market, quality, hit_ratio in LeagueMarketReliability.objects.filter(
-            league_id=league_id
-        ).values_list("market", "quality", "hit_ratio")
+        market: (quality, hit_ratio) for market, quality, hit_ratio in stored_grades
     }
 
     markets: list[MarketProbabilities] = []

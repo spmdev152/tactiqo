@@ -307,7 +307,7 @@ def test_predictions_returns_every_market_in_the_contracted_shape(
     """
     GIVEN a fixture carrying three markets, stored in neither promised order
     WHEN its predictions are requested
-    THEN the markets and their outcomes come back in the promised order
+    THEN they come back in the promised order, with every share a JSON number
     """
 
     fixture = store_three_markets()
@@ -353,32 +353,6 @@ def test_predictions_returns_every_market_in_the_contracted_shape(
             },
         ],
     }
-
-
-@pytest.mark.django_db
-def test_predictions_renders_a_probability_and_a_hit_ratio_as_json_numbers(
-    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
-) -> None:
-    """
-    GIVEN a fixture whose graded market stores a percentage and a hit ratio
-    WHEN its predictions are requested
-    THEN both arrive as JSON numbers rather than as quoted decimal strings
-    """
-
-    fixture = store_three_markets()
-
-    token = bearer_token(api_post, user, user_password)
-
-    response = api_get(predictions_url(fixture.pk), token=token)
-
-    graded = json_objects(json_object(response.json())["markets"])[0]
-
-    assert isinstance(graded["hit_ratio"], float)
-
-    assert [
-        isinstance(selection["probability"], float)
-        for selection in json_objects(graded["selections"])
-    ] == [True, True, True]
 
 
 @pytest.mark.django_db

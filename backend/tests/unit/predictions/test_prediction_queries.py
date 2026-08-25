@@ -452,3 +452,13 @@ def test_get_fixture_predictions_reports_the_stamp_of_its_own_fixture() -> None:
         SYNCHRONIZED_AT,
         LATER_SYNCHRONIZED_AT,
     ]
+
+
+def test_the_served_market_order_covers_exactly_the_published_vocabulary() -> None:
+    """
+    GIVEN the market order the read iterates, the market vocabulary, and the selection table
+    WHEN the markets each of them names are compared
+    THEN they name the same markets once each, so no stored market can go unserved
+    """
+
+    assert sorted(MARKET_ORDER) == sorted(PredictionMarket) == sorted(MARKET_SELECTIONS)

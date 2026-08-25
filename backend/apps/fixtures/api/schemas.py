@@ -90,7 +90,12 @@ class FixtureResponse(Schema):
         offers a toggle on a row that has something to show. Prediction
         availability is fixture-dependent, and a day's listing would otherwise
         have to request every fixture's predictions in order to find out which
-        of them are worth expanding.
+        of them are worth expanding. It is supplied by the ``has_predictions``
+        annotation ``list_fixtures_on`` adds and by nothing else, and it
+        deliberately carries no default: any further producer of this schema, a
+        fixture-detail endpoint or an admin action among them, has to annotate
+        it too, and a validation error is a better answer than quietly
+        reporting ``false`` for a match that does have predictions.
     """
 
     id: int

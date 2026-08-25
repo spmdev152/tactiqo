@@ -27,6 +27,10 @@ SMALLEST_PERCENTAGE_STEP = Decimal("0.01")
 
 SMALLEST_RATIO_STEP = Decimal("0.001")
 
+PROBABILITY_FLOOR = Decimal("0.00")
+
+HIT_RATIO_FLOOR = Decimal("0.000")
+
 HALF = Decimal("50.00")
 
 
@@ -138,6 +142,26 @@ def test_the_database_accepts_a_probability_of_exactly_a_hundred() -> None:
 
 
 @pytest.mark.django_db
+def test_the_database_accepts_a_probability_of_exactly_nought() -> None:
+    """
+    GIVEN a correct-score bucket whose chance the provider rounds down to nothing
+    WHEN a probability of exactly nought is written
+    THEN the row is stored, because the bound is inclusive
+    """
+
+    fixture = seed_fixtures()[FIXTURE_PROVIDER_ID]
+
+    store_prediction(
+        fixture,
+        PROBABILITY_FLOOR,
+        market=PredictionMarket.CORRECT_SCORE,
+        selection=PredictionSelection.SCORE_3_3,
+    )
+
+    assert FixturePrediction.objects.get().probability == PROBABILITY_FLOOR
+
+
+@pytest.mark.django_db
 def test_the_database_refuses_a_probability_above_a_hundred() -> None:
     """
     GIVEN a fixture whose probabilities are stored as percentages
@@ -179,6 +203,36 @@ def test_the_database_refuses_a_second_grade_for_one_market() -> None:
 
     with pytest.raises(IntegrityError, match="market"):
         store_grade(league, Decimal("0.612"), quality=PredictionReliability.GOOD)
+
+
+@pytest.mark.django_db
+def test_the_database_accepts_a_hit_ratio_of_exactly_one() -> None:
+    """
+    GIVEN a competition whose share of correct predictions quantizes to one
+    WHEN a hit ratio of exactly one is written
+    THEN the row is stored, because the bound is inclusive
+    """
+
+    league = seed_leagues()[PREMIER_LEAGUE.provider_id]
+
+    store_grade(league, HIT_RATIO_CEILING)
+
+    assert LeagueMarketReliability.objects.get().hit_ratio == HIT_RATIO_CEILING
+
+
+@pytest.mark.django_db
+def test_the_database_accepts_a_hit_ratio_of_exactly_nought() -> None:
+    """
+    GIVEN a competition whose model has never got this market right
+    WHEN a hit ratio of exactly nought is written
+    THEN the row is stored, because the bound is inclusive
+    """
+
+    league = seed_leagues()[PREMIER_LEAGUE.provider_id]
+
+    store_grade(league, HIT_RATIO_FLOOR)
+
+    assert LeagueMarketReliability.objects.get().hit_ratio == HIT_RATIO_FLOOR
 
 
 @pytest.mark.django_db

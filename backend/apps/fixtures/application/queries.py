@@ -60,6 +60,18 @@ def list_fixtures_on(day: date, league_ids: Sequence[int]) -> list[Fixture]:
     read time, and it stops at the first match instead of counting or joining,
     so a fixture carrying fifty predictions costs what a fixture carrying one
     costs.
+
+    Crossing a slice boundary is the price of that choice, and it is paid
+    knowingly: this module imports ``apps.predictions.models`` while the
+    predictions slice imports ``apps.fixtures.models``, so the two slices read
+    each other's tables even though the foreign key runs one way. Nothing
+    cycles, because the prediction models name their fixture and competition
+    relations as lazy strings, and the alternative was not a cleaner boundary: a
+    denormalized column would move the coupling from one read into every writer
+    of the prediction table, and the second round trip would move it into the
+    caller. "Does this match have predictions" is a fact about a fixture that
+    only the prediction table holds, so a one-way read across two slices of one
+    monolith is the lesser cost.
     """
 
     day_starts_at = datetime.combine(day, time.min, tzinfo=UTC)
