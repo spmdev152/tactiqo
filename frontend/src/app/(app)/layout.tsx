@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarNavigationDismissal } from "@/components/sidebar-navigation-dismissal";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { requireUser } from "@/features/auth/server/require-user";
@@ -41,6 +42,12 @@ interface AuthenticatedLayoutProps {
  * collapsed sidebar labels its icons through tooltips, and no public route has
  * a tooltip to show.
  *
+ * `SidebarInset` is given `min-w-0` because it is a flex item beside a
+ * fixed-width sidebar, and a flex item defaults to a minimum size of its
+ * content. Without it the widest fixture row set the floor for the whole pane,
+ * which overflowed the viewport horizontally from around 853px: the row could
+ * not shrink, so it pushed the pane past the space the sidebar left it.
+ *
  * @returns The authenticated shell tree.
  */
 export default async function AuthenticatedLayout({
@@ -53,9 +60,11 @@ export default async function AuthenticatedLayout({
   return (
     <TooltipProvider>
       <SidebarProvider defaultOpen={storedState !== SIDEBAR_COLLAPSED_STATE}>
+        <SidebarNavigationDismissal />
+
         <AppSidebar />
 
-        <SidebarInset>
+        <SidebarInset className="min-w-0">
           <AppHeader />
 
           {children}

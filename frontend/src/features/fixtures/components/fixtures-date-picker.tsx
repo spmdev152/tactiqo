@@ -62,6 +62,9 @@ export interface FixturesDatePickerProps {
  * Leaving the calendar at its natural size hung a 212px month under a 240px
  * control on a laptop and under a full-width one on a phone.
  *
+ * The trigger widens against the page container rather than the viewport, so it
+ * matches the competition picker beside it whatever the sidebar is doing.
+ *
  * The trigger label is formatted in UTC to match the day the URL names, so it
  * cannot disagree with the kick-off times below it west of Greenwich.
  *
@@ -88,7 +91,7 @@ export function FixturesDatePicker({
       <PopoverTrigger asChild>
         <Button
           aria-label={TRIGGER_LABEL}
-          className="w-full justify-start font-normal sm:w-56"
+          className="w-full justify-start font-normal @xl:w-56"
           variant="outline"
         >
           <CalendarDays />

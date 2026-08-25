@@ -29,7 +29,7 @@ export function FixtureListSkeleton() {
       className="divide-y divide-border overflow-hidden rounded-xl border"
     >
       {PLACEHOLDER_ROW_KEYS.map((key) => (
-        <div className="flex items-center gap-3 px-4 py-3 sm:gap-4" key={key}>
+        <div className="flex items-center gap-3 px-4 py-3 @lg:gap-4" key={key}>
           <Skeleton className="h-4 w-12 shrink-0" />
 
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
@@ -40,9 +40,9 @@ export function FixtureListSkeleton() {
             <Skeleton className="h-5 flex-1" />
           </div>
 
-          <Skeleton className="hidden h-3 w-28 shrink-0 sm:block" />
+          <Skeleton className="hidden h-3 w-28 shrink-0 @lg:block" />
 
-          <Skeleton className="h-3 w-14 shrink-0 sm:hidden" />
+          <Skeleton className="h-3 w-14 shrink-0 @lg:hidden" />
         </div>
       ))}
     </div>

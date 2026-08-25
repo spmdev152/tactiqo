@@ -63,6 +63,13 @@ interface FixturesPageProps {
  * scope locally and applies it in one navigation, so the server stays the
  * single place either value is resolved.
  *
+ * The page is a size container, and the filters and the rows lay themselves out
+ * against it rather than against the viewport. The two are not the same width:
+ * the sidebar takes 16rem of the window when it is expanded, so a viewport-based
+ * breakpoint switches to the wide layout while the pane is still too narrow for
+ * it. That is what pushed a horizontal scrollbar onto the document from around
+ * 853px.
+ *
  * The page root is a `div` rather than a `main`, because `SidebarInset` is
  * itself the `main` element of the shell.
  *
@@ -83,7 +90,7 @@ export default async function FixturesPage({
   const scope = `${day}|${leagueId}`;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
+    <div className="@container mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
       <h1 className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
         Fixtures
       </h1>

@@ -69,6 +69,10 @@ export interface FixtureFiltersProps {
  * plain button removes the overlap rather than trying to time it: by the time
  * the request starts there is nothing left to animate.
  *
+ * The bar lays itself out against the page container rather than the viewport.
+ * The two differ by the width of the sidebar, so a viewport breakpoint put the
+ * three controls in a row while the pane was still too narrow for them.
+ *
  * Staging both values before applying them is worth having on its own. Changing
  * the day and the competition used to cost two round trips and two skeletons;
  * it now costs one.
@@ -140,7 +144,7 @@ export function FixtureFilters({
     scope.day === appliedDay && scope.leagueId === appliedLeagueId;
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 @xl:flex-row @xl:items-center">
       <FixturesDatePicker onChange={stageDay} value={scope.day} />
 
       <LeagueSelect
@@ -151,7 +155,7 @@ export function FixtureFilters({
 
       <Button
         aria-busy={isPending}
-        className="w-full sm:w-auto"
+        className="w-full @xl:w-auto"
         disabled={isApplied || isPending}
         onClick={apply}
         type="button"

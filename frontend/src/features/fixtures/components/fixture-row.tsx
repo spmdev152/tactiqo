@@ -64,11 +64,11 @@ interface TeamNameProps {
 }
 
 /**
- * Renders a club name, abbreviated on a narrow viewport.
+ * Renders a club name, abbreviated in a narrow row.
  *
  * @remarks
  * Both forms are in the markup and one of them is hidden, because the choice
- * depends on the viewport and the server cannot know it. Only the visible form
+ * depends on the width of the list and the server cannot know it. Only the visible form
  * is announced, since a screen reader honours `display: none`.
  *
  * A club with no published abbreviation falls back to its full name rather than
@@ -79,11 +79,11 @@ interface TeamNameProps {
 function TeamName({ team, className }: TeamNameProps) {
   return (
     <>
-      <span className={cn("truncate font-medium sm:hidden", className)}>
+      <span className={cn("truncate font-medium @lg:hidden", className)}>
         {team.shortCode === "" ? team.name : team.shortCode}
       </span>
 
-      <span className={cn("hidden truncate font-medium sm:inline", className)}>
+      <span className={cn("hidden truncate font-medium @lg:inline", className)}>
         {team.name}
       </span>
     </>
@@ -114,6 +114,10 @@ export interface FixtureRowProps {
  * the visitor's own zone, which needs a stored preference and a product
  * decision; until then the displayed time is UTC and unlabelled.
  *
+ * The widths respond to the page container rather than to the viewport,
+ * because the sidebar takes 16rem of the window when it is expanded and the row
+ * therefore has less space than the window suggests.
+ *
  * Every cell flanking the two sides has a fixed width: the kick-off, and the
  * competition on both widths. The two sides then split what is left evenly, so
  * the marker between them lands on the same pixel column in every row of the
@@ -124,7 +128,7 @@ export interface FixtureRowProps {
  */
 export function FixtureRow({ fixture }: FixtureRowProps) {
   return (
-    <li className="flex items-center gap-3 px-4 py-3 sm:gap-4">
+    <li className="flex items-center gap-3 px-4 py-3 @lg:gap-4">
       <time
         className="w-12 shrink-0 font-mono text-sm text-muted-foreground tabular-nums"
         dateTime={fixture.kickoffAt.toISOString()}
@@ -132,7 +136,7 @@ export function FixtureRow({ fixture }: FixtureRowProps) {
         {KICKOFF_TIME_FORMAT.format(fixture.kickoffAt)}
       </time>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2 @lg:gap-3">
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
           <TeamName className="text-right" team={fixture.homeTeam} />
           <TeamCrest team={fixture.homeTeam} />
@@ -148,11 +152,11 @@ export function FixtureRow({ fixture }: FixtureRowProps) {
         </div>
       </div>
 
-      <span className="hidden w-28 shrink-0 truncate text-right text-xs text-muted-foreground sm:inline-block">
+      <span className="hidden w-28 shrink-0 truncate text-right text-xs text-muted-foreground @lg:inline-block">
         {fixture.league.name}
       </span>
 
-      <span className="w-14 shrink-0 truncate text-right font-mono text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase sm:hidden">
+      <span className="w-14 shrink-0 truncate text-right font-mono text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase @lg:hidden">
         {fixture.league.shortCode === ""
           ? fixture.league.name
           : fixture.league.shortCode}

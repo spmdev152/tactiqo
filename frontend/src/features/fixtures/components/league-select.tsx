@@ -148,7 +148,7 @@ export function LeagueSelect({ leagues, value, onChange }: LeagueSelectProps) {
       onValueChange={handleValueChange}
       disabled={leagues.length === 0}
     >
-      <SelectTrigger aria-label={COMPETITION_LABEL} className="w-full sm:w-56">
+      <SelectTrigger aria-label={COMPETITION_LABEL} className="w-full @xl:w-56">
         <SelectValue>
           {selectedLeague === undefined ? (
             <AllCompetitionsLabel />
