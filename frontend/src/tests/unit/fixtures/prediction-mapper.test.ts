@@ -7,9 +7,9 @@ const FULLTIME_RESULT_PAYLOAD = {
   reliability: "medium",
   hit_ratio: 0.5,
   selections: [
+    { selection: "away", probability: 48.18 },
     { selection: "home", probability: 26.96 },
     { selection: "draw", probability: 24.82 },
-    { selection: "away", probability: 48.18 },
   ],
 };
 
@@ -24,10 +24,17 @@ const DOUBLE_CHANCE_PAYLOAD = {
   ],
 };
 
+const UNKNOWN_MARKET_PAYLOAD = {
+  market: "anytime_goalscorer",
+  reliability: null,
+  hit_ratio: null,
+  selections: [{ selection: "player_142", probability: 31.5 }],
+};
+
 const PREDICTIONS_PAYLOAD = {
   fixture_id: 41,
   synchronized_at: "2026-08-25T20:00:00Z",
-  markets: [FULLTIME_RESULT_PAYLOAD, DOUBLE_CHANCE_PAYLOAD],
+  markets: [DOUBLE_CHANCE_PAYLOAD, FULLTIME_RESULT_PAYLOAD],
 };
 
 describe("toFixturePredictions", () => {
@@ -44,16 +51,6 @@ describe("toFixturePredictions", () => {
         synchronizedAt: new Date("2026-08-25T20:00:00Z"),
         markets: [
           {
-            market: "fulltime_result",
-            reliability: "medium",
-            hitRatio: 0.5,
-            selections: [
-              { selection: "home", probability: 26.96 },
-              { selection: "draw", probability: 24.82 },
-              { selection: "away", probability: 48.18 },
-            ],
-          },
-          {
             market: "double_chance",
             reliability: null,
             hitRatio: null,
@@ -63,26 +60,152 @@ describe("toFixturePredictions", () => {
               { selection: "draw_or_away", probability: 73 },
             ],
           },
+          {
+            market: "fulltime_result",
+            reliability: "medium",
+            hitRatio: 0.5,
+            selections: [
+              { selection: "away", probability: 48.18 },
+              { selection: "home", probability: 26.96 },
+              { selection: "draw", probability: 24.82 },
+            ],
+          },
         ],
       },
     });
   });
 
   /**
-   * GIVEN a market the platform does not publish
-   * WHEN the payload is normalized for the product
-   * THEN it is refused rather than carried as a market nothing can label
+   * GIVEN a payload whose markets and selections are not in vocabulary order
+   * WHEN it is normalized for the product
+   * THEN the API's order survives instead of being re-derived from the tuples
    */
-  it("refuses a market outside the published vocabulary", () => {
+  it("preserves the order the backend sent", () => {
+    const result = toFixturePredictions(PREDICTIONS_PAYLOAD);
+
+    expect(result.loaded).toBe(true);
+
+    expect(
+      result.loaded ? result.predictions.markets.map((one) => one.market) : [],
+    ).toEqual(["double_chance", "fulltime_result"]);
+
+    expect(
+      result.loaded
+        ? result.predictions.markets[1].selections.map((one) => one.selection)
+        : [],
+    ).toEqual(["away", "home", "draw"]);
+  });
+
+  /**
+   * GIVEN a backend publishing one market ahead of the frontend's vocabulary
+   * WHEN the payload is normalized for the product
+   * THEN that market alone is dropped and the rest of the panel still loads
+   */
+  it("drops a market outside the published vocabulary", () => {
     const result = toFixturePredictions({
       ...PREDICTIONS_PAYLOAD,
-      markets: [{ ...FULLTIME_RESULT_PAYLOAD, market: "anytime_goalscorer" }],
+      markets: [
+        DOUBLE_CHANCE_PAYLOAD,
+        UNKNOWN_MARKET_PAYLOAD,
+        FULLTIME_RESULT_PAYLOAD,
+      ],
     });
 
-    expect(result).toEqual({
+    expect(result.loaded).toBe(true);
+
+    expect(
+      result.loaded ? result.predictions.markets.map((one) => one.market) : [],
+    ).toEqual(["double_chance", "fulltime_result"]);
+  });
+
+  /**
+   * GIVEN a market carrying one outcome the frontend has no name for
+   * WHEN the payload is normalized for the product
+   * THEN the outcome is dropped and its market keeps every other row
+   */
+  it("drops a selection outside the published vocabulary", () => {
+    const result = toFixturePredictions({
+      ...PREDICTIONS_PAYLOAD,
+      markets: [
+        {
+          ...FULLTIME_RESULT_PAYLOAD,
+          selections: [
+            ...FULLTIME_RESULT_PAYLOAD.selections,
+            { selection: "home_by_two", probability: 12.5 },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      result.loaded
+        ? result.predictions.markets[0].selections.map((one) => one.selection)
+        : [],
+    ).toEqual(["away", "home", "draw"]);
+  });
+
+  /**
+   * GIVEN a market whose shape has moved rather than whose vocabulary has grown
+   * WHEN the payload is normalized for the product
+   * THEN it is refused, because an emptied panel would read as an unrun model
+   */
+  it("refuses a market whose contract has structurally changed", () => {
+    expect(
+      toFixturePredictions({
+        ...PREDICTIONS_PAYLOAD,
+        markets: [
+          {
+            market: "fulltime_result",
+            reliability: "medium",
+            hit_rate: 0.5,
+            selections: FULLTIME_RESULT_PAYLOAD.selections,
+          },
+        ],
+      }),
+    ).toEqual({
       loaded: false,
       reason: expect.stringContaining("predictions contract"),
     });
+  });
+
+  /**
+   * GIVEN numbers outside the bounds the wire contract states
+   * WHEN each payload is normalized for the product
+   * THEN both are refused rather than carried into a bar or a grade
+   */
+  it("refuses a probability and a hit ratio out of bounds", () => {
+    expect(
+      toFixturePredictions({
+        ...PREDICTIONS_PAYLOAD,
+        markets: [
+          {
+            ...FULLTIME_RESULT_PAYLOAD,
+            selections: [{ selection: "home", probability: 120 }],
+          },
+        ],
+      }).loaded,
+    ).toBe(false);
+
+    expect(
+      toFixturePredictions({
+        ...PREDICTIONS_PAYLOAD,
+        markets: [{ ...FULLTIME_RESULT_PAYLOAD, hit_ratio: 1.4 }],
+      }).loaded,
+    ).toBe(false);
+  });
+
+  /**
+   * GIVEN a synchronization stamp naming no offset from UTC
+   * WHEN the payload is normalized for the product
+   * THEN it is refused, rather than read in whichever zone the runtime sits in
+   */
+  it("refuses a synchronization stamp with no offset", () => {
+    expect(
+      toFixturePredictions({
+        ...PREDICTIONS_PAYLOAD,
+        synchronized_at: "2026-08-25T20:00:00",
+      }).loaded,
+    ).toBe(false);
   });
 
   /**
@@ -101,27 +224,6 @@ describe("toFixturePredictions", () => {
       loaded: true,
       predictions: { fixtureId: 41, synchronizedAt: null, markets: [] },
     });
-  });
-
-  /**
-   * GIVEN a payload the backend already ordered by market and by selection
-   * WHEN it is normalized for the product
-   * THEN both orders survive instead of being re-derived
-   */
-  it("preserves the order the backend sent", () => {
-    const result = toFixturePredictions(PREDICTIONS_PAYLOAD);
-
-    expect(result.loaded).toBe(true);
-
-    expect(
-      result.loaded ? result.predictions.markets.map((one) => one.market) : [],
-    ).toEqual(["fulltime_result", "double_chance"]);
-
-    expect(
-      result.loaded
-        ? result.predictions.markets[0].selections.map((one) => one.selection)
-        : [],
-    ).toEqual(["home", "draw", "away"]);
   });
 
   /**

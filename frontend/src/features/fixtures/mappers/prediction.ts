@@ -51,6 +51,15 @@ function toMarketProbabilities(
  * collapsing the two would turn a schema change into a fixture that quietly
  * claims the model has not run.
  *
+ * Decoding is deliberately asymmetric about what "does not decode" means, and
+ * the schema is where the two halves are drawn. An *additive* change degrades
+ * to rendering what the platform understands: a market or a selection the
+ * frontend has no name for is dropped, because `api` and `web` ship separately
+ * and refusing the payload would take ten decoded markets down with the
+ * eleventh. A *structural* change still fails loudly here, because a payload
+ * whose shape has moved cannot be partially believed, and a market list emptied
+ * without a word would render as the fixture the model has not reached.
+ *
  * @param payload - Decoded JSON body returned by
  * `GET /api/v1/fixtures/{id}/predictions`.
  * @returns The normalized predictions, or the reason they are unavailable.

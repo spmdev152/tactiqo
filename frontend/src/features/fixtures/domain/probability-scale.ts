@@ -13,12 +13,18 @@ const LOW_TOKEN = "--probability-low";
 const BLEND_PRECISION = 100;
 
 /**
- * The two ends of the probability ramp a bar is filled from, and how far along
- * it a given probability sits.
+ * The two ends of the probability ramp a bar is filled from, how far along it a
+ * given probability sits, and how much of the track it covers.
  *
  * @remarks
  * Both ends are the *names* of CSS custom properties, not colours. The caller
  * writes `color-mix(in oklch, var(${fill.to}) ${fill.blend}, var(${fill.from}))`.
+ *
+ * The width is here rather than left to the caller because it is the same
+ * clamped value the blend is derived from. A component recomputing it from the
+ * raw probability is how the colour and the length came to disagree once: the
+ * blend was clamped and the width was not, so an out-of-range value painted a
+ * full bar in the colour of an empty one.
  */
 export interface ProbabilityFill {
   /** Name of the custom property holding the colour at the segment's start. */
@@ -29,6 +35,9 @@ export interface ProbabilityFill {
 
   /** How far along the segment the probability sits, as a CSS percentage. */
   readonly blend: string;
+
+  /** How much of the track the bar covers, as a CSS percentage. */
+  readonly width: string;
 }
 
 /**
@@ -60,19 +69,27 @@ export interface ProbabilityFill {
  * values, recomputing on every theme change, and re-implementing an oklch blend
  * in JavaScript to reach an answer the style engine already has.
  *
- * The input is clamped rather than trusted. A probability outside `0`–`100`
- * breaks the API contract, but the honest reading of one is a full or an empty
- * bar rather than a blend weight past the end of its own segment, which paints
- * as a colour belonging to neither.
+ * The input is clamped rather than trusted, and the clamped value is what both
+ * the blend and the width are read from, so the two cannot disagree. A
+ * probability outside `0`–`100` breaks the API contract, but the honest reading
+ * of one is a full or an empty bar rather than a blend weight past the end of
+ * its own segment, which paints as a colour belonging to neither, or a width
+ * CSS refuses, which paints as a full bar of no colour at all.
+ *
+ * A value that is not a finite number is read as an empty bar rather than
+ * clamped, because `Math.min` and `Math.max` propagate `NaN` and a `NaN%` width
+ * is dropped by the style engine — the bar it produces is the widest one on the
+ * screen. Nothing is claimed by a bar of zero length, which is the right claim
+ * to make about a value that has no position on the ramp.
  *
  * @param probability - Probability as a percentage between `0` and `100`.
- * @returns The segment of the ramp to fill from, and how far along it to blend.
+ * @returns The segment of the ramp to fill, how far along it to blend, and how
+ * much of the track to cover.
  */
 export function resolveProbabilityFill(probability: number): ProbabilityFill {
-  const clamped = Math.min(
-    PROBABILITY_CEILING,
-    Math.max(PROBABILITY_FLOOR, probability),
-  );
+  const clamped = Number.isFinite(probability)
+    ? Math.min(PROBABILITY_CEILING, Math.max(PROBABILITY_FLOOR, probability))
+    : PROBABILITY_FLOOR;
 
   const isHighHalf = clamped >= PROBABILITY_MIDPOINT;
   const offset = isHighHalf ? clamped - PROBABILITY_MIDPOINT : clamped;
@@ -83,5 +100,6 @@ export function resolveProbabilityFill(probability: number): ProbabilityFill {
     from: isHighHalf ? MID_TOKEN : LOW_TOKEN,
     to: isHighHalf ? HIGH_TOKEN : MID_TOKEN,
     blend: `${blend}%`,
+    width: `${clamped}%`,
   };
 }

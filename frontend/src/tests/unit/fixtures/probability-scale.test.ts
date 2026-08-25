@@ -19,6 +19,7 @@ describe("resolveProbabilityFill", () => {
       from: LOW_TOKEN,
       to: MID_TOKEN,
       blend: "0%",
+      width: "0%",
     });
   });
 
@@ -32,6 +33,7 @@ describe("resolveProbabilityFill", () => {
       from: MID_TOKEN,
       to: HIGH_TOKEN,
       blend: "0%",
+      width: "50%",
     });
   });
 
@@ -45,6 +47,7 @@ describe("resolveProbabilityFill", () => {
       from: MID_TOKEN,
       to: HIGH_TOKEN,
       blend: "100%",
+      width: "100%",
     });
   });
 
@@ -58,32 +61,52 @@ describe("resolveProbabilityFill", () => {
       from: LOW_TOKEN,
       to: MID_TOKEN,
       blend: "99.8%",
+      width: "49.9%",
     });
 
     expect(resolveProbabilityFill(50.1)).toEqual({
       from: MID_TOKEN,
       to: HIGH_TOKEN,
       blend: "0.2%",
+      width: "50.1%",
     });
   });
 
   /**
    * GIVEN probabilities outside the range the API contract promises
    * WHEN their fills are resolved
-   * THEN each reads as a full or an empty bar rather than as a blend past its own half
+   * THEN the width is clamped with the blend, not left for the caller to trust
    */
   it("clamps a probability outside the contract to the ends of the ramp", () => {
     expect(resolveProbabilityFill(150)).toEqual({
       from: MID_TOKEN,
       to: HIGH_TOKEN,
       blend: "100%",
+      width: "100%",
     });
 
     expect(resolveProbabilityFill(-20)).toEqual({
       from: LOW_TOKEN,
       to: MID_TOKEN,
       blend: "0%",
+      width: "0%",
     });
+  });
+
+  /**
+   * GIVEN a value with no position on the ramp at all
+   * WHEN its fill is resolved
+   * THEN it reads as an empty bar rather than as a width the style engine drops
+   */
+  it("reads a value that is not a number as an empty bar", () => {
+    expect(resolveProbabilityFill(Number.NaN)).toEqual({
+      from: LOW_TOKEN,
+      to: MID_TOKEN,
+      blend: "0%",
+      width: "0%",
+    });
+
+    expect(resolveProbabilityFill(Number.POSITIVE_INFINITY).width).toBe("0%");
   });
 
   /**

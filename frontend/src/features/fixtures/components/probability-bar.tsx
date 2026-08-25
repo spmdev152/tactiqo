@@ -21,6 +21,12 @@ export interface ProbabilityBarProps {
  * in its list, read against the others rather than against a reference drawn
  * for it.
  *
+ * Both the length and the colour are read from the same resolved fill, so a
+ * probability outside the contract cannot paint one of them and break the
+ * other. Writing the raw prop into the width did exactly that: `-10%` is a
+ * declaration CSS drops, so the bar fell back to `width: auto` and the least
+ * likely outcome of a market painted the longest bar in it.
+ *
  * The fill colour is a `color-mix` of the two anchors the value falls between,
  * resolved by `domain/probability-scale.ts`. It is assigned to a custom
  * property and read back with `bg-(--probability-fill)` rather than written
@@ -51,7 +57,7 @@ export function ProbabilityBar({ probability }: ProbabilityBarProps) {
         style={
           {
             "--probability-fill": `color-mix(in oklch, var(${fill.to}) ${fill.blend}, var(${fill.from}))`,
-            width: `${probability}%`,
+            width: fill.width,
           } as React.CSSProperties
         }
       />

@@ -15,6 +15,8 @@ import type { PredictionMarketProbabilities } from "@/features/fixtures/types/pr
 
 const UNGRADED_LABEL = "Reliability not graded";
 
+const HIT_RATE_PREFIX = "Hit rate of ";
+
 const RELIABILITY_LABEL: Record<PredictionReliability, string> = {
   poor: "Poor reliability",
   medium: "Medium reliability",
@@ -68,15 +70,29 @@ interface ReliabilityChipProps {
  * which is how the fixture list and the competition picker already paint a
  * state that is absent rather than bad.
  *
- * The hit rate the grade stands on moves into a tooltip. Printed beside eleven
- * headings it was a second number competing with the fifty the panel is
- * actually about, and it answers a question a reader only asks once they doubt
- * a grade. The chip therefore takes `tabIndex`, which is what makes the
- * tooltip reachable without a pointer: a chip is a `span` and would otherwise
- * be unfocusable, and the number would be available to a mouse alone. Radix
- * points the trigger's `aria-describedby` at the content, so the grade stays
- * the chip's name and the hit rate becomes its description rather than being
- * folded into one announcement.
+ * The hit rate the grade stands on is stated twice over, in two registers. It
+ * is in the chip's own markup as `sr-only` text, so it composes into what a
+ * screen reader announces for the chip with no interaction at all, and it is in
+ * a tooltip, so a sighted reader sees the grade alone until they doubt it and
+ * hover or focus the chip. Printed beside eleven headings it was a second
+ * number competing with the fifty the panel is actually about; left in the
+ * tooltip alone it was not in the document until something opened it, and a
+ * virtual cursor moving down the panel never met it.
+ *
+ * The chip therefore keeps `tabIndex`, which is what makes the tooltip
+ * reachable without a pointer: a chip is a `span` and would otherwise be
+ * unfocusable. The price of stating the rate twice is that a keyboard user
+ * running a screen reader hears it inside the chip's name and again as the
+ * description Radix points `aria-describedby` at once the tooltip opens. That
+ * is a repetition rather than an omission, which is the right way round.
+ *
+ * One group is still not served, and this does not pretend otherwise: a sighted
+ * touch user with no assistive technology. Radix's trigger returns early for a
+ * `touch` pointer and its pointer-down handler suppresses the focus-open, so a
+ * tap on the chip does nothing and no gesture a phone has can open the tooltip.
+ * Serving them means promoting the chip to a `Popover`, making the grade a
+ * control that is pressed rather than a hint that is hovered. That is a product
+ * decision about what a grade is for, not a defect to patch over here.
  *
  * It opens to the right, into the space the printed hit rate used to occupy,
  * because the first market's heading sits directly under the fixture row: a
@@ -99,10 +115,11 @@ interface ReliabilityChipProps {
  * something to click. `outline` already supplies the border colour the dashed
  * override needs, so the two render identically.
  *
- * A grade with no hit rate renders as a plain chip. The provider publishes the
- * two together, so this is unreachable through the synchronization as it
- * stands, but the contract types them independently and a chip that opens an
- * empty tooltip is worse than one that opens none.
+ * A grade with no hit rate renders as a plain chip: no tooltip, no tab stop and
+ * no hidden text. The provider publishes the two together, so this is
+ * unreachable through the synchronization as it stands, but the contract types
+ * them independently, and a chip that takes focus to announce nothing is worse
+ * than one that takes none.
  *
  * @returns The grade chip, and the hit rate behind it when there is one.
  */
@@ -118,24 +135,28 @@ function ReliabilityChip({ reliability, hitRatio }: ReliabilityChipProps) {
     );
   }
 
-  const chip = (
-    <Badge variant={RELIABILITY_VARIANT[reliability]}>
-      {RELIABILITY_LABEL[reliability]}
-    </Badge>
-  );
-
   if (hitRatio === null) {
-    return chip;
+    return (
+      <Badge variant={RELIABILITY_VARIANT[reliability]}>
+        {RELIABILITY_LABEL[reliability]}
+      </Badge>
+    );
   }
+
+  const hitRate = `${HIT_RATE_PREFIX}${HIT_RATE_FORMAT.format(hitRatio)}`;
 
   return (
     <Tooltip>
       <TooltipTrigger asChild tabIndex={0}>
-        {chip}
+        <Badge variant={RELIABILITY_VARIANT[reliability]}>
+          {RELIABILITY_LABEL[reliability]}
+
+          <span className="sr-only">{hitRate}</span>
+        </Badge>
       </TooltipTrigger>
 
       <TooltipContent align="center" collisionPadding={8} side="right">
-        Hit rate of {HIT_RATE_FORMAT.format(hitRatio)}
+        {hitRate}
       </TooltipContent>
     </Tooltip>
   );

@@ -22,6 +22,17 @@ const FULL_TIME_RESULT: PredictionMarketProbabilities = {
   ],
 };
 
+const UNMEASURED_FIRST_HALF: PredictionMarketProbabilities = {
+  market: "first_half_result",
+  reliability: "medium",
+  hitRatio: null,
+  selections: [
+    { selection: "home", probability: 21.4 },
+    { selection: "draw", probability: 45.9 },
+    { selection: "away", probability: 32.7 },
+  ],
+};
+
 const DOUBLE_CHANCE: PredictionMarketProbabilities = {
   market: "double_chance",
   reliability: null,
@@ -34,6 +45,8 @@ const DOUBLE_CHANCE: PredictionMarketProbabilities = {
 };
 
 const HIT_RATE_LABEL = "Hit rate of 55%";
+
+const CHIP_SELECTOR = '[data-slot="badge"], [data-slot="tooltip-trigger"]';
 
 /**
  * Teaches jsdom the layout and pointer APIs the tooltip measures itself with.
@@ -56,13 +69,36 @@ function installPopupEnvironment(): void {
  * Renders one market section inside the provider its tooltip needs.
  *
  * @param market - Market to render.
+ * @returns The element the section was rendered into.
  */
-function renderSection(market: PredictionMarketProbabilities): void {
-  render(
+function renderSection(market: PredictionMarketProbabilities): HTMLElement {
+  const { container } = render(
     <TooltipProvider>
       <PredictionMarketSection market={market} sides={SIDES} />
     </TooltipProvider>,
   );
+
+  return container;
+}
+
+/**
+ * Reads the grade chip out of a rendered market section. It cannot be found by
+ * its text, because the hit rate the chip carries for a screen reader is part
+ * of that text, and its slot is renamed by Radix when the chip is a tooltip
+ * trigger, so either name identifies it.
+ *
+ * @param container - Element the section was rendered into.
+ * @returns The chip element.
+ * @throws When the section rendered no chip at all.
+ */
+function chipOf(container: HTMLElement): HTMLElement {
+  const chip = container.querySelector<HTMLElement>(CHIP_SELECTOR);
+
+  if (chip === null) {
+    throw new Error("The rendered section carries no reliability chip.");
+  }
+
+  return chip;
 }
 
 describe("PredictionMarketSection", () => {
@@ -91,35 +127,52 @@ describe("PredictionMarketSection", () => {
 
   /**
    * GIVEN a market the provider has graded and measured
-   * WHEN the section is rendered
-   * THEN the grade is stated and the hit rate behind it stays out of the layout
+   * WHEN the section is rendered and nothing is hovered, tapped or focused
+   * THEN the hit rate is already inside the chip, unprinted but readable aloud
    */
-  it("states the grade without printing the hit rate beside it", () => {
-    renderSection(FULL_TIME_RESULT);
+  it("states the hit rate without waiting for an interaction", () => {
+    const container = renderSection(FULL_TIME_RESULT);
 
-    expect(screen.getByText("Good reliability")).toBeVisible();
-    expect(screen.queryByText(/hit rate/i)).not.toBeInTheDocument();
+    const hitRate = screen.getByText(HIT_RATE_LABEL);
+
+    expect(chipOf(container)).toContainElement(hitRate);
+    expect(hitRate).toHaveClass("sr-only");
   });
 
   /**
-   * GIVEN a grade whose hit rate is only reachable through its chip
+   * GIVEN a grade whose hit rate is not printed in the layout
    * WHEN the chip takes focus, which is the pointerless way to reach it
-   * THEN the hit rate is revealed and the chip is described by it
+   * THEN the tooltip shows the number and the chip is described by it
    */
-  it("reveals the hit rate from the grade chip", async () => {
-    renderSection(FULL_TIME_RESULT);
-
-    const chip = screen.getByText("Good reliability");
+  it("shows the hit rate to a sighted reader from the grade chip", async () => {
+    const container = renderSection(FULL_TIME_RESULT);
+    const chip = chipOf(container);
 
     expect(chip).toHaveAttribute("tabindex", "0");
+    expect(chip).toHaveAttribute("data-state", "closed");
 
     fireEvent.focus(chip);
 
     await waitFor(() => {
-      expect(screen.getAllByText(HIT_RATE_LABEL)[0]).toBeInTheDocument();
+      expect(screen.getByRole("tooltip")).toHaveTextContent(HIT_RATE_LABEL);
     });
 
     expect(chip).toHaveAttribute("aria-describedby");
+  });
+
+  /**
+   * GIVEN a graded market carrying no measured hit rate behind the grade
+   * WHEN the section is rendered
+   * THEN the grade stands alone, with no tooltip, tab stop or hidden number
+   */
+  it("states a graded market the provider has not measured", () => {
+    const container = renderSection(UNMEASURED_FIRST_HALF);
+    const chip = chipOf(container);
+
+    expect(chip).toHaveTextContent("Medium reliability");
+    expect(chip).not.toHaveAttribute("tabindex");
+    expect(chip).not.toHaveAttribute("data-state");
+    expect(screen.queryByText(/hit rate/i)).not.toBeInTheDocument();
   });
 
   /**
@@ -143,12 +196,10 @@ describe("PredictionMarketSection", () => {
    * THEN its chip is not a tooltip trigger and takes no place in the tab order
    */
   it("leaves an ungraded chip out of the tab order", () => {
-    renderSection(DOUBLE_CHANCE);
-
-    const chip = screen.getByText("Reliability not graded");
+    const chip = chipOf(renderSection(DOUBLE_CHANCE));
 
     expect(chip).not.toHaveAttribute("tabindex");
-    expect(chip).not.toHaveAttribute("data-slot", "tooltip-trigger");
+    expect(chip).not.toHaveAttribute("data-state");
   });
 
   /**

@@ -159,13 +159,18 @@ const MARKET_LABELS: Record<PredictionMarket, string> = {
  * fallback rather than the default because a club with no published short code
  * must still be readable, and a blank label would leave a bar naming nothing.
  *
+ * Both are trimmed, not only the abbreviation. The wire contract asks the name
+ * for one character, so a single space satisfies it, and falling back to an
+ * untrimmed name would print the empty label the fallback exists to prevent.
+ *
  * @param team - Side to name.
- * @returns The club's short code, or its full name when it has none.
+ * @returns The club's short code, its full name when it has none, or an empty
+ * string when the provider published neither.
  */
 function sideLabel(team: FixtureTeam): string {
   const shortCode = team.shortCode.trim();
 
-  return shortCode.length > 0 ? shortCode : team.name;
+  return shortCode.length > 0 ? shortCode : team.name.trim();
 }
 
 /**

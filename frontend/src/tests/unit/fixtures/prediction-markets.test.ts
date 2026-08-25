@@ -25,36 +25,92 @@ const ARSENAL: FixtureTeam = {
 
 const SIDES: PredictionSides = { home: LIVERPOOL, away: ARSENAL };
 
+describe("PREDICTION_MARKETS", () => {
+  /**
+   * GIVEN the vocabulary the wire schema validates against and the panel reads
+   * WHEN the published markets are listed
+   * THEN they are these eleven, in this order, until the API says otherwise
+   */
+  it("publishes the eleven markets the API promises, in its order", () => {
+    expect(PREDICTION_MARKETS).toEqual([
+      "fulltime_result",
+      "double_chance",
+      "both_teams_to_score",
+      "over_under_1_5",
+      "over_under_2_5",
+      "over_under_3_5",
+      "over_under_4_5",
+      "team_to_score_first",
+      "first_half_result",
+      "half_time_full_time",
+      "correct_score",
+    ]);
+  });
+});
+
+describe("PREDICTION_SELECTIONS", () => {
+  /**
+   * GIVEN the vocabulary every market's outcomes are decoded against
+   * WHEN the published selections are listed
+   * THEN they are these, so dropping one cannot pass as a contract change
+   */
+  it("publishes every outcome the API can send", () => {
+    expect(PREDICTION_SELECTIONS).toEqual([
+      "home",
+      "draw",
+      "away",
+      "home_or_draw",
+      "draw_or_away",
+      "home_or_away",
+      "no_goal",
+      "yes",
+      "no",
+      "home_then_home",
+      "home_then_draw",
+      "home_then_away",
+      "draw_then_home",
+      "draw_then_draw",
+      "draw_then_away",
+      "away_then_home",
+      "away_then_draw",
+      "away_then_away",
+      "score_0_0",
+      "score_0_1",
+      "score_0_2",
+      "score_0_3",
+      "score_1_0",
+      "score_1_1",
+      "score_1_2",
+      "score_1_3",
+      "score_2_0",
+      "score_2_1",
+      "score_2_2",
+      "score_2_3",
+      "score_3_0",
+      "score_3_1",
+      "score_3_2",
+      "score_3_3",
+      "any_other_home_win",
+      "any_other_draw",
+      "any_other_away_win",
+    ]);
+  });
+});
+
 describe("marketLabel", () => {
   /**
-   * GIVEN every market the platform publishes
+   * GIVEN the three markets a visitor recognizes first
    * WHEN each is named for the interface
-   * THEN none falls back to its wire value or to nothing at all
+   * THEN the copy is the market's own name rather than its wire value
    */
-  it("names every published market", () => {
-    for (const market of PREDICTION_MARKETS) {
-      expect(marketLabel(market)).not.toBe("");
-      expect(marketLabel(market)).not.toBe(market);
-    }
+  it("names a market as the interface prints it", () => {
+    expect(marketLabel("fulltime_result")).toBe("Full-time result");
+    expect(marketLabel("over_under_2_5")).toBe("Over/under 2.5 goals");
+    expect(marketLabel("half_time_full_time")).toBe("Half-time / full-time");
   });
 });
 
 describe("selectionLabel", () => {
-  /**
-   * GIVEN every selection the platform publishes
-   * WHEN each is named inside the market it is most at home in
-   * THEN none falls back to its wire value or to nothing at all
-   */
-  it("names every published selection", () => {
-    for (const selection of PREDICTION_SELECTIONS) {
-      expect(selectionLabel("fulltime_result", selection, SIDES)).not.toBe("");
-
-      expect(selectionLabel("fulltime_result", selection, SIDES)).not.toBe(
-        selection,
-      );
-    }
-  });
-
   /**
    * GIVEN the same stored yes/no selections in a goal-line and a yes/no market
    * WHEN each is named for the interface
@@ -136,6 +192,24 @@ describe("selectionLabel", () => {
 
     expect(selectionLabel("double_chance", "home_or_draw", sides)).toBe(
       "Liverpool or draw",
+    );
+  });
+
+  /**
+   * GIVEN a club whose published short code and name are both padded
+   * WHEN a selection naming that club is named for the interface
+   * THEN both are trimmed, so neither can render as a label made of spaces
+   */
+  it("trims the name it falls back to as well as the short code", () => {
+    const sides: PredictionSides = {
+      home: { ...LIVERPOOL, name: "  Liverpool  ", shortCode: " " },
+      away: ARSENAL,
+    };
+
+    expect(selectionLabel("fulltime_result", "home", sides)).toBe("Liverpool");
+
+    expect(selectionLabel("half_time_full_time", "home_then_home", sides)).toBe(
+      "Liverpool / Liverpool",
     );
   });
 });

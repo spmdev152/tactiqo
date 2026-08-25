@@ -148,9 +148,9 @@ describe("getFixturePredictions", () => {
   });
 
   /**
-   * GIVEN an API answering with a decodable body outside the published contract
+   * GIVEN an API answering with a body whose shape is not the published one
    * WHEN a fixture's predictions are read
-   * THEN it is refused rather than carried as predictions of an unknown market
+   * THEN it is refused rather than read as a fixture with nothing predicted
    */
   it("refuses a decodable body that breaks the contract", async () => {
     const fetchStub = vi.fn().mockResolvedValue({
@@ -158,9 +158,7 @@ describe("getFixturePredictions", () => {
       status: 200,
       json: async () => ({
         ...PREDICTIONS_PAYLOAD,
-        markets: [
-          { ...PREDICTIONS_PAYLOAD.markets[0], market: "anytime_goal" },
-        ],
+        markets: { fulltime_result: PREDICTIONS_PAYLOAD.markets[0] },
       }),
     });
 
@@ -176,7 +174,7 @@ describe("getFixturePredictions", () => {
   /**
    * GIVEN a reachable API holding predictions for the fixture
    * WHEN a fixture's predictions are read
-   * THEN the fixture's own address is requested with the session bearer token
+   * THEN the fixture's address is requested with the token and a deadline
    */
   it("reads the fixture's predictions with the session token", async () => {
     const fetchStub = vi.fn().mockResolvedValue({
@@ -215,6 +213,7 @@ describe("getFixturePredictions", () => {
         headers: expect.objectContaining({
           authorization: "Bearer session-token",
         }),
+        signal: expect.any(AbortSignal),
       }),
     );
   });
