@@ -85,6 +85,12 @@ class FixtureResponse(Schema):
         Club playing at home.
     away_team : TeamResponse
         Club playing away.
+    has_predictions : bool
+        Whether any prediction is stored for the match, so the interface only
+        offers a toggle on a row that has something to show. Prediction
+        availability is fixture-dependent, and a day's listing would otherwise
+        have to request every fixture's predictions in order to find out which
+        of them are worth expanding.
     """
 
     id: int
@@ -95,3 +101,4 @@ class FixtureResponse(Schema):
     league: LeagueResponse
     home_team: TeamResponse
     away_team: TeamResponse
+    has_predictions: bool
