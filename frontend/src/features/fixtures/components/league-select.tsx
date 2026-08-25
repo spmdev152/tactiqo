@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useTransition } from "react";
+import { useCallback, useOptimistic, useTransition } from "react";
 
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -122,10 +122,11 @@ export interface LeagueSelectProps {
  * itself to its widest option. That default also suppresses the open
  * animation, which is a second reason to leave it.
  *
- * The navigation runs inside a transition. Without one, React commits the
- * pending state before the replacement page is ready and the control repaints
- * against a half-rendered tree, which is the flash a visitor sees on choosing a
- * competition.
+ * The navigation runs inside a transition, and the chosen competition is
+ * applied optimistically inside the same one. Without that the trigger keeps
+ * announcing the previous competition for the whole round trip and then snaps
+ * to the new one when the payload lands, which is the flash a visitor sees.
+ * With it the control answers the click immediately and the list alone waits.
  *
  * @returns The competition filter.
  */
@@ -135,26 +136,29 @@ export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
 
   const [, startTransition] = useTransition();
 
+  const [chosenLeagueId, chooseLeagueId] = useOptimistic(selectedLeagueId);
+
   const handleValueChange = useCallback(
     (value: string) => {
       const next = new URLSearchParams(searchParams);
 
-      if (value === ALL_COMPETITIONS_VALUE) {
+      const leagueId = value === ALL_COMPETITIONS_VALUE ? null : Number(value);
+
+      if (leagueId === null) {
         next.delete(FIXTURE_LEAGUE_PARAMETER);
       } else {
         next.set(FIXTURE_LEAGUE_PARAMETER, value);
       }
 
       startTransition(() => {
+        chooseLeagueId(leagueId);
         router.push(`?${next.toString()}`, { scroll: false });
       });
     },
-    [router, searchParams],
+    [chooseLeagueId, router, searchParams],
   );
 
-  const selectedLeague = leagues.find(
-    (league) => league.id === selectedLeagueId,
-  );
+  const selectedLeague = leagues.find((league) => league.id === chosenLeagueId);
 
   return (
     <Select

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useOptimistic, useState, useTransition } from "react";
 
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -67,12 +67,12 @@ export interface FixturesDatePickerProps {
  * keeps the chosen competition instead of quietly widening the list back to
  * every league.
  *
- * The navigation runs inside a transition. Without one, React commits the
- * pending state before the replacement page is ready and the control repaints
- * against a half-rendered tree, which is the flash a visitor sees on picking a
- * day. A transition keeps the current tree on screen until the new one is
- * ready, while the fixture list still shows its skeleton, because its boundary
- * is keyed to the scope and therefore mounts fresh rather than being reused.
+ * The navigation runs inside a transition, and the chosen day is applied
+ * optimistically inside the same one. Without that the trigger keeps
+ * announcing the previous day for the whole round trip and then snaps to the
+ * new one when the payload lands, which is the flash a visitor sees. With it
+ * the control answers the click immediately and the list alone waits, behind a
+ * boundary keyed to the scope so it still shows its skeleton.
  *
  * @returns The day picker.
  */
@@ -84,21 +84,26 @@ export function FixturesDatePicker({ selectedDay }: FixturesDatePickerProps) {
 
   const [open, setOpen] = useState(false);
 
-  const selected = utcDayToLocalDate(selectedDay);
+  const [chosenDay, chooseDay] = useOptimistic(selectedDay);
+
+  const selected = utcDayToLocalDate(chosenDay);
 
   const handleSelect = useCallback(
     (day: Date) => {
       const next = new URLSearchParams(searchParams);
 
-      next.set(FIXTURE_DATE_PARAMETER, localDateToUtcDay(day));
+      const utcDay = localDateToUtcDay(day);
+
+      next.set(FIXTURE_DATE_PARAMETER, utcDay);
 
       setOpen(false);
 
       startTransition(() => {
+        chooseDay(utcDay);
         router.push(`?${next.toString()}`, { scroll: false });
       });
     },
-    [router, searchParams],
+    [chooseDay, router, searchParams],
   );
 
   return (
@@ -111,7 +116,7 @@ export function FixturesDatePicker({ selectedDay }: FixturesDatePickerProps) {
         >
           <CalendarDays />
 
-          {TRIGGER_DAY_FORMAT.format(new Date(`${selectedDay}T00:00:00Z`))}
+          {TRIGGER_DAY_FORMAT.format(new Date(`${chosenDay}T00:00:00Z`))}
         </Button>
       </PopoverTrigger>
 
