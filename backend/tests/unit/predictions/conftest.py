@@ -2,6 +2,8 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from django.test.utils import CaptureQueriesContext
+
 from apps.fixtures.infrastructure.repositories import upsert_fixtures
 from apps.fixtures.models import Fixture, League
 from apps.predictions.domain.enums import (
@@ -19,6 +21,7 @@ from integrations.sportmonks.predictions import (
     ProviderPredictionWindow,
     ProviderProbability,
     ProviderReliability,
+    ProviderReliabilityRead,
 )
 from tests.unit.fixtures.conftest import (
     PREMIER_LEAGUE,
@@ -38,6 +41,29 @@ FIXTURE_PROVIDER_ID = 1
 # A day no seeded fixture is played on, so storing competitions on its own
 # cannot reconcile away fixtures a test has already seeded.
 FIXTURELESS_DAY = date(2026, 8, 20)
+
+SPLIT_BATCH_SIZE = 1
+
+
+def insert_statements(statements: CaptureQueriesContext) -> list[str]:
+    """
+    Return the insert statements of a captured write, in execution order.
+
+    Parameters
+    ----------
+    statements : CaptureQueriesContext
+        Context the write was captured in.
+
+    Returns
+    -------
+    list of str
+        SQL of every insert issued, so a batched write can be told from one
+        statement carrying a whole read.
+    """
+
+    return [
+        query["sql"] for query in statements.captured_queries if query["sql"].startswith("INSERT")
+    ]
 
 
 def seed_leagues(leagues: Sequence[ProviderLeague] = (PREMIER_LEAGUE,)) -> dict[int, League]:
@@ -238,9 +264,40 @@ def store_predictions(
     return upsert_fixture_predictions(prediction_window(entries), synchronized_at)
 
 
+def reliability_read(
+    grades: Sequence[ProviderReliability],
+    league_provider_ids: Sequence[int] | None = None,
+) -> ProviderReliabilityRead:
+    """
+    Build a provider reliability read without contacting the provider.
+
+    Parameters
+    ----------
+    grades : Sequence of ProviderReliability
+        Grades the read carried, in the order the provider listed them.
+    league_provider_ids : Sequence of int or None
+        Competitions the read covered, or ``None`` to cover exactly the ones the
+        grades mention. State it explicitly to describe a competition the read
+        reached and graded in nothing, which is the case the scope exists for.
+
+    Returns
+    -------
+    ProviderReliabilityRead
+        Read shaped exactly as the Sportmonks boundary yields one.
+    """
+
+    if league_provider_ids is None:
+        league_provider_ids = list(dict.fromkeys(grade.league_provider_id for grade in grades))
+
+    return ProviderReliabilityRead(
+        league_provider_ids=list(league_provider_ids), grades=list(grades)
+    )
+
+
 def store_reliability(
     grades: Sequence[ProviderReliability],
     synchronized_at: datetime = SYNCHRONIZED_AT,
+    league_provider_ids: Sequence[int] | None = None,
 ) -> int:
     """
     Store a reliability read through the repository under test.
@@ -251,6 +308,9 @@ def store_reliability(
         Grades the read carried, in the order the provider listed them.
     synchronized_at : datetime
         Instant stamped on every row the call writes.
+    league_provider_ids : Sequence of int or None
+        Competitions the read covered, or ``None`` to cover exactly the ones the
+        grades mention.
 
     Returns
     -------
@@ -258,4 +318,4 @@ def store_reliability(
         Number of reliability rows written.
     """
 
-    return upsert_market_reliability(grades, synchronized_at)
+    return upsert_market_reliability(reliability_read(grades, league_provider_ids), synchronized_at)

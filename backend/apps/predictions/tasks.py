@@ -47,6 +47,14 @@ def _release_lock(lock_key: str, lease: str) -> None:
     so serializing them would only delay the nightly grades behind a six-hourly
     probability refresh.
 
+    Both commands run under a ``try`` because this is called from a bare
+    ``finally``, and a cache the run can no longer reach raises there. That
+    exception would replace the provider failure that actually ended the run,
+    so Celery would record a ``ConnectionError`` and the traceback worth
+    reading would be gone. Failing to release is a recoverable outcome, since
+    the lease carries a timeout and expires on its own, whereas losing the
+    reason a run failed is not, so the release reports and gives up.
+
     Parameters
     ----------
     lock_key : str
@@ -55,8 +63,13 @@ def _release_lock(lock_key: str, lease: str) -> None:
         Token the run wrote when it acquired that lock.
     """
 
-    if cache.get(lock_key) == lease:
-        cache.delete(lock_key)
+    try:
+        if cache.get(lock_key) == lease:
+            cache.delete(lock_key)
+    except Exception:
+        logger.warning(
+            "Could not release the %s lock, so it is left to expire.", lock_key, exc_info=True
+        )
 
 
 @shared_task(name="predictions.synchronize_predictions")
@@ -145,6 +158,11 @@ def synchronize_reliability() -> int:
     shorter lease than the probabilities do and runs nightly rather than every
     six hours: the grades move over a season, not over an afternoon.
 
+    What is handed to the repository is the whole read rather than its grades,
+    because the competitions requested are the reconciliation scope: a league
+    the provider grades in nothing this run must have its stale grades cleared,
+    and a flat list of grades cannot name it.
+
     The lock is the same mechanism as the probability refresh, on its own key,
     so an operator running the two by hand at once does not have one of them
     return without writing.
@@ -175,9 +193,9 @@ def synchronize_reliability() -> int:
         return 0
 
     try:
-        grades = fetch_market_reliability(settings.SPORTMONKS_LEAGUE_IDS)
+        read = fetch_market_reliability(settings.SPORTMONKS_LEAGUE_IDS)
 
-        written_count = upsert_market_reliability(grades, timezone.now())
+        written_count = upsert_market_reliability(read, timezone.now())
     except SportmonksError:
         logger.exception("Failed to synchronize market reliability.")
 

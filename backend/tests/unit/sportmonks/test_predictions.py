@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from django.db.models import DecimalField, Model
 from django.test import override_settings
 
 from apps.predictions.domain.enums import (
@@ -12,10 +13,16 @@ from apps.predictions.domain.enums import (
     PredictionSelection,
 )
 from apps.predictions.domain.markets import MARKET_SELECTIONS
+from apps.predictions.models import FixturePrediction, LeagueMarketReliability
 from integrations.sportmonks.client import ProviderPayload, QueryParameters, SportmonksClient
 from integrations.sportmonks.exceptions import SportmonksError
 from integrations.sportmonks.fixtures import PAGE_SIZE, PROVIDER_TIMEZONE
 from integrations.sportmonks.predictions import (
+    HIT_RATIO_CEILING,
+    HIT_RATIO_PLACES,
+    IDENTIFIER_MAXIMUM,
+    PROBABILITY_CEILING,
+    PROBABILITY_PLACES,
     PROVIDER_SELECTIONS,
     ProviderFixtureProbabilities,
     ProviderProbability,
@@ -177,9 +184,65 @@ RECORDED_HIT_RATIOS: ProviderPayload = {
     "away_over_under_1_5": 0.7368,
 }
 
-UNSTORABLE_PERCENTAGES = [100.01, -0.01, "26.96", True, None, float("nan")]
+UNSTORABLE_PERCENTAGES = [100.01, -0.01, "100.01", "medium", "", True, None, float("nan")]
 
-UNSTORABLE_HIT_RATIOS = [1.001, -0.001, "0.5", True, None, float("inf")]
+UNSTORABLE_HIT_RATIOS = [1.001, -0.001, "1.001", "good", "", True, None, float("inf")]
+
+STRINGIFIED_SELECTIONS: ProviderPayload = {"home": "26.96", "draw": "27", "away": "45.041"}
+
+STRINGIFIED_HIT_RATIOS: ProviderPayload = {"fulltime_result": "0.5"}
+
+UNUSABLE_FIXTURE_IDS = [None, True, "19427455x", "", IDENTIFIER_MAXIMUM + 1, float(FIXTURE_ID)]
+
+
+def decimal_column(model: type[Model], field_name: str) -> DecimalField:
+    """
+    Return the decimal field a model stores one bounded provider value in.
+
+    Parameters
+    ----------
+    model : type of Model
+        Model owning the column.
+    field_name : str
+        Name of the field on that model.
+
+    Returns
+    -------
+    DecimalField
+        Field whose ``max_digits`` and ``decimal_places`` the adapter mirrors.
+
+    Raises
+    ------
+    TypeError
+        When the named field stores something other than a decimal.
+    """
+
+    field = model._meta.get_field(field_name)
+
+    if not isinstance(field, DecimalField):
+        message = f"{model.__name__}.{field_name} is not a decimal column."
+
+        raise TypeError(message)
+
+    return field
+
+
+def quantized_places(operand: Decimal) -> int:
+    """
+    Return how many decimal places a quantize operand rounds a value to.
+
+    Parameters
+    ----------
+    operand : Decimal
+        Operand the adapter quantizes with, such as ``Decimal("0.01")``.
+
+    Returns
+    -------
+    int
+        Places the operand keeps, comparable with a field's ``decimal_places``.
+    """
+
+    return -int(operand.as_tuple().exponent)
 
 
 def predictability_path(league_id: int) -> str:
@@ -359,7 +422,7 @@ class StubbedProvider:
 
         Returns
         -------
-        Iterator[list[ProviderPayload]]
+        iterator of list of ProviderPayload
             Pages recorded for the path, or none when it was not served.
         """
 
@@ -431,6 +494,43 @@ def serve_grades(
     """
 
     provider.serve(predictability_path(league_id), [entries])
+
+
+def serve_paged_grades(
+    provider: StubbedProvider, pages: Pages, league_id: int = PREMIER_LEAGUE_ID
+) -> None:
+    """
+    Serve the predictability resource of one competition across several pages.
+
+    Parameters
+    ----------
+    provider : StubbedProvider
+        Stub the pages are recorded on.
+    pages : list of list of ProviderPayload
+        Pages the resource answers with, in order.
+    league_id : int, optional
+        Competition the entries grade.
+    """
+
+    provider.serve(predictability_path(league_id), pages)
+
+
+def read_grades(league_ids: list[int]) -> list[ProviderReliability]:
+    """
+    Read the grades of the competitions under test, dropping the read's scope.
+
+    Parameters
+    ----------
+    league_ids : list of int
+        Competitions to read.
+
+    Returns
+    -------
+    list of ProviderReliability
+        Grades the read resolved, in the order the competitions were requested.
+    """
+
+    return fetch_market_reliability(league_ids).grades
 
 
 def read_probabilities() -> list[ProviderProbability]:
@@ -814,7 +914,7 @@ def test_reliability_joins_the_graded_word_with_the_hit_ratio_behind_it(
         ],
     )
 
-    assert fetch_market_reliability([PREMIER_LEAGUE_ID]) == [
+    assert read_grades([PREMIER_LEAGUE_ID]) == [
         grade(PredictionMarket.FULLTIME_RESULT, PredictionReliability.MEDIUM, "0.500"),
         grade(PredictionMarket.FIRST_HALF_RESULT, PredictionReliability.POOR, "0.474"),
         grade(PredictionMarket.HALF_TIME_FULL_TIME, PredictionReliability.POOR, "0.211"),
@@ -844,7 +944,7 @@ def test_a_market_only_one_of_the_two_types_grades_is_not_reported(
         ],
     )
 
-    assert fetch_market_reliability([PREMIER_LEAGUE_ID]) == [
+    assert read_grades([PREMIER_LEAGUE_ID]) == [
         grade(PredictionMarket.FULLTIME_RESULT, PredictionReliability.MEDIUM, "0.500")
     ]
 
@@ -870,7 +970,7 @@ def test_a_predictability_key_naming_no_published_market_is_ignored(
         ],
     )
 
-    assert fetch_market_reliability([PREMIER_LEAGUE_ID]) == []
+    assert read_grades([PREMIER_LEAGUE_ID]) == []
 
 
 def test_a_word_the_boundary_does_not_map_leaves_its_market_ungraded(
@@ -892,7 +992,7 @@ def test_a_word_the_boundary_does_not_map_leaves_its_market_ungraded(
         ],
     )
 
-    assert fetch_market_reliability([PREMIER_LEAGUE_ID]) == [
+    assert read_grades([PREMIER_LEAGUE_ID]) == [
         grade(PredictionMarket.HALF_TIME_FULL_TIME, PredictionReliability.POOR, "0.211")
     ]
     assert "is not a word this boundary maps" in caplog.text
@@ -918,7 +1018,7 @@ def test_a_hit_ratio_the_column_could_not_hold_leaves_its_market_ungraded(
         ],
     )
 
-    assert fetch_market_reliability([PREMIER_LEAGUE_ID]) == []
+    assert read_grades([PREMIER_LEAGUE_ID]) == []
     assert "is not a share" in caplog.text
 
 
@@ -935,7 +1035,7 @@ def test_a_competition_returned_without_one_of_the_two_types_stays_ungraded(
 
     serve_grades(provider, [grade_entry(HIT_RATIO_TYPE, RECORDED_HIT_RATIOS)])
 
-    assert fetch_market_reliability([PREMIER_LEAGUE_ID]) == []
+    assert read_grades([PREMIER_LEAGUE_ID]) == []
     assert f"without prediction type {QUALITY_TYPE}" in caplog.text
 
 
@@ -964,7 +1064,7 @@ def test_the_reliability_of_each_requested_competition_is_read_once(
         BUNDESLIGA_ID,
     )
 
-    grades = fetch_market_reliability([PREMIER_LEAGUE_ID, BUNDESLIGA_ID])
+    grades = read_grades([PREMIER_LEAGUE_ID, BUNDESLIGA_ID])
 
     assert [(reliability.league_provider_id, reliability.quality) for reliability in grades] == [
         (PREMIER_LEAGUE_ID, PredictionReliability.MEDIUM),
@@ -1026,3 +1126,234 @@ def test_the_provider_selection_table_covers_exactly_the_published_vocabulary() 
     assert mapped == {
         market: sorted(selections) for market, selections in MARKET_SELECTIONS.items()
     }
+
+
+def test_a_window_the_provider_paginates_carries_the_fixtures_of_every_page(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a window the provider serves over two pages, each carrying a different fixture
+    WHEN the window is read
+    THEN both fixtures are carried with their own probabilities, in the order the pages arrived
+    """
+
+    provider.serve(
+        WINDOW_PATH,
+        [
+            [fixture_payload(predictions=[prediction(FULLTIME_RESULT_TYPE)])],
+            [
+                fixture_payload(
+                    provider_id=OTHER_FIXTURE_ID,
+                    predictions=[prediction(BOTH_TEAMS_TO_SCORE_TYPE)],
+                )
+            ],
+        ],
+    )
+
+    window = fetch_prediction_window(WINDOW_START, WINDOW_END, [PREMIER_LEAGUE_ID])
+
+    assert [
+        (fixture.fixture_provider_id, list(selections_by_market(fixture.probabilities)))
+        for fixture in window.fixtures
+    ] == [
+        (FIXTURE_ID, [PredictionMarket.FULLTIME_RESULT]),
+        (OTHER_FIXTURE_ID, [PredictionMarket.BOTH_TEAMS_TO_SCORE]),
+    ]
+
+
+def test_a_grade_is_joined_across_the_pages_its_two_types_arrived_on(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a competition whose predictability word and hit ratio arrive on two different pages
+    WHEN its reliability is read
+    THEN the market is graded, because the entries of every page are merged before the join
+    """
+
+    serve_paged_grades(
+        provider,
+        [
+            [grade_entry(QUALITY_TYPE, {"fulltime_result": "medium"})],
+            [grade_entry(HIT_RATIO_TYPE, {"fulltime_result": 0.5})],
+        ],
+    )
+
+    assert read_grades([PREMIER_LEAGUE_ID]) == [
+        grade(PredictionMarket.FULLTIME_RESULT, PredictionReliability.MEDIUM, "0.500")
+    ]
+
+
+def test_the_reliability_read_carries_a_competition_it_graded_in_nothing(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN two requested competitions of which the provider grades only the first
+    WHEN their reliability is read
+    THEN both are carried as covered, so the ungraded one stays reconcilable rather than stale
+    """
+
+    serve_grades(
+        provider,
+        [
+            grade_entry(QUALITY_TYPE, {"fulltime_result": "medium"}),
+            grade_entry(HIT_RATIO_TYPE, {"fulltime_result": 0.5}),
+        ],
+    )
+    serve_grades(provider, [], BUNDESLIGA_ID)
+
+    read = fetch_market_reliability([PREMIER_LEAGUE_ID, BUNDESLIGA_ID])
+
+    assert read.league_provider_ids == [PREMIER_LEAGUE_ID, BUNDESLIGA_ID]
+    assert [entry.league_provider_id for entry in read.grades] == [PREMIER_LEAGUE_ID]
+
+
+def test_a_predictability_type_returned_twice_is_reported(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a competition whose predictability word arrives twice, grading its market differently
+    WHEN its reliability is read
+    THEN the repeat is reported, so a resource that began grading per season cannot pass unseen
+    """
+
+    caplog.set_level(logging.WARNING, logger=PREDICTIONS_LOGGER)
+
+    serve_paged_grades(
+        provider,
+        [
+            [
+                grade_entry(QUALITY_TYPE, {"fulltime_result": "poor"}),
+                grade_entry(QUALITY_TYPE, {"fulltime_result": "medium"}),
+            ],
+            [grade_entry(HIT_RATIO_TYPE, {"fulltime_result": 0.5})],
+        ],
+    )
+
+    assert read_grades([PREMIER_LEAGUE_ID]) == [
+        grade(PredictionMarket.FULLTIME_RESULT, PredictionReliability.MEDIUM, "0.500")
+    ]
+    assert f"graded by prediction type {QUALITY_TYPE} more than once" in caplog.text
+
+
+@pytest.mark.parametrize("unusable", UNUSABLE_FIXTURE_IDS)
+def test_a_fixture_entry_naming_no_usable_identifier_is_dropped_and_reported(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture, unusable: object
+) -> None:
+    """
+    GIVEN a fixture entry whose identifier is absent, denotes no number, or outstrips the column
+    WHEN the window is read
+    THEN the entry is dropped, the drop is reported, and the fixture beside it is still carried
+    """
+
+    caplog.set_level(logging.WARNING, logger=PREDICTIONS_LOGGER)
+
+    unusable_entry = {
+        **fixture_payload(predictions=[prediction(FULLTIME_RESULT_TYPE)]),
+        "id": unusable,
+    }
+
+    well_formed = fixture_payload(
+        provider_id=OTHER_FIXTURE_ID, predictions=[prediction(BOTH_TEAMS_TO_SCORE_TYPE)]
+    )
+
+    provider.serve(WINDOW_PATH, [[unusable_entry, well_formed]])
+
+    window = fetch_prediction_window(WINDOW_START, WINDOW_END, [PREMIER_LEAGUE_ID])
+
+    assert [fixture.fixture_provider_id for fixture in window.fixtures] == [OTHER_FIXTURE_ID]
+    assert "names no usable fixture" in caplog.text
+
+
+def test_a_fixture_identifier_sent_as_a_string_of_digits_is_read_as_the_number(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a fixture entry whose identifier the provider stringified, as it has been observed to
+    WHEN the window is read
+    THEN the fixture is carried under the number the string denotes rather than dropped
+    """
+
+    stringified = {
+        **fixture_payload(predictions=[prediction(FULLTIME_RESULT_TYPE)]),
+        "id": str(FIXTURE_ID),
+    }
+
+    provider.serve(WINDOW_PATH, [[stringified]])
+
+    window = fetch_prediction_window(WINDOW_START, WINDOW_END, [PREMIER_LEAGUE_ID])
+
+    assert [fixture.fixture_provider_id for fixture in window.fixtures] == [FIXTURE_ID]
+
+
+def test_a_predictions_member_that_is_not_an_entry_is_passed_over(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a fixture whose predictions array carries a bare value beside a well-formed entry
+    WHEN the window is read
+    THEN the bare value contributes nothing and the entry beside it is still normalized
+    """
+
+    serve_predictions(provider, ["fulltime_result", prediction(FULLTIME_RESULT_TYPE)])
+
+    assert list(selections_by_market(read_probabilities())) == [PredictionMarket.FULLTIME_RESULT]
+
+
+def test_a_percentage_sent_as_a_string_is_read_as_the_number_it_denotes(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a market whose percentages the provider stringified, as it stringifies an identifier
+    WHEN the window is read
+    THEN each is carried as the exact decimal the string denotes, rounded to the column's places
+    """
+
+    serve_predictions(provider, [prediction(FULLTIME_RESULT_TYPE, STRINGIFIED_SELECTIONS)])
+
+    assert read_selections(PredictionMarket.FULLTIME_RESULT) == {
+        PredictionSelection.HOME: Decimal("26.96"),
+        PredictionSelection.DRAW: Decimal("27.00"),
+        PredictionSelection.AWAY: Decimal("45.04"),
+    }
+
+
+def test_a_hit_ratio_sent_as_a_string_is_read_as_the_share_it_denotes(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a competition whose hit ratio the provider stringified
+    WHEN its reliability is read
+    THEN the market is graded with the share the string denotes rather than left ungraded
+    """
+
+    serve_grades(
+        provider,
+        [
+            grade_entry(QUALITY_TYPE, {"fulltime_result": "medium"}),
+            grade_entry(HIT_RATIO_TYPE, STRINGIFIED_HIT_RATIOS),
+        ],
+    )
+
+    assert read_grades([PREMIER_LEAGUE_ID]) == [
+        grade(PredictionMarket.FULLTIME_RESULT, PredictionReliability.MEDIUM, "0.500")
+    ]
+
+
+def test_the_parsed_precision_mirrors_the_columns_the_values_are_stored_in() -> None:
+    """
+    GIVEN the adapter bounds that deliberately duplicate the two columns rather than import them
+    WHEN each quantize operand and ceiling is compared with the field metadata it mirrors
+    THEN they agree, so widening a column cannot silently cost a digit at this boundary
+    """
+
+    probability = decimal_column(FixturePrediction, "probability")
+    hit_ratio = decimal_column(LeagueMarketReliability, "hit_ratio")
+
+    assert quantized_places(PROBABILITY_PLACES) == probability.decimal_places
+    assert quantized_places(HIT_RATIO_PLACES) == hit_ratio.decimal_places
+
+    probability_bound = Decimal(10) ** (probability.max_digits - probability.decimal_places)
+    hit_ratio_bound = Decimal(10) ** (hit_ratio.max_digits - hit_ratio.decimal_places)
+
+    assert probability_bound > PROBABILITY_CEILING
+    assert hit_ratio_bound > HIT_RATIO_CEILING

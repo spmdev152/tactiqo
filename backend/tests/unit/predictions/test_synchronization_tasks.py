@@ -19,7 +19,11 @@ from apps.predictions.tasks import (
     synchronize_reliability,
 )
 from integrations.sportmonks.exceptions import SportmonksError
-from integrations.sportmonks.predictions import ProviderPredictionWindow, ProviderReliability
+from integrations.sportmonks.predictions import (
+    ProviderPredictionWindow,
+    ProviderReliability,
+    ProviderReliabilityRead,
+)
 from tests.conftest import CapturedRecord
 from tests.unit.fixtures.conftest import PREMIER_LEAGUE
 from tests.unit.predictions.conftest import (
@@ -28,6 +32,7 @@ from tests.unit.predictions.conftest import (
     prediction_window,
     probability,
     reliability,
+    reliability_read,
     seed_fixtures,
     seed_leagues,
 )
@@ -36,7 +41,11 @@ TODAY = date(2026, 8, 25)
 
 NOW = datetime(2026, 8, 25, 6, 0, tzinfo=UTC)
 
+LATER_NOW = NOW.replace(hour=18)
+
 SUCCESSOR_LEASE = "a-later-run"
+
+CACHE_UNREACHABLE = "The cache went away mid-run."
 
 HOME_WIN = probability(PredictionMarket.FULLTIME_RESULT, PredictionSelection.HOME, "26.96")
 
@@ -52,7 +61,7 @@ PREMIER_FULLTIME = reliability(
 RequestedWindow = tuple[date, date, Sequence[int]]
 
 
-def freeze_now(monkeypatch: pytest.MonkeyPatch) -> None:
+def freeze_now(monkeypatch: pytest.MonkeyPatch, instant: datetime = NOW) -> None:
     """
     Pin the clock the tasks read so the window and the stamp are deterministic.
 
@@ -60,9 +69,12 @@ def freeze_now(monkeypatch: pytest.MonkeyPatch) -> None:
     ----------
     monkeypatch : MonkeyPatch
         Patcher replacing ``django.utils.timezone.now`` for the test.
+    instant : datetime
+        Instant every call returns, which a second call may move so two runs of
+        one test carry different stamps.
     """
 
-    monkeypatch.setattr(timezone, "now", lambda: NOW)
+    monkeypatch.setattr(timezone, "now", lambda: instant)
 
 
 def record_prediction_read(
@@ -117,10 +129,10 @@ def record_reliability_read(
 
     requested: list[Sequence[int]] = []
 
-    def fetch(league_ids: Sequence[int]) -> list[ProviderReliability]:
+    def fetch(league_ids: Sequence[int]) -> ProviderReliabilityRead:
         requested.append(league_ids)
 
-        return list(grades)
+        return reliability_read(grades, league_ids)
 
     monkeypatch.setattr("apps.predictions.tasks.fetch_market_reliability", fetch)
 
@@ -155,7 +167,7 @@ def forbid_reliability_call(monkeypatch: pytest.MonkeyPatch) -> None:
         Patcher replacing the provider call the task imported.
     """
 
-    def fetch(league_ids: Sequence[int]) -> list[ProviderReliability]:
+    def fetch(league_ids: Sequence[int]) -> ProviderReliabilityRead:
         message = f"The provider was called for {list(league_ids)}."
 
         raise AssertionError(message)
@@ -191,7 +203,7 @@ def fail_reliability_call(monkeypatch: pytest.MonkeyPatch) -> None:
         Patcher replacing the provider call the task imported.
     """
 
-    def fetch(league_ids: Sequence[int]) -> list[ProviderReliability]:
+    def fetch(league_ids: Sequence[int]) -> ProviderReliabilityRead:
         message = f"The provider refused the grades of {list(league_ids)}."
 
         raise SportmonksError(message)
@@ -199,26 +211,44 @@ def fail_reliability_call(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("apps.predictions.tasks.fetch_market_reliability", fetch)
 
 
-def reported_failures(records: list[CapturedRecord]) -> list[tuple[str, bool]]:
+def traceback_flags(records: list[CapturedRecord], level: str) -> list[bool]:
     """
-    Return the level and exception presence of every failure record captured.
+    Return whether a traceback was attached to each record of one level.
 
     Parameters
     ----------
     records : list of CapturedRecord
         Records the Loguru sink collected during the test.
+    level : str
+        Level to narrow the records to.
 
     Returns
     -------
-    list of tuple of str and bool
-        Level and whether a traceback was attached, for each error record.
+    list of bool
+        One entry per record of that level, in emission order.
     """
 
     return [
-        (level, carries_exception)
-        for level, _message, carries_exception in records
-        if level == "ERROR"
+        carries_exception
+        for record_level, _message, carries_exception in records
+        if record_level == level
     ]
+
+
+def break_the_cache_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Make reading a lock back fail, as a cache restarted mid-run does.
+
+    Parameters
+    ----------
+    monkeypatch : MonkeyPatch
+        Patcher replacing the cache read the lock release performs.
+    """
+
+    def get(*_args: object, **_kwargs: object) -> object:
+        raise ConnectionError(CACHE_UNREACHABLE)
+
+    monkeypatch.setattr(cache, "get", get)
 
 
 @pytest.mark.django_db
@@ -368,7 +398,7 @@ def test_synchronize_predictions_reraises_a_provider_failure_and_frees_the_lock(
 
     assert FixturePrediction.objects.exists() is False
     assert cache.get(SYNCHRONIZATION_LOCK_KEY) is None
-    assert reported_failures(loguru_records) == [("ERROR", True)]
+    assert traceback_flags(loguru_records, "ERROR") == [True]
 
 
 @pytest.mark.django_db
@@ -457,7 +487,7 @@ def test_synchronize_reliability_reraises_a_provider_failure_and_frees_the_lock(
 
     assert LeagueMarketReliability.objects.exists() is False
     assert cache.get(RELIABILITY_LOCK_KEY) is None
-    assert reported_failures(loguru_records) == [("ERROR", True)]
+    assert traceback_flags(loguru_records, "ERROR") == [True]
 
 
 @pytest.mark.django_db
@@ -480,3 +510,50 @@ def test_the_two_synchronizations_do_not_share_a_lock(
 
     assert written_count == 1
     assert cache.get(SYNCHRONIZATION_LOCK_KEY) == SUCCESSOR_LEASE
+
+
+@pytest.mark.django_db
+def test_synchronize_predictions_keeps_the_provider_failure_when_the_lock_cannot_be_freed(
+    monkeypatch: pytest.MonkeyPatch, loguru_records: list[CapturedRecord]
+) -> None:
+    """
+    GIVEN a provider refusing the read and a cache that cannot be read back to free the lock
+    WHEN the synchronization runs
+    THEN the provider failure surfaces and the lock left to expire is reported as a warning
+    """
+
+    freeze_now(monkeypatch)
+    fail_prediction_call(monkeypatch)
+    seed_fixtures()
+    break_the_cache_read(monkeypatch)
+
+    with pytest.raises(SportmonksError):
+        synchronize_predictions()
+
+    assert traceback_flags(loguru_records, "ERROR") == [True]
+    assert traceback_flags(loguru_records, "WARNING") == [True]
+
+
+@pytest.mark.django_db
+def test_synchronize_reliability_clears_the_grades_of_a_competition_it_graded_in_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a stored grade and a provider that grades nothing at all on the following run
+    WHEN the reliability synchronization runs again
+    THEN the stale grade is gone, because the read covered the competition it graded in nothing
+    """
+
+    freeze_now(monkeypatch)
+    seed_leagues()
+    record_reliability_read(monkeypatch, [PREMIER_FULLTIME])
+
+    synchronize_reliability()
+
+    freeze_now(monkeypatch, LATER_NOW)
+    record_reliability_read(monkeypatch, [])
+
+    written_count = synchronize_reliability()
+
+    assert written_count == 0
+    assert LeagueMarketReliability.objects.exists() is False

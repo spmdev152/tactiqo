@@ -2,18 +2,22 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
-from django.db import connection
+from django.db import OperationalError, connection
+from django.db.models import Model, QuerySet
 from django.test.utils import CaptureQueriesContext
 
 from apps.predictions.domain.enums import PredictionMarket, PredictionSelection
-from apps.predictions.models import FixturePrediction
+from apps.predictions.infrastructure import repositories
+from apps.predictions.models import FixturePrediction, LeagueMarketReliability
 from integrations.sportmonks.predictions import ProviderProbability
 from tests.conftest import CapturedRecord
 from tests.unit.predictions.conftest import (
     FIXTURE_PROVIDER_ID,
     LATER_SYNCHRONIZED_AT,
+    SPLIT_BATCH_SIZE,
     SYNCHRONIZED_AT,
     fixture_probabilities,
+    insert_statements,
     probability,
     seed_fixtures,
     store_predictions,
@@ -26,6 +30,12 @@ UNSTORED_FIXTURE_PROVIDER_ID = 99
 BOTH_FIXTURES = [FIXTURE_PROVIDER_ID, SECOND_FIXTURE_PROVIDER_ID]
 
 MANY_FIXTURES = 20
+
+# psycopg refuses a statement carrying more than this many placeholders, which is what the batch
+# size of the repository exists to stay clear of.
+PLACEHOLDER_CEILING = 65535
+
+RECONCILIATION_FAILURE = "The reconciliation delete was cancelled."
 
 HOME_WIN = probability(PredictionMarket.FULLTIME_RESULT, PredictionSelection.HOME, "26.96")
 
@@ -121,6 +131,41 @@ def stored_stamps() -> set[datetime]:
     """
 
     return {row.synchronized_at for row in FixturePrediction.objects.all()}
+
+
+def written_column_count(model: type[Model]) -> int:
+    """
+    Return how many columns one row of a model places in an insert statement.
+
+    Parameters
+    ----------
+    model : type of Model
+        Model whose table the upsert writes.
+
+    Returns
+    -------
+    int
+        Concrete columns other than the generated primary key, which is the
+        number of placeholders a single row costs.
+    """
+
+    return len([field for field in model._meta.concrete_fields if not field.primary_key])
+
+
+def fail_the_reconciliation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Make the delete an upsert reaches after its write fail, as a lock timeout does.
+
+    Parameters
+    ----------
+    monkeypatch : MonkeyPatch
+        Patcher replacing the queryset delete for the duration of the test.
+    """
+
+    def delete(_self: QuerySet[FixturePrediction]) -> tuple[int, dict[str, int]]:
+        raise OperationalError(RECONCILIATION_FAILURE)
+
+    monkeypatch.setattr(QuerySet, "delete", delete)
 
 
 @pytest.mark.django_db
@@ -367,3 +412,100 @@ def test_upsert_predictions_resolves_every_fixture_of_a_read_in_one_query() -> N
         store_predictions(large_read, LATER_SYNCHRONIZED_AT)
 
     assert len(large_statements.captured_queries) == len(small_statements.captured_queries)
+
+
+@pytest.mark.django_db
+def test_upsert_predictions_leaves_the_whole_table_alone_for_an_empty_read() -> None:
+    """
+    GIVEN a stored fixture carrying probabilities and a later read covering no fixture at all
+    WHEN that read is stored
+    THEN nothing is written and every row survives, because an empty read scopes nothing
+    """
+
+    seed_fixtures()
+    store_predictions([fixture_probabilities(FIXTURE_PROVIDER_ID, FULLTIME_SELECTIONS)])
+
+    written_count = store_predictions([], LATER_SYNCHRONIZED_AT)
+
+    assert written_count == 0
+
+    assert stored_selections() == {
+        selection_key(FIXTURE_PROVIDER_ID, HOME_WIN),
+        selection_key(FIXTURE_PROVIDER_ID, DRAWN),
+        selection_key(FIXTURE_PROVIDER_ID, AWAY_WIN),
+    }
+
+
+@pytest.mark.django_db
+def test_upsert_predictions_deletes_a_withdrawn_selection_stamped_after_the_run() -> None:
+    """
+    GIVEN a stored selection stamped later than the run withdrawing it, as a clock step leaves it
+    WHEN a read omitting that selection is stored under the earlier stamp
+    THEN the row is gone, because the reconciliation compares the stamp rather than ordering it
+    """
+
+    seed_fixtures()
+
+    store_predictions(
+        [fixture_probabilities(FIXTURE_PROVIDER_ID, [HOME_WIN, BOTH_SCORE])],
+        LATER_SYNCHRONIZED_AT,
+    )
+
+    store_predictions([fixture_probabilities(FIXTURE_PROVIDER_ID, [HOME_WIN])], SYNCHRONIZED_AT)
+
+    assert stored_selections() == {selection_key(FIXTURE_PROVIDER_ID, HOME_WIN)}
+    assert stored_stamps() == {SYNCHRONIZED_AT}
+
+
+@pytest.mark.django_db
+def test_upsert_predictions_splits_its_write_at_the_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a batch of one row and a read carrying the three full-time selections
+    WHEN the read is stored
+    THEN one insert is issued per row, so no read can grow into a single oversized statement
+    """
+
+    monkeypatch.setattr(repositories, "WRITE_BATCH_SIZE", SPLIT_BATCH_SIZE)
+
+    seed_fixtures()
+
+    with CaptureQueriesContext(connection) as statements:
+        store_predictions([fixture_probabilities(FIXTURE_PROVIDER_ID, FULLTIME_SELECTIONS)])
+
+    assert len(insert_statements(statements)) == len(FULLTIME_SELECTIONS)
+
+
+def test_the_batch_size_keeps_both_writes_inside_the_placeholder_ceiling() -> None:
+    """
+    GIVEN the batch size the two upserts write under and the columns each of their rows places
+    WHEN a full batch is priced in placeholders
+    THEN it stays inside the ceiling the driver enforces, for both tables the module writes
+    """
+
+    widest_row = max(
+        written_column_count(FixturePrediction), written_column_count(LeagueMarketReliability)
+    )
+
+    assert repositories.WRITE_BATCH_SIZE * widest_row <= PLACEHOLDER_CEILING
+
+
+@pytest.mark.django_db
+def test_upsert_predictions_rolls_its_write_back_when_the_reconciliation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a reconciliation delete that fails after the probabilities of a read were written
+    WHEN the read is stored
+    THEN the failure surfaces and no row survives, so a reader never sees a half-refreshed fixture
+    """
+
+    seed_fixtures()
+
+    fail_the_reconciliation(monkeypatch)
+
+    with pytest.raises(OperationalError, match=RECONCILIATION_FAILURE):
+        store_predictions([fixture_probabilities(FIXTURE_PROVIDER_ID, FULLTIME_SELECTIONS)])
+
+    assert FixturePrediction.objects.exists() is False

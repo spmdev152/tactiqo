@@ -2,14 +2,20 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from apps.predictions.domain.enums import PredictionMarket, PredictionReliability
+from apps.predictions.infrastructure import repositories
 from apps.predictions.models import LeagueMarketReliability
 from integrations.sportmonks.predictions import ProviderReliability
 from tests.conftest import CapturedRecord
 from tests.unit.fixtures.conftest import LA_LIGA, PREMIER_LEAGUE
 from tests.unit.predictions.conftest import (
     LATER_SYNCHRONIZED_AT,
+    SPLIT_BATCH_SIZE,
+    SYNCHRONIZED_AT,
+    insert_statements,
     reliability,
     seed_leagues,
     store_reliability,
@@ -20,6 +26,8 @@ PREMIER_LEAGUE_ID = PREMIER_LEAGUE.provider_id
 LA_LIGA_ID = LA_LIGA.provider_id
 
 UNSTORED_LEAGUE_ID = 999
+
+BOTH_LEAGUE_IDS = [PREMIER_LEAGUE_ID, LA_LIGA_ID]
 
 BOTH_LEAGUES = [PREMIER_LEAGUE, LA_LIGA]
 
@@ -297,3 +305,75 @@ def test_upsert_reliability_presents_every_row_in_natural_key_order() -> None:
         grade_key(PREMIER_FULLTIME),
         grade_key(LA_LIGA_FULLTIME),
     ]
+
+
+@pytest.mark.django_db
+def test_upsert_reliability_clears_a_competition_the_read_graded_in_nothing() -> None:
+    """
+    GIVEN two graded competitions and a later read covering both while grading only one
+    WHEN that read is stored
+    THEN the ungraded competition loses its grades, because the read covered it authoritatively
+    """
+
+    seed_leagues(BOTH_LEAGUES)
+    store_reliability([PREMIER_FULLTIME, LA_LIGA_FULLTIME])
+
+    store_reliability([PREMIER_FULLTIME], LATER_SYNCHRONIZED_AT, BOTH_LEAGUE_IDS)
+
+    assert stored_markets() == {grade_key(PREMIER_FULLTIME)}
+
+
+@pytest.mark.django_db
+def test_upsert_reliability_deletes_a_stale_grade_stamped_after_the_run() -> None:
+    """
+    GIVEN a stored grade stamped later than the run withdrawing it, as a clock step leaves it
+    WHEN a read omitting that market is stored under the earlier stamp
+    THEN the row is gone, because the reconciliation compares the stamp rather than ordering it
+    """
+
+    seed_leagues()
+    store_reliability([PREMIER_FULLTIME, PREMIER_BOTH_SCORE], LATER_SYNCHRONIZED_AT)
+
+    store_reliability([PREMIER_FULLTIME], SYNCHRONIZED_AT)
+
+    assert stored_markets() == {grade_key(PREMIER_FULLTIME)}
+    assert stored_stamps() == {SYNCHRONIZED_AT}
+
+
+@pytest.mark.django_db
+def test_upsert_reliability_resolves_every_competition_of_a_read_in_one_query() -> None:
+    """
+    GIVEN two reads of the same shape differing only in how many competitions they cover
+    WHEN each read is stored
+    THEN both writes cost the same number of statements
+    """
+
+    seed_leagues(BOTH_LEAGUES)
+
+    with CaptureQueriesContext(connection) as one_competition:
+        store_reliability([PREMIER_FULLTIME])
+
+    with CaptureQueriesContext(connection) as two_competitions:
+        store_reliability([PREMIER_FULLTIME, LA_LIGA_FULLTIME], LATER_SYNCHRONIZED_AT)
+
+    assert len(two_competitions.captured_queries) == len(one_competition.captured_queries)
+
+
+@pytest.mark.django_db
+def test_upsert_reliability_splits_its_write_at_the_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    GIVEN a batch of one row and a read grading two markets of one competition
+    WHEN the read is stored
+    THEN one insert is issued per row, so no read can grow into a single oversized statement
+    """
+
+    monkeypatch.setattr(repositories, "WRITE_BATCH_SIZE", SPLIT_BATCH_SIZE)
+
+    seed_leagues()
+
+    with CaptureQueriesContext(connection) as statements:
+        store_reliability(PREMIER_GRADES)
+
+    assert len(insert_statements(statements)) == len(PREMIER_GRADES)

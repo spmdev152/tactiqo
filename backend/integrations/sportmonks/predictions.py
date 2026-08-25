@@ -2,7 +2,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from apps.predictions.domain.enums import (
     PredictionMarket,
@@ -229,6 +229,34 @@ class ProviderReliability:
     hit_ratio: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderReliabilityRead:
+    """
+    Everything one complete read of the market reliability resolved.
+
+    The competitions read are carried beside the grades, for the reason
+    ``ProviderPredictionWindow`` carries a fixture whose ``predictions`` array
+    was empty. Reconciliation is by stamp over the scope a run covered, so a
+    competition the read reached and found no grade in has to be in that scope:
+    the grades it used to carry are the ones the provider has stopped
+    publishing, and a flat list of grades cannot name it. Deleting them is
+    sound because the boundary raises rather than returning a partial read, so
+    an ungraded competition genuinely published nothing.
+
+    Attributes
+    ----------
+    league_provider_ids : list of int
+        Sportmonks league identifiers the read covered, in the order they were
+        requested, whether or not the provider graded a market for them.
+    grades : list of ProviderReliability
+        Grades the read resolved, in the order the competitions were requested,
+        and empty for a read that found none at all.
+    """
+
+    league_provider_ids: list[int]
+    grades: list[ProviderReliability]
+
+
 def fetch_prediction_window(
     start: date, end: date, league_ids: Sequence[int]
 ) -> ProviderPredictionWindow:
@@ -326,7 +354,7 @@ def fetch_prediction_window(
     return ProviderPredictionWindow(fixtures=fixtures)
 
 
-def fetch_market_reliability(league_ids: Sequence[int]) -> list[ProviderReliability]:
+def fetch_market_reliability(league_ids: Sequence[int]) -> ProviderReliabilityRead:
     """
     Return the grade each competition's markets carry, normalized.
 
@@ -345,6 +373,11 @@ def fetch_market_reliability(league_ids: Sequence[int]) -> list[ProviderReliabil
     for double chance or for over/under 4.5, so those two markets carry no row
     at all and the interface shows their probabilities ungraded.
 
+    The competitions requested are returned beside the grades rather than left
+    implicit in them, because a competition can be read and graded in no market
+    at all: one page missing either type in scope is enough, and that is a
+    competition whose stored grades a caller must be able to reconcile away.
+
     Parameters
     ----------
     league_ids : sequence of int
@@ -352,9 +385,9 @@ def fetch_market_reliability(league_ids: Sequence[int]) -> list[ProviderReliabil
 
     Returns
     -------
-    list of ProviderReliability
-        One grade for every graded market of every competition read, in the
-        order the competitions were requested.
+    ProviderReliabilityRead
+        Competitions the read covered and one grade for every graded market of
+        each, both in the order the competitions were requested.
 
     Raises
     ------
@@ -375,12 +408,19 @@ def fetch_market_reliability(league_ids: Sequence[int]) -> list[ProviderReliabil
     for league_id in league_ids:
         grades.extend(_league_grades(client, league_id))
 
-    return grades
+    return ProviderReliabilityRead(league_provider_ids=list(league_ids), grades=grades)
 
 
 def _league_grades(client: SportmonksClient, league_id: int) -> list[ProviderReliability]:
     """
     Return the graded markets of one competition, joining the two types in scope.
+
+    The entries of every page are merged into one entry per type before the
+    join, because the resource is paginated and the word and the hit ratio need
+    not arrive on the same page. One type is expected once per competition, so a
+    repeat is reported rather than silently resolved: it would mean the resource
+    has begun grading per season, and taking the last entry would then keep an
+    arbitrary season's figure.
 
     Parameters
     ----------
@@ -414,8 +454,18 @@ def _league_grades(client: SportmonksClient, league_id: int) -> list[ProviderRel
         for entry in page:
             type_id = _identifier(entry.get("type_id"))
 
-            if type_id is not None:
-                by_type[type_id] = entry
+            if type_id is None:
+                continue
+
+            if type_id in by_type:
+                logger.warning(
+                    "Sportmonks league %d was graded by prediction type %d more than once, so "
+                    "only the last entry of it is read.",
+                    league_id,
+                    type_id,
+                )
+
+            by_type[type_id] = entry
 
     qualities = _qualities_of(by_type.get(QUALITY_TYPE), league_id)
     hit_ratios = _hit_ratios_of(by_type.get(HIT_RATIO_TYPE), league_id)
@@ -760,13 +810,14 @@ def _probability(value: object) -> Decimal | None:
     ----------
     value : object
         Value a selection key carried, which the provider sends as an integer
-        for a round figure and as a fractional number otherwise.
+        for a round figure, as a fractional number otherwise, and which is
+        accepted as a string of either.
 
     Returns
     -------
     Decimal or None
-        Percentage to two decimal places, or ``None`` when the value is not a
-        number between nought and a hundred.
+        Percentage to two decimal places, or ``None`` when the value does not
+        denote a number between nought and a hundred.
     """
 
     return _bounded_decimal(value, PROBABILITY_CEILING, PROBABILITY_PLACES)
@@ -780,13 +831,13 @@ def _hit_ratio(value: object) -> Decimal | None:
     ----------
     value : object
         Value a predictability market key carried, published as a share rather
-        than a percentage.
+        than a percentage, and accepted as a string of one.
 
     Returns
     -------
     Decimal or None
-        Share to three decimal places, or ``None`` when the value is not a
-        number between nought and one.
+        Share to three decimal places, or ``None`` when the value does not
+        denote a number between nought and one.
     """
 
     return _bounded_decimal(value, HIT_RATIO_CEILING, HIT_RATIO_PLACES)
@@ -803,10 +854,20 @@ def _bounded_decimal(value: object, ceiling: Decimal, places: Decimal) -> Decima
     integer, and a value that is not finite is refused before it can be
     quantized.
 
+    A numeric string is accepted, which is the same latitude ``_identifier``
+    gives the identifier fields and for the same observed reason: this provider
+    stringifies a number in some payloads, and there is no ground for trusting
+    it to stringify an id but never a figure. Refusing one would not merely drop
+    a value either. The entity carrying it stays authoritative, so the
+    reconciliation deletes whatever was stored for that selection, which turns a
+    formatting change into data loss. A string denoting no number is still
+    refused.
+
     Parameters
     ----------
     value : object
-        Value the provider carried, documented as a number.
+        Value the provider carried, documented as a number and accepted as a
+        string of one.
     ceiling : Decimal
         Largest value the column that stores it accepts, its floor being nought
         in both cases this boundary parses.
@@ -823,10 +884,13 @@ def _bounded_decimal(value: object, ceiling: Decimal, places: Decimal) -> Decima
         of the run.
     """
 
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
         return None
 
-    parsed = Decimal(str(value))
+    try:
+        parsed = Decimal(str(value))
+    except InvalidOperation:
+        return None
 
     if not parsed.is_finite() or parsed < 0 or parsed > ceiling:
         return None
