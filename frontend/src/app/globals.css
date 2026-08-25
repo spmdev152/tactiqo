@@ -1,6 +1,16 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+
+/* The shadcn/ui registry writes Radix's open and closed states as `data-open:`
+   and `data-closed:`, which are custom variants rather than Tailwind's generic
+   `data-*` shorthand: the attribute is `data-state`, not `data-open`. Without
+   these two declarations every enter and exit animation in the registry is an
+   unresolvable candidate that Tailwind drops silently, so the sheet, the select
+   and the popover appear and vanish with no transition at all. */
+@custom-variant data-open (&[data-state="open"]);
+@custom-variant data-closed (&[data-state="closed"]);
 
 @theme inline {
   --color-background: var(--background);
