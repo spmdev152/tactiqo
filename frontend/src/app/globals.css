@@ -279,23 +279,38 @@
 /* `buttonVariants` declares `transition-all`, which includes `width`. Every
    button whose width is responsive therefore slides between its two sizes
    while a viewport is resized across the breakpoint, and the fixture filter
-   bar showed it plainly: its two buttons animated while the competition
-   picker, which declares `transition-colors`, snapped. A resize is not an
-   interaction to animate.
+   bar showed it plainly. A resize is not an interaction to animate.
+
+   The selector matches the class token `buttonVariants` always emits, not
+   `data-slot="button"`. A trigger rendered `asChild` merges its own slot onto
+   the button it wraps, so the day picker arrives as `popover-trigger` and the
+   competition picker as `dropdown-menu-trigger`; enumerating slots meant every
+   new trigger silently reintroduced the defect, and this one cannot, because it
+   keys off the same declaration the problem comes from.
 
    The list names everything a button actually animates here — the hover and
-   focus surfaces, the ring, the active nudge and the disabled fade — so
-   nothing is lost but layout. `SidebarMenuButton` carries its own slot and its
-   own deliberate `transition-[width,height,padding]`, so the collapsing
-   sidebar is untouched.
-
-   The second selector is not redundant. A trigger rendered `asChild` merges its
-   own `data-slot` onto the button it wraps, so the day picker's trigger reaches
-   the document as `popover-trigger` and the first selector never sees it. */
-[data-slot="button"],
-[data-slot="popover-trigger"] {
+   focus surfaces, the ring, the active nudge and the disabled fade — so nothing
+   is lost but layout. `SidebarMenuButton` is not built from `buttonVariants`
+   and carries its own deliberate `transition-[width,height,padding]`, so the
+   collapsing sidebar is untouched. */
+[class~="group/button"] {
   transition-property:
     color, background-color, border-color, box-shadow, transform, opacity;
+}
+
+/* A classic scrollbar takes width from the viewport when it appears, and the
+   fixtures page lays its filters out against a container query. The two make a
+   loop: the filters stack when the pane narrows, stacking makes the page
+   taller, a taller page brings the scrollbar, and the scrollbar narrows the
+   pane. Around the breakpoint that settles on whichever state it reaches
+   first, which is how a scrollbar turns up on a page with nothing to scroll.
+
+   Reserving the gutter breaks the loop by making the pane the same width
+   whether or not the page scrolls. It also stops the content shifting sideways
+   when a day with many fixtures is followed by one with few. Where scrollbars
+   are overlays this declaration costs nothing. */
+html {
+  scrollbar-gutter: stable;
 }
 
 /* `SidebarNavigationDismissal` sets this attribute for the one frame in which
