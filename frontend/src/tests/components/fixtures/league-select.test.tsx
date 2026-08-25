@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LeagueSelect } from "@/features/fixtures/components/league-select";
-import type { League } from "@/features/fixtures/types/league";
+import type { League, LeaguesResult } from "@/features/fixtures/types/league";
 
 const onChange = vi.fn();
 
@@ -26,6 +26,8 @@ const LEAGUES: readonly League[] = [
   },
 ];
 
+const COVERED: LeaguesResult = { loaded: true, leagues: LEAGUES };
+
 /**
  * Teaches jsdom the layout and pointer APIs the menu measures itself with.
  * None of them exist there, and the menu throws on mount without them.
@@ -44,16 +46,23 @@ function installMenuEnvironment(): void {
 }
 
 /**
+ * Reads the picker's trigger, whatever it currently says.
+ *
+ * @returns The trigger button.
+ */
+function trigger(): HTMLElement {
+  return screen.getByRole("button", { name: /^Competitions/ });
+}
+
+/**
  * Renders the competition picker and opens its menu.
  *
  * @param value - Competitions the filter starts staged on.
  */
 function renderOpenMenu(value: readonly number[] = []): void {
-  render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={value} />);
+  render(<LeagueSelect leagues={COVERED} onChange={onChange} value={value} />);
 
-  fireEvent.keyDown(screen.getByRole("button", { name: "Competitions" }), {
-    key: "Enter",
-  });
+  fireEvent.keyDown(trigger(), { key: "Enter" });
 }
 
 describe("LeagueSelect", () => {
@@ -69,11 +78,9 @@ describe("LeagueSelect", () => {
    * THEN it states that every competition is included
    */
   it("states an unfiltered day on the trigger", () => {
-    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={[]} />);
+    render(<LeagueSelect leagues={COVERED} onChange={onChange} value={[]} />);
 
-    expect(
-      screen.getByRole("button", { name: "Competitions" }),
-    ).toHaveTextContent("All competitions");
+    expect(trigger()).toHaveTextContent("All competitions");
   });
 
   /**
@@ -82,11 +89,9 @@ describe("LeagueSelect", () => {
    * THEN it names that competition rather than counting it
    */
   it("names a single staged competition", () => {
-    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={[2]} />);
+    render(<LeagueSelect leagues={COVERED} onChange={onChange} value={[2]} />);
 
-    expect(
-      screen.getByRole("button", { name: "Competitions" }),
-    ).toHaveTextContent("Serie A");
+    expect(trigger()).toHaveTextContent("Serie A");
   });
 
   /**
@@ -96,12 +101,38 @@ describe("LeagueSelect", () => {
    */
   it("summarises several staged competitions", () => {
     render(
-      <LeagueSelect leagues={LEAGUES} onChange={onChange} value={[1, 2]} />,
+      <LeagueSelect leagues={COVERED} onChange={onChange} value={[1, 2]} />,
     );
 
-    expect(
-      screen.getByRole("button", { name: "Competitions" }),
-    ).toHaveTextContent("2 competitions");
+    expect(trigger()).toHaveTextContent("2 competitions");
+  });
+
+  /**
+   * GIVEN a trigger whose visible content is the staged scope
+   * WHEN its accessible name is computed
+   * THEN the name carries the label and the scope, not the label alone
+   */
+  it("announces the staged scope beside its own label", () => {
+    render(
+      <LeagueSelect leagues={COVERED} onChange={onChange} value={[1, 2]} />,
+    );
+
+    expect(trigger()).toHaveAccessibleName(/^Competitions/);
+    expect(trigger()).toHaveAccessibleName(/2 competitions$/);
+  });
+
+  /**
+   * GIVEN a URL staging an identifier the platform never named
+   * WHEN the trigger is read
+   * THEN it counts what is staged instead of claiming every competition
+   */
+  it("counts a staged competition it cannot name", () => {
+    render(
+      <LeagueSelect leagues={COVERED} onChange={onChange} value={[999]} />,
+    );
+
+    expect(trigger()).toHaveTextContent("1 competition");
+    expect(trigger()).not.toHaveTextContent("All competitions");
   });
 
   /**
@@ -163,13 +194,57 @@ describe("LeagueSelect", () => {
   });
 
   /**
-   * GIVEN competitions that could not be loaded
+   * GIVEN competitions the platform could not read
    * WHEN the picker is rendered
-   * THEN the control is disabled instead of offering an empty menu
+   * THEN the failure is stated with its reason instead of an inert control
    */
-  it("disables itself when no competition is available", () => {
-    render(<LeagueSelect leagues={[]} onChange={onChange} value={[]} />);
+  it("states why there is nothing to pick from", () => {
+    render(
+      <LeagueSelect
+        leagues={{ loaded: false, reason: "The API could not be reached." }}
+        onChange={onChange}
+        value={[]}
+      />,
+    );
 
-    expect(screen.getByRole("button", { name: "Competitions" })).toBeDisabled();
+    expect(screen.getByText("Competitions unavailable")).toBeVisible();
+    expect(screen.getByText("The API could not be reached.")).toBeVisible();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a platform that answered with no covered competition at all
+   * WHEN the picker is rendered
+   * THEN that is stated too, rather than offering a menu holding nothing
+   */
+  it("states an empty answer apart from a failed one", () => {
+    render(
+      <LeagueSelect
+        leagues={{ loaded: true, leagues: [] }}
+        onChange={onChange}
+        value={[]}
+      />,
+    );
+
+    expect(screen.getByText("No competitions covered")).toBeVisible();
+    expect(screen.queryByText("Competitions unavailable")).toBeNull();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN competitions still being read
+   * WHEN the picker is rendered
+   * THEN its slot holds a placeholder of the control's shape and nothing to press
+   */
+  it("holds the control's shape while the competitions are read", () => {
+    const { container } = render(
+      <LeagueSelect leagues={null} onChange={onChange} value={[]} />,
+    );
+
+    const placeholder = container.firstElementChild;
+
+    expect(placeholder).toHaveClass("h-8", "@xl:w-56");
+    expect(placeholder).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

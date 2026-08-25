@@ -22,6 +22,15 @@ function installPopupEnvironment(): void {
   Element.prototype.setPointerCapture = () => {};
 }
 
+/**
+ * Reads the picker's trigger, whatever day it currently states.
+ *
+ * @returns The trigger button.
+ */
+function dayTrigger(): HTMLElement {
+  return screen.getByRole("button", { name: /^Match day/ });
+}
+
 describe("FixturesDatePicker", () => {
   beforeAll(installPopupEnvironment);
 
@@ -37,11 +46,21 @@ describe("FixturesDatePicker", () => {
   it("states the staged day without opening a calendar", () => {
     render(<FixturesDatePicker onChange={onChange} value="2026-08-29" />);
 
-    expect(screen.getByRole("button", { name: "Match day" })).toHaveTextContent(
-      "Sat, 29 Aug 2026",
-    );
+    expect(dayTrigger()).toHaveTextContent("Sat, 29 Aug 2026");
 
     expect(screen.queryByRole("grid")).toBeNull();
+  });
+
+  /**
+   * GIVEN a trigger whose visible content is the staged day
+   * WHEN its accessible name is computed
+   * THEN the name carries the label and the day, not the label alone
+   */
+  it("announces the staged day beside its own label", () => {
+    render(<FixturesDatePicker onChange={onChange} value="2026-08-29" />);
+
+    expect(dayTrigger()).toHaveAccessibleName(/^Match day/);
+    expect(dayTrigger()).toHaveAccessibleName(/Sat, 29 Aug 2026$/);
   });
 
   /**
@@ -52,7 +71,7 @@ describe("FixturesDatePicker", () => {
   it("stages the chosen day and closes", async () => {
     render(<FixturesDatePicker onChange={onChange} value="2026-08-29" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Match day" }));
+    fireEvent.click(dayTrigger());
 
     fireEvent.click(
       screen.getByRole("button", { name: "Monday, August 31st, 2026" }),

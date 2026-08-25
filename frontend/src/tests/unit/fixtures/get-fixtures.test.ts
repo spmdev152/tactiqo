@@ -88,18 +88,28 @@ describe("getFixtures", () => {
   /**
    * GIVEN no configured backend base URL
    * WHEN the fixtures of a day are read
-   * THEN the result is unavailable and no request is attempted
+   * THEN no request is attempted and the variable is logged rather than shown
    */
   it("reports nothing without requesting when the backend URL is blank", async () => {
     const fetchStub = vi.fn();
+
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     vi.stubEnv("BACKEND_API_BASE_URL", "   ");
     vi.stubGlobal("fetch", fetchStub);
 
     const result = await getFixtures(QUERY);
 
-    expect(result.loaded).toBe(false);
+    expect(result).toEqual({
+      loaded: false,
+      reason: expect.not.stringContaining("BACKEND_API_BASE_URL"),
+    });
+
     expect(fetchStub).not.toHaveBeenCalled();
+
+    expect(logged).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("BACKEND_API_BASE_URL"),
+    );
   });
 
   /**

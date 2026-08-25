@@ -106,6 +106,35 @@ export function resolveLeagueIds(
 }
 
 /**
+ * Builds the canonical key of one fixture scope.
+ *
+ * @remarks
+ * A day and a set of competitions name a scope, and two places have to agree on
+ * that name to the byte: the route keys its `Suspense` boundary with it, so a
+ * new scope gets a fresh boundary and its skeleton, and the filter bar compares
+ * the staged scope against the applied one with it, so the control that applies
+ * a scope is offered only while there is something to apply. Written twice, the
+ * two would drift and one of them would be subtly wrong.
+ *
+ * The comparator is explicit because the default one is lexicographic, which
+ * orders `[9, 10]` as `10,9` and would leave the key depending on a detail of
+ * `Array.prototype.sort` that nothing states. The identifiers are sorted at all
+ * so that the same competitions chosen in a different order are one scope.
+ *
+ * @param day - UTC calendar day the list is scoped to, as `YYYY-MM-DD`.
+ * @param leagueIds - Chosen competition identifiers, empty for all of them.
+ * @returns The canonical scope key.
+ */
+export function fixtureScopeKey(
+  day: string,
+  leagueIds: readonly number[],
+): string {
+  const ordered = [...leagueIds].sort((one, other) => one - other);
+
+  return `${day}|${ordered.join(",")}`;
+}
+
+/**
  * Converts a UTC calendar day into the local `Date` a day picker selects with.
  *
  * @remarks

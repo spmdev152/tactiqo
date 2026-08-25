@@ -8,11 +8,45 @@ import {
 } from "@/features/fixtures/domain/fixture-groups";
 import type { FixturesResult } from "@/features/fixtures/types/fixture";
 
-const EMPTY_MESSAGE = "No fixtures on this day for this competition.";
+const EMPTY_MESSAGE = "No fixtures on this day.";
 
-const EMPTY_HINT = "Pick another day, or widen the filter to all competitions.";
+const EMPTY_HINT = "Pick another day, or widen the competition filter.";
 
 const ERROR_MESSAGE = "Fixtures are unavailable right now.";
+
+/**
+ * States a number of matches in the right number.
+ *
+ * @param count - Matches being counted.
+ * @returns The count with its noun.
+ */
+function statedMatches(count: number): string {
+  return count === 1 ? "1 match" : `${count} matches`;
+}
+
+/**
+ * States what a loaded day holds, for the live region the list renders into.
+ *
+ * @remarks
+ * The one statement a screen reader gets about a day that did load. The rows
+ * themselves are opted out of the announcement, because reading thirty of them
+ * after every filter is worse than reading none, so the count of each is the
+ * whole message.
+ *
+ * @param groups - Competitions of the day and their matches.
+ * @returns The spoken summary of the day.
+ */
+function statedDay(groups: readonly FixtureGroup[]): string {
+  const matches = groups.reduce(
+    (total, group) => total + group.fixtures.length,
+    0,
+  );
+
+  const competitions =
+    groups.length === 1 ? "1 competition" : `${groups.length} competitions`;
+
+  return `${statedMatches(matches)} in ${competitions}.`;
+}
 
 /**
  * Props of {@link FixtureGroupSection}.
@@ -47,7 +81,7 @@ function FixtureGroupSection({ group }: FixtureGroupSectionProps) {
         <h2 className="truncate text-sm font-medium">{league.name}</h2>
 
         <span className="ml-auto shrink-0 font-mono text-[0.68rem] tracking-[0.14em] text-muted-foreground uppercase">
-          {fixtures.length === 1 ? "1 match" : `${fixtures.length} matches`}
+          {statedMatches(fixtures.length)}
         </span>
       </header>
 
@@ -78,19 +112,32 @@ export interface FixtureListProps {
  * not be answered is a fact about the platform, so it says so and repeats the
  * reason instead of implying there is no football.
  *
- * Both non-list states are announced through `role="status"`, because a visitor
- * who changed day or competition receives no rows and would otherwise be told
- * nothing at all.
+ * The empty message names no competition, because this component is not told
+ * how many are filtered. It once said "for this competition", which was wrong
+ * in both directions once the filter became a multiple selection: singular for
+ * several, and inventing a filter on a day with no football at all. Widening is
+ * offered as a hint rather than asserted as the cause.
+ *
+ * All three outcomes are announced, and none of them carries a live region of
+ * its own. The route renders this component inside a keyed `Suspense` boundary,
+ * so every new scope unmounts and remounts the whole subtree; a region declared
+ * here would arrive in the same commit as its own text, and a live region only
+ * speaks when its content changes while it is already in the tree. The region
+ * therefore lives on a wrapper above that boundary and survives the swap, and
+ * what these three branches owe it is text that differs between them.
+ *
+ * The loaded branch owes it text at all, which is why the summary exists: a day
+ * that produced rows used to announce nothing, so applying a filter that worked
+ * was the one outcome a screen reader was never told about. The rows opt out of
+ * the region rather than being read into it, because a filter that returns
+ * thirty matches would otherwise announce all of them.
  *
  * @returns The grouped fixtures, the empty state, or the error state.
  */
 export function FixtureList({ result }: FixtureListProps) {
   if (!result.loaded) {
     return (
-      <div
-        className="flex flex-col items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-6"
-        role="status"
-      >
+      <div className="flex flex-col items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-6">
         <TriangleAlert className="size-5 text-destructive" />
 
         <p className="font-medium">{ERROR_MESSAGE}</p>
@@ -102,10 +149,7 @@ export function FixtureList({ result }: FixtureListProps) {
 
   if (result.fixtures.length === 0) {
     return (
-      <div
-        className="flex flex-col items-start gap-3 rounded-xl border border-dashed px-5 py-6"
-        role="status"
-      >
+      <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed px-5 py-6">
         <CalendarX2 className="size-5 text-muted-foreground" />
 
         <p className="font-medium">{EMPTY_MESSAGE}</p>
@@ -118,10 +162,14 @@ export function FixtureList({ result }: FixtureListProps) {
   const groups = groupFixturesByLeague(result.fixtures);
 
   return (
-    <div className="flex flex-col gap-5">
-      {groups.map((group) => (
-        <FixtureGroupSection group={group} key={group.league.id} />
-      ))}
-    </div>
+    <>
+      <p className="sr-only">{statedDay(groups)}</p>
+
+      <div aria-live="off" className="flex flex-col gap-5">
+        {groups.map((group) => (
+          <FixtureGroupSection group={group} key={group.league.id} />
+        ))}
+      </div>
+    </>
   );
 }

@@ -113,8 +113,19 @@ SESSION_PURGE_EXPIRY_SECONDS = 3000
 
 FIXTURE_SYNCHRONIZATION_PAST_DAYS = 2
 FIXTURE_SYNCHRONIZATION_FUTURE_DAYS = 14
-FIXTURE_SYNCHRONIZATION_LOCK_SECONDS = 900
-FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS = 3000
+
+# The lease covers a run long enough that the previous 900 seconds could not,
+# and stays below the 3600-second Redis visibility timeout after which Celery
+# redelivers an unacknowledged task: a task redelivered under
+# CELERY_TASK_ACKS_LATE therefore always finds the lease free rather than
+# skipping itself as a duplicate. A run that still outlives the lease keeps its
+# successor's lock intact, because the task releases a lease only on a match.
+FIXTURE_SYNCHRONIZATION_LOCK_SECONDS = 1800
+
+# A queued run stays valid until shortly before the next scheduled one, so a
+# worker outage shorter than the six-hour interval delays a refresh instead of
+# discarding it and leaving fixtures unrefreshed for twelve hours.
+FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS = 21000
 
 CELERY_BEAT_SCHEDULE = {
     "accounts-purge-expired-sessions": {

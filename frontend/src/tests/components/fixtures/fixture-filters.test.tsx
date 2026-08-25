@@ -1,8 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  type RenderResult,
+  screen,
+} from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FixtureFilters } from "@/features/fixtures/components/fixture-filters";
-import type { League } from "@/features/fixtures/types/league";
+import type { League, LeaguesResult } from "@/features/fixtures/types/league";
 
 const { push, useSearchParams } = vi.hoisted(() => ({
   push: vi.fn(),
@@ -34,6 +40,12 @@ const LEAGUES: readonly League[] = [
   },
 ];
 
+// One promise for the whole file: a new one per render suspends the picker again.
+const COVERED: Promise<LeaguesResult> = Promise.resolve({
+  loaded: true,
+  leagues: LEAGUES,
+});
+
 /**
  * Teaches jsdom the layout and pointer APIs the two popups measure themselves
  * with. None of them exist there, and both throw on mount without them.
@@ -52,23 +64,45 @@ function installPopupEnvironment(): void {
 }
 
 /**
- * Renders the filter bar on a given applied scope.
+ * Reads the competition picker's trigger, whatever it currently says.
  *
+ * @returns The trigger button.
+ */
+function competitionTrigger(): HTMLElement {
+  return screen.getByRole("button", { name: /^Competitions/ });
+}
+
+/**
+ * Renders the filter bar and lets the competition read settle.
+ *
+ * @remarks
+ * The render is awaited because the picker suspends on mount: the competitions
+ * arrive as a promise, so a synchronous render would leave React holding an
+ * unresolved boundary.
+ *
+ * @param leagues - Competitions as the route hands them over.
  * @param appliedDay - UTC calendar day the list currently shows.
  * @param appliedLeagueIds - Competitions the list is filtered to.
  * @returns The render result, so a test can move the applied scope underneath.
  */
-function renderFilters(
+async function renderBar(
+  leagues: Promise<LeaguesResult> = COVERED,
   appliedDay = "2026-08-29",
   appliedLeagueIds: readonly number[] = [],
-) {
-  return render(
-    <FixtureFilters
-      appliedDay={appliedDay}
-      appliedLeagueIds={appliedLeagueIds}
-      leagues={LEAGUES}
-    />,
-  );
+): Promise<RenderResult> {
+  let rendered!: RenderResult;
+
+  await act(async () => {
+    rendered = render(
+      <FixtureFilters
+        appliedDay={appliedDay}
+        appliedLeagueIds={appliedLeagueIds}
+        leagues={leagues}
+      />,
+    );
+  });
+
+  return rendered;
 }
 
 /**
@@ -77,9 +111,7 @@ function renderFilters(
  * @param name - Menu entry to choose.
  */
 function chooseCompetition(name: string): void {
-  fireEvent.keyDown(screen.getByRole("button", { name: "Competitions" }), {
-    key: "Enter",
-  });
+  fireEvent.keyDown(competitionTrigger(), { key: "Enter" });
 
   fireEvent.click(screen.getByRole("menuitemcheckbox", { name }));
 
@@ -103,10 +135,46 @@ describe("FixtureFilters", () => {
    * WHEN the bar is rendered untouched
    * THEN the control that applies it is disabled, since there is nothing to apply
    */
-  it("offers nothing to apply until something is staged", () => {
-    renderFilters();
+  it("offers nothing to apply until something is staged", async () => {
+    await renderBar();
 
     expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
+  });
+
+  /**
+   * GIVEN competitions that have not arrived yet
+   * WHEN the bar is rendered
+   * THEN the day and the apply control are already there, resolved from the URL
+   */
+  it("renders the controls the URL resolves without waiting for the API", async () => {
+    await renderBar(new Promise<LeaguesResult>(() => {}));
+
+    expect(
+      screen.getByRole("button", { name: /^Match day/ }),
+    ).toHaveTextContent("Sat, 29 Aug 2026");
+
+    expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument();
+
+    expect(
+      screen.queryByRole("button", { name: /^Competitions/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN competitions the platform could not read
+   * WHEN the bar is rendered
+   * THEN the reason reaches the visitor instead of being discarded
+   */
+  it("states a competition read the platform could not answer", async () => {
+    await renderBar(
+      Promise.resolve({
+        loaded: false,
+        reason: "The API could not be reached.",
+      }),
+    );
+
+    expect(screen.getByText("Competitions unavailable")).toBeVisible();
+    expect(screen.getByText("The API could not be reached.")).toBeVisible();
   });
 
   /**
@@ -114,8 +182,8 @@ describe("FixtureFilters", () => {
    * WHEN nothing else happens
    * THEN the choice is staged and no navigation is requested
    */
-  it("stages a choice without requesting the list", () => {
-    renderFilters();
+  it("stages a choice without requesting the list", async () => {
+    await renderBar();
 
     chooseCompetition("Serie A");
 
@@ -128,8 +196,8 @@ describe("FixtureFilters", () => {
    * WHEN the filter is applied
    * THEN both the day and the competition are written to the query at once
    */
-  it("applies the staged scope in one navigation", () => {
-    renderFilters();
+  it("applies the staged scope in one navigation", async () => {
+    await renderBar();
 
     chooseCompetition("Serie A");
 
@@ -145,12 +213,12 @@ describe("FixtureFilters", () => {
    * WHEN the filter is widened back to all of them and applied
    * THEN the competition parameter is removed rather than set to a sentinel
    */
-  it("removes the competition parameter when the filter is cleared", () => {
+  it("removes the competition parameter when the filter is cleared", async () => {
     useSearchParams.mockReturnValue(
       new URLSearchParams({ date: "2026-08-29", league: "2" }),
     );
 
-    renderFilters("2026-08-29", [2]);
+    await renderBar(COVERED, "2026-08-29", [2]);
 
     chooseCompetition("All competitions");
 
@@ -166,8 +234,8 @@ describe("FixtureFilters", () => {
    * WHEN the bar is inspected
    * THEN applying is refused again, so the list on screen cannot be re-requested
    */
-  it("refuses to apply a scope equal to the one on screen", () => {
-    renderFilters("2026-08-29", [2]);
+  it("refuses to apply a scope equal to the one on screen", async () => {
+    await renderBar(COVERED, "2026-08-29", [2]);
 
     chooseCompetition("Premier League");
 
@@ -179,33 +247,42 @@ describe("FixtureFilters", () => {
   });
 
   /**
+   * GIVEN two competitions applied in the order a lexicographic sort reverses
+   * WHEN the untouched bar compares that scope against itself
+   * THEN they compare equal, so there is still nothing to apply
+   */
+  it("compares scopes by identifier rather than by digit", async () => {
+    await renderBar(COVERED, "2026-08-29", [2, 1]);
+
+    expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
+  });
+
+  /**
    * GIVEN a competition staged against one applied scope
    * WHEN the applied scope moves underneath it, as a back navigation does
    * THEN the staging is abandoned and the bar describes the list on screen
    */
-  it("abandons a staging the applied scope has moved past", () => {
-    const { rerender } = renderFilters("2026-08-29", []);
+  it("abandons a staging the applied scope has moved past", async () => {
+    const { rerender } = await renderBar();
 
     chooseCompetition("Serie A");
 
-    expect(
-      screen.getByRole("button", { name: "Competitions" }),
-    ).toHaveTextContent("Serie A");
+    expect(competitionTrigger()).toHaveTextContent("Serie A");
 
     rerender(
       <FixtureFilters
         appliedDay="2026-08-30"
         appliedLeagueIds={[]}
-        leagues={LEAGUES}
+        leagues={COVERED}
       />,
     );
 
+    expect(competitionTrigger()).toHaveTextContent("All competitions");
+
     expect(
-      screen.getByRole("button", { name: "Competitions" }),
-    ).toHaveTextContent("All competitions");
-    expect(screen.getByRole("button", { name: "Match day" })).toHaveTextContent(
-      "Sun, 30 Aug 2026",
-    );
+      screen.getByRole("button", { name: /^Match day/ }),
+    ).toHaveTextContent("Sun, 30 Aug 2026");
+
     expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
   });
 
@@ -214,8 +291,8 @@ describe("FixtureFilters", () => {
    * WHEN the applied scope returns to the one the staging was made against
    * THEN the staging stays abandoned rather than reappearing over the new list
    */
-  it("does not resurrect a staging when the applied scope comes back", () => {
-    const { rerender } = renderFilters("2026-08-29", []);
+  it("does not resurrect a staging when the applied scope comes back", async () => {
+    const { rerender } = await renderBar();
 
     chooseCompetition("Serie A");
 
@@ -223,7 +300,7 @@ describe("FixtureFilters", () => {
       <FixtureFilters
         appliedDay="2026-08-29"
         appliedLeagueIds={[2]}
-        leagues={LEAGUES}
+        leagues={COVERED}
       />,
     );
 
@@ -231,13 +308,11 @@ describe("FixtureFilters", () => {
       <FixtureFilters
         appliedDay="2026-08-29"
         appliedLeagueIds={[]}
-        leagues={LEAGUES}
+        leagues={COVERED}
       />,
     );
 
-    expect(
-      screen.getByRole("button", { name: "Competitions" }),
-    ).toHaveTextContent("All competitions");
+    expect(competitionTrigger()).toHaveTextContent("All competitions");
 
     expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
   });

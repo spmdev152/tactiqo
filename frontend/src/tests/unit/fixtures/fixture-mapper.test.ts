@@ -187,7 +187,7 @@ describe("toFixtures", () => {
    */
   it("refuses a state outside the published vocabulary", () => {
     expect(
-      toFixtures([{ ...FIXTURE_PAYLOAD, status: "INPLAY_1ST_HALF" }]).loaded,
+      toFixtures([{ ...FIXTURE_PAYLOAD, status: "nearly-kicked-off" }]).loaded,
     ).toBe(false);
   });
 });

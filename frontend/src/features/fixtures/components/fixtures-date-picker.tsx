@@ -65,8 +65,13 @@ export interface FixturesDatePickerProps {
  * The trigger widens against the page container rather than the viewport, so it
  * matches the competition picker beside it whatever the sidebar is doing.
  *
- * The trigger label is formatted in UTC to match the day the URL names, so it
- * cannot disagree with the kick-off times below it west of Greenwich.
+ * The trigger label is inside the button as a hidden prefix rather than on it
+ * as an `aria-label`. A name attribute wins over the contents it sits on, so the
+ * button announced "match day" and withheld which day, the one thing it exists
+ * to state. Composed from the contents, the name carries both.
+ *
+ * The day is formatted in UTC to match the day the URL names, so it cannot
+ * disagree with the kick-off times below it west of Greenwich.
  *
  * @returns The day picker.
  */
@@ -90,10 +95,11 @@ export function FixturesDatePicker({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          aria-label={TRIGGER_LABEL}
           className="w-full justify-start font-normal @xl:w-56"
           variant="outline"
         >
+          <span className="sr-only">{TRIGGER_LABEL}</span>
+
           <CalendarDays />
 
           {TRIGGER_DAY_FORMAT.format(new Date(`${value}T00:00:00Z`))}

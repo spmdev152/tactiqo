@@ -7,9 +7,11 @@ import { FixtureListSkeleton } from "@/features/fixtures/components/fixture-list
 import {
   FIXTURE_DATE_PARAMETER,
   FIXTURE_LEAGUE_PARAMETER,
+  fixtureScopeKey,
   resolveLeagueIds,
   resolveUtcDay,
 } from "@/features/fixtures/domain/fixture-search-params";
+import { getFixtures } from "@/features/fixtures/server/get-fixtures";
 import { getLeagues } from "@/features/fixtures/server/get-leagues";
 
 /**
@@ -49,11 +51,27 @@ interface FixturesPageProps {
  * that stays inside it, so a page that reached the shell once would keep
  * rendering after its session was revoked.
  *
- * Only the fixture query is deferred. The label and the filters resolve without
- * it, so they render immediately and stay on screen while a new scope loads
- * behind a `Suspense` boundary keyed to it. A whole-page loading state used to
- * replace them with a shimmer, which meant covering text that was already
- * correct and jumping the toolbar the moment the rows arrived.
+ * Neither read is awaited here. The session gate is the only round trip above
+ * the boundaries, and both requests are started on the same line of this
+ * function and handed down as promises, so they leave for the API together and
+ * the tree returns while both are still in flight. Awaiting the competitions
+ * here — which is what this page used to do — held the heading and both controls
+ * behind a request they do not need, delayed the fixture request until that one
+ * had answered, and left the previous page on screen for the whole round trip,
+ * since there is no route-level loading state to show instead.
+ *
+ * The heading, the day picker and the apply button therefore render from the URL
+ * alone. Each read is awaited below a boundary of its own: the rows behind one
+ * keyed to the scope, so a new day gets its skeleton, and the competition
+ * picker's options behind one inside the bar, so a picker still filling in
+ * cannot hold back the two controls beside it.
+ *
+ * The polite live region wraps the fixtures boundary rather than sitting inside
+ * it. The boundary is keyed to the scope, so applying a filter unmounts and
+ * remounts everything below it; a region declared down there would be created in
+ * the same commit as its own text and would announce nothing at all. Declared
+ * above it, the region is already in the tree when the outcome changes, which is
+ * the condition for it to speak.
  *
  * The chosen day is stated once, by the picker itself. A heading repeating it
  * cost a line of the viewport to say what the control beside it already said.
@@ -85,9 +103,10 @@ export default async function FixturesPage({
   const day = resolveUtcDay(query[FIXTURE_DATE_PARAMETER]);
   const leagueIds = resolveLeagueIds(query[FIXTURE_LEAGUE_PARAMETER]);
 
-  const leagues = await getLeagues();
+  const leagues = getLeagues();
+  const fixtures = getFixtures({ day, leagueIds });
 
-  const scope = `${day}|${[...leagueIds].sort().join(",")}`;
+  const scope = fixtureScopeKey(day, leagueIds);
 
   return (
     <div className="@container mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
@@ -99,12 +118,14 @@ export default async function FixturesPage({
         <FixtureFilters
           appliedDay={day}
           appliedLeagueIds={leagueIds}
-          leagues={leagues.loaded ? leagues.leagues : []}
+          leagues={leagues}
         />
 
-        <Suspense fallback={<FixtureListSkeleton />} key={scope}>
-          <FixtureListSection day={day} leagueIds={leagueIds} />
-        </Suspense>
+        <div aria-live="polite" className="flex min-w-0 flex-col">
+          <Suspense fallback={<FixtureListSkeleton />} key={scope}>
+            <FixtureListSection fixtures={fixtures} />
+          </Suspense>
+        </div>
       </div>
     </div>
   );

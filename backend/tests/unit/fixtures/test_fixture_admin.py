@@ -3,6 +3,7 @@ from http import HTTPStatus
 import pytest
 from django.contrib import admin
 from django.db import connection
+from django.db.models import Model
 from django.http import HttpRequest
 from django.test import Client, RequestFactory
 from django.test.utils import CaptureQueriesContext
@@ -11,7 +12,6 @@ from pytest_django.fixtures import DjangoAssertNumQueries
 from apps.accounts.models import User
 from apps.fixtures.admin import FixtureAdmin
 from apps.fixtures.domain.enums import FixtureStatus
-from apps.fixtures.infrastructure.repositories import upsert_fixtures
 from apps.fixtures.models import Fixture, League, Team
 from tests.conftest import UserFactory
 from tests.unit.fixtures.conftest import (
@@ -21,15 +21,18 @@ from tests.unit.fixtures.conftest import (
     NOTTINGHAM_FOREST,
     PREMIER_LEAGUE,
     SEVILLA,
-    SYNCHRONIZED_AT,
     kickoff,
     provider_fixture,
+    store_window,
 )
 
 ADMIN_INDEX_URL = "/admin/"
 LEAGUE_CHANGE_LIST_URL = "/admin/fixtures/league/"
 TEAM_CHANGE_LIST_URL = "/admin/fixtures/team/"
 FIXTURE_CHANGE_LIST_URL = "/admin/fixtures/fixture/"
+LEAGUE_ADD_URL = f"{LEAGUE_CHANGE_LIST_URL}add/"
+TEAM_ADD_URL = f"{TEAM_CHANGE_LIST_URL}add/"
+FIXTURE_ADD_URL = f"{FIXTURE_CHANGE_LIST_URL}add/"
 
 FIRST_WINDOW = [
     provider_fixture(1, kickoff(11, 30)),
@@ -115,6 +118,7 @@ def operator(user: UserFactory) -> User:
     """
 
     account = user(email="operator@example.com")
+
     account.is_staff = True
     account.is_superuser = True
 
@@ -140,6 +144,7 @@ def admin_request(operator: User) -> HttpRequest:
     """
 
     request = RequestFactory().get(FIXTURE_CHANGE_LIST_URL)
+
     request.user = operator
 
     return request
@@ -162,6 +167,7 @@ def operator_client(operator: User) -> Client:
     """
 
     client = Client()
+
     client.force_login(operator)
 
     return client
@@ -203,7 +209,7 @@ def test_the_fixture_change_list_renders_a_stored_fixture(operator_client: Clien
     THEN the page comes back carrying the row, its competition, and both clubs
     """
 
-    upsert_fixtures([provider_fixture(1, kickoff(11, 30))], SYNCHRONIZED_AT)
+    store_window([provider_fixture(1, kickoff(11, 30))])
 
     stored = Fixture.objects.get(sportmonks_id=1)
 
@@ -226,7 +232,7 @@ def test_the_fixture_change_list_narrows_to_the_fixtures_carrying_a_result(
     THEN only the played fixture is listed by either filter
     """
 
-    upsert_fixtures([provider_fixture(1, kickoff(11, 30)), PLAYED_FIXTURE], SYNCHRONIZED_AT)
+    store_window([provider_fixture(1, kickoff(11, 30)), PLAYED_FIXTURE])
 
     scheduled = Fixture.objects.get(sportmonks_id=1)
     played = Fixture.objects.get(sportmonks_id=PLAYED_FIXTURE.provider_id)
@@ -252,17 +258,35 @@ def test_the_fixture_change_list_costs_the_same_queries_whatever_the_row_count(
     THEN the second costs exactly what the first did, so no query is per row
     """
 
-    upsert_fixtures(FIRST_WINDOW, SYNCHRONIZED_AT)
+    store_window(FIRST_WINDOW)
 
     with CaptureQueriesContext(connection) as first_read:
         change_list_rows(fixture_admin, admin_request)
 
-    upsert_fixtures(LATER_WINDOW, SYNCHRONIZED_AT)
+    store_window(FIRST_WINDOW + LATER_WINDOW)
 
     with django_assert_num_queries(len(first_read)):
         rows = change_list_rows(fixture_admin, admin_request)
 
     assert len(rows) == len(FIRST_WINDOW) + len(LATER_WINDOW)
+
+
+@pytest.mark.django_db
+def test_the_fixture_change_list_orders_the_way_the_model_does(
+    fixture_admin: FixtureAdmin, admin_request: HttpRequest
+) -> None:
+    """
+    GIVEN the fixture change list built for an operator
+    WHEN the ordering it resolves is read
+    THEN it is the model's own, not the descending key Django completes a tie with
+    """
+
+    change_list = fixture_admin.get_changelist_instance(admin_request)
+
+    resolved = change_list.get_ordering(admin_request, Fixture.objects.all())
+
+    assert resolved == ["kickoff_at", "id"]
+    assert resolved == list(Fixture._meta.ordering or [])
 
 
 @pytest.mark.django_db
@@ -275,7 +299,7 @@ def test_the_provider_identifier_is_read_only_on_the_fixture_change_form(
     THEN the fields the synchronization owns are read-only and absent from it
     """
 
-    upsert_fixtures([provider_fixture(1, kickoff(11, 30))], SYNCHRONIZED_AT)
+    store_window([provider_fixture(1, kickoff(11, 30))])
 
     stored = Fixture.objects.get(sportmonks_id=1)
 
@@ -285,3 +309,29 @@ def test_the_provider_identifier_is_read_only_on_the_fixture_change_form(
     assert {"sportmonks_id", "synchronized_at"} <= read_only
     assert "sportmonks_id" not in editable
     assert "synchronized_at" not in editable
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("add_url", "model"),
+    [
+        (LEAGUE_ADD_URL, League),
+        (TEAM_ADD_URL, Team),
+        (FIXTURE_ADD_URL, Fixture),
+    ],
+)
+def test_the_admin_refuses_to_add_a_row_the_synchronization_owns(
+    operator_client: Client, add_url: str, model: type[Model]
+) -> None:
+    """
+    GIVEN an operator holding every permission on a synchronized table
+    WHEN its add form is opened and then submitted
+    THEN both are refused and no row appears, rather than the write failing
+    """
+
+    opened = operator_client.get(add_url)
+    submitted = operator_client.post(add_url, {})
+
+    assert opened.status_code == HTTPStatus.FORBIDDEN
+    assert submitted.status_code == HTTPStatus.FORBIDDEN
+    assert model.objects.exists() is False

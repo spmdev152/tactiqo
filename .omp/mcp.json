@@ -3,8 +3,8 @@
   "mcpServers": {
     "sportmonks-football": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@sportmonks/football-mcp-server"],
+      "command": "bunx",
+      "args": ["--bun", "@sportmonks/football-mcp-server@1.5.0"],
       "env": {
         "SPORTMONKS_API_TOKEN": "!sed -n 's/^SPORTMONKS_API_TOKEN=//p' .env.local | head -1"
       }

@@ -4,12 +4,15 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { TactiqoWordmark } from "@/components/tactiqo-wordmark";
 
 /**
- * Renders the application header shared by every route.
+ * Renders the application header shared by every public route.
  *
  * @remarks
- * A Server Component wrapping one client leaf. The header is mounted in the root
- * layout rather than per page so the theme control exists on every route,
- * including before anyone has signed in, and so no page can forget it.
+ * A Server Component wrapping one client leaf. It is mounted in the public
+ * group's layout rather than per page, so the theme control exists on every
+ * route a visitor can reach without a session and no page can forget it. The
+ * authenticated group mounts `AppHeader` instead, which carries the
+ * sidebar trigger in place of the wordmark, because the wordmark moved into the
+ * sidebar.
  *
  * @returns The header tree.
  */

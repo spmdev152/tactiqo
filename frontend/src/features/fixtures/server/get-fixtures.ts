@@ -13,6 +13,11 @@ const FIXTURES_LEAGUE_QUERY = "league_id";
 
 const FIXTURES_TIMEOUT_MS = 8_000;
 
+const UNSENDABLE_REASON = "The fixtures request could not be sent.";
+
+const UNCONFIGURED_LOG =
+  "BACKEND_API_BASE_URL is not configured; the fixtures request was not attempted.";
+
 /**
  * Scope of one fixture-list request.
  */
@@ -39,6 +44,11 @@ export interface FixtureQuery {
  * a genuine transport failure claims the API could not be reached; conflating
  * them would send somebody to check the network for a schema change.
  *
+ * Every reason reaches the visitor, so none of them names a server-side
+ * variable. A misconfigured deployment is reported to the operator through the
+ * server log, where the name of the missing variable is useful, and to the
+ * visitor as a request that could not be sent, which is all they can act on.
+ *
  * `cache: "no-store"` because the request is authenticated and carries a bearer
  * token, so a stored response is one visitor's answer waiting to be served to
  * another.
@@ -58,9 +68,11 @@ export async function getFixtures(
   const baseUrl = getBackendApiBaseUrl();
 
   if (baseUrl === null) {
+    console.error(UNCONFIGURED_LOG);
+
     return {
       loaded: false,
-      reason: "BACKEND_API_BASE_URL is not configured for this environment.",
+      reason: UNSENDABLE_REASON,
     };
   }
 

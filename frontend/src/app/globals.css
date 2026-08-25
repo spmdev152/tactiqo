@@ -7,8 +7,8 @@
    and `data-closed:`, which are custom variants rather than Tailwind's generic
    `data-*` shorthand: the attribute is `data-state`, not `data-open`. Without
    these two declarations every enter and exit animation in the registry is an
-   unresolvable candidate that Tailwind drops silently, so the sheet, the select
-   and the popover appear and vanish with no transition at all. */
+   unresolvable candidate that Tailwind drops silently, so the sheet, the
+   dropdown menu and the popover appear and vanish with no transition at all. */
 @custom-variant data-open (&[data-state="open"]);
 @custom-variant data-closed (&[data-state="closed"]);
 
@@ -290,12 +290,18 @@
 
    The list names everything a button actually animates here — the hover and
    focus surfaces, the ring, the active nudge and the disabled fade — so nothing
-   is lost but layout. `SidebarMenuButton` is not built from `buttonVariants`
-   and carries its own deliberate `transition-[width,height,padding]`, so the
-   collapsing sidebar is untouched. */
+   is lost but layout. The nudge is named `translate` rather than `transform`
+   because that is the property Tailwind writes: `translate-y-px` compiles to
+   `--tw-translate-y: 1px; translate: var(--tw-translate-x)
+   var(--tw-translate-y)`, so a list naming `transform` leaves the nudge out
+   and it snaps instead of easing. `[data-slot="switch-thumb"]` above names
+   `translate` for the same reason. `SidebarMenuButton` is not built from
+   `buttonVariants` and carries its own deliberate
+   `transition-[width,height,padding]`, so the collapsing sidebar is
+   untouched. */
 [class~="group/button"] {
   transition-property:
-    color, background-color, border-color, box-shadow, transform, opacity;
+    color, background-color, border-color, box-shadow, translate, opacity;
 }
 
 /* A classic scrollbar takes width from the viewport when it appears, and the
@@ -311,6 +317,24 @@
    are overlays this declaration costs nothing. */
 html {
   scrollbar-gutter: stable;
+}
+
+/* Both mechanisms would otherwise reserve the same space. Radix's scroll lock
+   measures `window.innerWidth - document.documentElement.clientWidth` and
+   hands the difference back as a `margin-right` on the body, but the gutter
+   above never gives that width up, so the compensation has nothing left to
+   compensate and narrows the page by a scrollbar the moment a modal layer
+   opens. Measured at 1440px with a classic scrollbar: the body went from
+   1425px to 1410px and the filter bar moved 7.5px sideways when the
+   competition dropdown opened, which is modal and locks scroll, and did not
+   move for the day popover, which is neither. A declaration whose purpose is
+   to stop content shifting sideways cannot be the cause of one.
+
+   `html body[…]` rather than the library's own selector: `react-remove-scroll`
+   appends its rule to the head at runtime, after this stylesheet, and marks it
+   `!important`, so a tie on specificity would lose on source order. */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
 }
 
 /* `SidebarNavigationDismissal` sets this attribute for the one frame in which

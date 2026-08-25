@@ -20,8 +20,10 @@ import {
 interface NavigationEntry {
   /** Route the entry navigates to. */
   readonly href: string;
+
   /** Label shown beside the icon, and the tooltip while collapsed. */
   readonly label: string;
+
   /** Icon standing in for the entry once the sidebar is collapsed to icons. */
   readonly icon: LucideIcon;
 }

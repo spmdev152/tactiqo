@@ -29,6 +29,10 @@ interface TeamCrestProps {
  * `src` to `next/image` would produce a broken image and a request to the
  * application's own optimizer for nothing.
  *
+ * The placeholder names itself with `data-slot`, as the registry primitives do,
+ * so the branch is identifiable by what it is rather than by the utility class
+ * that happens to paint it.
+ *
  * @returns The crest, or its placeholder.
  */
 function TeamCrest({ team }: TeamCrestProps) {
@@ -37,6 +41,7 @@ function TeamCrest({ team }: TeamCrestProps) {
       <span
         aria-hidden="true"
         className="size-6 shrink-0 rounded-full bg-muted"
+        data-slot="crest-placeholder"
       />
     );
   }
@@ -68,22 +73,37 @@ interface TeamNameProps {
  *
  * @remarks
  * Both forms are in the markup and one of them is hidden, because the choice
- * depends on the width of the list and the server cannot know it. Only the visible form
- * is announced, since a screen reader honours `display: none`.
+ * depends on the width of the list and the server cannot know it.
+ *
+ * A screen reader honours `display: none`, so announcing whichever form is
+ * visible would announce an abbreviation below the `@lg` width — a row read as
+ * "11:30, LIV, 2 - 1, NFO". Both visual forms are therefore hidden from the
+ * accessibility tree and the full name is announced from a third, visually
+ * hidden copy, so the announcement does not depend on the width at all. A
+ * `span` has role `generic`, which cannot take `aria-label`, so the copy is a
+ * node rather than an attribute.
  *
  * A club with no published abbreviation falls back to its full name rather than
  * to an empty cell.
  *
- * @returns The club name in both widths.
+ * @returns The club name in both widths, and once for a screen reader.
  */
 function TeamName({ team, className }: TeamNameProps) {
   return (
     <>
-      <span className={cn("truncate font-medium @lg:hidden", className)}>
+      <span className="sr-only">{team.name}</span>
+
+      <span
+        aria-hidden="true"
+        className={cn("truncate font-medium @lg:hidden", className)}
+      >
         {team.shortCode === "" ? team.name : team.shortCode}
       </span>
 
-      <span className={cn("hidden truncate font-medium @lg:inline", className)}>
+      <span
+        aria-hidden="true"
+        className={cn("hidden truncate font-medium @lg:inline", className)}
+      >
         {team.name}
       </span>
     </>
@@ -129,6 +149,12 @@ export interface FixtureRowProps {
  * single-digit score, and a freak double-digit one widens its own row rather
  * than being clipped.
  *
+ * The marker is announced from a visually hidden sibling rather than read as
+ * written. `vs` depends on `text-transform` to look like an abbreviation and
+ * the score's separator is a hyphen-minus, which assistive technology
+ * verbalizes inconsistently or drops, so a screen reader is given the words
+ * instead and the visible glyphs are hidden from it.
+ *
  * A score shows only for a finished match, even though a match under way can
  * carry one. The platform synchronizes every few hours, so a score read mid-match
  * is stale by the time anybody sees it, and a stale score presented as a result
@@ -158,7 +184,12 @@ export function FixtureRow({ fixture }: FixtureRowProps) {
           <TeamCrest team={fixture.homeTeam} />
         </div>
 
+        <span className="sr-only">
+          {result === null ? "versus" : `${result.home} to ${result.away}`}
+        </span>
+
         <span
+          aria-hidden="true"
           className={cn(
             "min-w-11 shrink-0 text-center font-mono",
             result === null

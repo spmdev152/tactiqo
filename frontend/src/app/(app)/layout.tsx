@@ -27,12 +27,12 @@ interface AuthenticatedLayoutProps {
  * page would offer navigation to a visitor with no session, so `/login` and
  * `/signup` stay in the public group and keep the plain header.
  *
- * The session is resolved here as the shell's own gate, not for the sidebar,
- * which no longer states the address. A layout is not re-rendered when
- * navigation stays inside it, so a page that reached this shell once would keep
- * rendering after its session was revoked. Every page therefore gates on its
- * own, and `getCurrentUser` is memoized per request, so doing both costs one
- * backend round trip rather than two.
+ * The session is resolved here as the shell's own gate. A layout is not
+ * re-rendered when navigation stays inside it, so a page that reached this
+ * shell once would keep rendering after its session was revoked. Every page
+ * therefore gates on its own, and the sidebar reads the address it shows. All
+ * three go through `getCurrentUser`, which is memoized per request, so they
+ * share one backend round trip rather than costing three.
  *
  * The collapsed state is read from the cookie the primitive writes, because the
  * server otherwise renders the sidebar expanded and hydration snaps it shut in

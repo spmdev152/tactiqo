@@ -1,5 +1,9 @@
+import json
+import logging
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 from django.test import override_settings
@@ -9,11 +13,16 @@ from integrations.sportmonks.client import ProviderPayload, QueryParameters, Spo
 from integrations.sportmonks.exceptions import SportmonksError
 from integrations.sportmonks.fixtures import (
     CURRENT_SCORE,
+    GOALS_LIMIT,
+    IDENTIFIER_MAXIMUM,
+    NAME_LIMIT,
     PAGE_SIZE,
     PROVIDER_STATES,
+    PROVIDER_TIMEZONE,
     ProviderFixture,
     ProviderLeague,
     ProviderTeam,
+    ProviderWindow,
     fetch_fixtures_between,
 )
 
@@ -21,7 +30,13 @@ type Pages = list[list[ProviderPayload]]
 
 type RecordedCalls = list[tuple[str, QueryParameters]]
 
+FIXTURES_LOGGER = "integrations.sportmonks.fixtures"
+
 LEAGUES_PATH = "/leagues"
+
+STATES_RECORDING = Path(__file__).parent / "states.json"
+
+HONOURED_PAGE_SIZES = range(1, 51)
 
 PREMIER_LEAGUE_ID = 8
 
@@ -65,13 +80,14 @@ STATES_BY_STATUS: dict[FixtureStatus, tuple[str, ...]] = {
         "PEN_BREAK",
         "INTERRUPTED",
         "SUSPENDED",
+        "ABANDONED",
     ),
     FixtureStatus.FINISHED: ("FT", "AET", "FT_PEN", "WO", "AWARDED"),
     FixtureStatus.POSTPONED: ("POSTPONED", "DELAYED"),
-    FixtureStatus.CANCELLED: ("CANCELLED", "ABANDONED", "DELETED"),
+    FixtureStatus.CANCELLED: ("CANCELLED", "DELETED"),
 }
 
-PUBLISHED_STATES = [
+OBSERVED_STATES = [
     (state, status) for status, states in STATES_BY_STATUS.items() for state in states
 ]
 
@@ -82,6 +98,19 @@ PREMIER_LEAGUE = ProviderLeague(
     logo_url="https://cdn.provider.test/leagues/8.png",
     country_name="England",
     country_flag_url="https://cdn.provider.test/countries/en.png",
+)
+
+BUNDESLIGA = ProviderLeague(
+    provider_id=BUNDESLIGA_ID,
+    name="Bundesliga",
+    short_code="DE BL",
+    logo_url="https://cdn.provider.test/leagues/82.png",
+    country_name="Germany",
+    country_flag_url="https://cdn.provider.test/countries/de.png",
+)
+
+UNREQUESTED_LEAGUE = replace(
+    PREMIER_LEAGUE, provider_id=UNREQUESTED_LEAGUE_ID, name="Eredivisie", short_code="NL ED"
 )
 
 LIVERPOOL = ProviderTeam(
@@ -99,9 +128,30 @@ FOREST = ProviderTeam(
 )
 
 
-def league_payload() -> ProviderPayload:
+def recorded_states() -> list[str]:
     """
-    Build the leagues entry of the Premier League, with its country included.
+    Return the state codes a live read of the provider's states resource returned.
+
+    Returns
+    -------
+    list of str
+        Value of the ``state`` field of every recorded entry, which is the field
+        the boundary keys its mapping on.
+    """
+
+    envelope = json.loads(STATES_RECORDING.read_text(encoding="utf-8"))
+
+    return [entry["state"] for entry in envelope["data"]]
+
+
+def league_payload(league: ProviderLeague = PREMIER_LEAGUE) -> ProviderPayload:
+    """
+    Build the leagues entry of a competition, with its country included.
+
+    Parameters
+    ----------
+    league : ProviderLeague, optional
+        Competition the entry describes, defaulting to the Premier League.
 
     Returns
     -------
@@ -110,15 +160,11 @@ def league_payload() -> ProviderPayload:
     """
 
     return {
-        "id": PREMIER_LEAGUE_ID,
-        "name": PREMIER_LEAGUE.name,
-        "short_code": PREMIER_LEAGUE.short_code,
-        "image_path": PREMIER_LEAGUE.logo_url,
-        "country": {
-            "id": 462,
-            "name": PREMIER_LEAGUE.country_name,
-            "image_path": PREMIER_LEAGUE.country_flag_url,
-        },
+        "id": league.provider_id,
+        "name": league.name,
+        "short_code": league.short_code,
+        "image_path": league.logo_url,
+        "country": {"name": league.country_name, "image_path": league.country_flag_url},
     }
 
 
@@ -318,17 +364,30 @@ def provider(monkeypatch: pytest.MonkeyPatch, api_token: str) -> Iterator[Stubbe
         yield stub
 
 
-def read_window() -> list[ProviderFixture]:
+def read_window() -> ProviderWindow:
     """
     Read the window and the competitions every test in this module uses.
 
     Returns
     -------
-    list of ProviderFixture
-        Normalized fixtures of the window.
+    ProviderWindow
+        Competitions of the subscription and the normalized fixtures.
     """
 
     return fetch_fixtures_between(WINDOW_START, WINDOW_END, [PREMIER_LEAGUE_ID, BUNDESLIGA_ID])
+
+
+def read_fixtures() -> list[ProviderFixture]:
+    """
+    Read only the fixtures of the window every test in this module uses.
+
+    Returns
+    -------
+    list of ProviderFixture
+        Normalized fixtures of the window, in provider order.
+    """
+
+    return read_window().fixtures
 
 
 def test_a_well_formed_page_normalizes_into_a_provider_fixture(provider: StubbedProvider) -> None:
@@ -340,7 +399,7 @@ def test_a_well_formed_page_normalizes_into_a_provider_fixture(provider: Stubbed
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[fixture_payload()]])
 
-    assert read_window() == [
+    assert read_fixtures() == [
         ProviderFixture(
             provider_id=FIXTURE_ID,
             kickoff_at=KICKOFF_INSTANT,
@@ -354,29 +413,42 @@ def test_a_well_formed_page_normalizes_into_a_provider_fixture(provider: Stubbed
     ]
 
 
-@pytest.mark.parametrize(("state", "expected_status"), PUBLISHED_STATES)
-def test_a_published_state_maps_onto_the_platform_vocabulary(
+def test_the_requested_page_size_stays_inside_what_the_provider_honours() -> None:
+    """
+    GIVEN a provider that honours one to fifty rows a page and falls back to twenty-five above it
+    WHEN the page size this boundary asks for is checked
+    THEN it is inside that range, so no request silently costs four times the pages it should
+    """
+
+    assert PAGE_SIZE in HONOURED_PAGE_SIZES
+
+
+@pytest.mark.parametrize(("state", "expected_status"), OBSERVED_STATES)
+def test_an_observed_state_maps_onto_the_platform_vocabulary(
     provider: StubbedProvider, state: str, expected_status: FixtureStatus
 ) -> None:
     """
-    GIVEN a fixture reported under one of the states the provider publishes
+    GIVEN a fixture reported under one of the states the provider was observed to return
     WHEN the window is read
     THEN the fixture carries the platform stage that state stands for
     """
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[fixture_payload(state=state)]])
 
-    assert read_window()[0].status == expected_status
+    assert read_fixtures()[0].status == expected_status
 
 
-def test_the_boundary_maps_exactly_the_states_the_provider_publishes() -> None:
+def test_the_boundary_maps_exactly_the_states_the_recorded_provider_read_returned() -> None:
     """
-    GIVEN the twenty-five states the subscription was observed to publish
-    WHEN the mapping the boundary applies is compared against them
-    THEN it names every one of them and invents none
+    GIVEN the twenty-five states recorded from a live read of the provider's states resource
+    WHEN the mapping the boundary applies and the mapping the suite asserts are compared to them
+    THEN both name every recorded state and invent none
     """
 
-    assert sorted(PROVIDER_STATES) == sorted(state for state, _ in PUBLISHED_STATES)
+    recorded = sorted(recorded_states())
+
+    assert sorted(PROVIDER_STATES) == recorded
+    assert sorted(state for state, _ in OBSERVED_STATES) == recorded
 
 
 def test_a_state_the_boundary_does_not_map_is_read_as_scheduled(
@@ -393,7 +465,7 @@ def test_a_state_the_boundary_does_not_map_is_read_as_scheduled(
         fixtures=[[fixture_payload(state=UNMAPPED_STATE)]],
     )
 
-    assert read_window()[0].status == FixtureStatus.SCHEDULED
+    assert read_fixtures()[0].status == FixtureStatus.SCHEDULED
 
 
 def test_a_played_fixture_carries_the_current_score(provider: StubbedProvider) -> None:
@@ -410,7 +482,7 @@ def test_a_played_fixture_carries_the_current_score(provider: StubbedProvider) -
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[played]])
 
-    fixture = read_window()[0]
+    fixture = read_fixtures()[0]
 
     assert (fixture.status, fixture.home_goals, fixture.away_goals) == (
         FixtureStatus.FINISHED,
@@ -440,7 +512,7 @@ def test_only_the_current_entries_state_the_score(provider: StubbedProvider) -> 
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[played]])
 
-    fixture = read_window()[0]
+    fixture = read_fixtures()[0]
 
     assert (fixture.home_goals, fixture.away_goals) == (3, 1)
 
@@ -458,7 +530,7 @@ def test_a_score_naming_one_side_alone_is_ignored_and_the_fixture_survives(
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[half_written]])
 
-    fixture = read_window()[0]
+    fixture = read_fixtures()[0]
 
     assert (fixture.provider_id, fixture.home_goals, fixture.away_goals) == (
         FIXTURE_ID,
@@ -480,9 +552,57 @@ def test_a_score_the_provider_has_not_filled_in_leaves_the_fixture_without_one(
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[unfilled]])
 
-    fixture = read_window()[0]
+    fixture = read_fixtures()[0]
 
     assert (fixture.home_goals, fixture.away_goals) == (None, None)
+
+
+def test_a_current_score_of_an_unreadable_shape_is_reported_rather_than_lost(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a fixture whose current entry carries no score object at all
+    WHEN the window is read
+    THEN the discarded score is reported at warning level and the fixture still survives
+    """
+
+    caplog.set_level(logging.WARNING, logger=FIXTURES_LOGGER)
+
+    malformed = fixture_payload(
+        state=FINISHED_STATE, scores=[{"description": CURRENT_SCORE, "score": None}]
+    )
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[malformed]])
+
+    fixture = read_fixtures()[0]
+
+    assert (fixture.provider_id, fixture.home_goals) == (FIXTURE_ID, None)
+    assert "is not a score object" in caplog.text
+
+
+def test_a_goal_count_beyond_its_column_leaves_the_fixture_without_a_score(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a fixture whose current score reports more goals than the column that stores it holds
+    WHEN the window is read
+    THEN the fixture is returned without a score, so the whole window is still writable
+    """
+
+    absurd = fixture_payload(
+        state=FINISHED_STATE,
+        scores=[score_entry(GOALS_LIMIT + 1, "home"), score_entry(0, "away")],
+    )
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[absurd]])
+
+    fixture = read_fixtures()[0]
+
+    assert (fixture.provider_id, fixture.home_goals, fixture.away_goals) == (
+        FIXTURE_ID,
+        None,
+        None,
+    )
 
 
 def test_a_fixture_with_broken_participants_is_skipped_and_the_rest_survive(
@@ -500,7 +620,7 @@ def test_a_fixture_with_broken_participants_is_skipped_and_the_rest_survive(
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[broken, fixture_payload()]])
 
-    assert [fixture.provider_id for fixture in read_window()] == [FIXTURE_ID]
+    assert [fixture.provider_id for fixture in read_fixtures()] == [FIXTURE_ID]
 
 
 def test_a_fixture_naming_a_single_participant_is_skipped(provider: StubbedProvider) -> None:
@@ -514,7 +634,7 @@ def test_a_fixture_naming_a_single_participant_is_skipped(provider: StubbedProvi
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[incomplete]])
 
-    assert read_window() == []
+    assert read_fixtures() == []
 
 
 def test_a_fixture_of_an_unrequested_competition_is_skipped(provider: StubbedProvider) -> None:
@@ -529,19 +649,117 @@ def test_a_fixture_of_an_unrequested_competition_is_skipped(provider: StubbedPro
         fixtures=[[fixture_payload(league_id=UNREQUESTED_LEAGUE_ID)]],
     )
 
-    assert read_window() == []
+    assert read_fixtures() == []
 
 
-def test_an_unreadable_kickoff_is_skipped(provider: StubbedProvider) -> None:
+def test_an_identifier_beyond_its_column_range_skips_only_that_fixture(
+    provider: StubbedProvider,
+) -> None:
     """
-    GIVEN a page carrying a fixture whose kick-off is not a provider stamp
+    GIVEN a page whose first fixture carries an identifier beyond the range of its column
     WHEN the window is read
-    THEN the fixture is dropped rather than being scheduled at a guessed time
+    THEN that fixture alone is dropped, so the whole window is still writable
     """
+
+    provider.serve(
+        leagues=[[league_payload()]],
+        fixtures=[[fixture_payload(provider_id=IDENTIFIER_MAXIMUM + 1), fixture_payload()]],
+    )
+
+    assert [fixture.provider_id for fixture in read_fixtures()] == [FIXTURE_ID]
+
+
+def test_a_club_name_longer_than_its_column_skips_only_that_fixture(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a page whose first fixture names a club whose name overruns the column storing it
+    WHEN the window is read
+    THEN that fixture alone is dropped with a warning, so the whole window is still writable
+    """
+
+    caplog.set_level(logging.WARNING, logger=FIXTURES_LOGGER)
+
+    oversized = participant(LIVERPOOL, "away")
+
+    oversized["name"] = "x" * (NAME_LIMIT + 1)
+
+    broken = fixture_payload(provider_id=1, participants=[oversized, participant(FOREST, "home")])
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[broken, fixture_payload()]])
+
+    assert [fixture.provider_id for fixture in read_fixtures()] == [FIXTURE_ID]
+    assert "longer than the column" in caplog.text
+
+
+def test_a_competition_name_longer_than_its_column_skips_only_that_competition(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a leagues page whose first competition has a name overrunning the column storing it
+    WHEN the window is read
+    THEN that competition and its fixtures are dropped with a warning and the others survive
+    """
+
+    caplog.set_level(logging.WARNING, logger=FIXTURES_LOGGER)
+
+    oversized = league_payload()
+
+    oversized["name"] = "x" * (NAME_LIMIT + 1)
+
+    provider.serve(
+        leagues=[[oversized, league_payload(BUNDESLIGA)]],
+        fixtures=[
+            [
+                fixture_payload(provider_id=1),
+                fixture_payload(provider_id=2, league_id=BUNDESLIGA_ID),
+            ]
+        ],
+    )
+
+    window = read_window()
+
+    assert sorted(window.leagues) == [BUNDESLIGA_ID]
+    assert [fixture.provider_id for fixture in window.fixtures] == [2]
+    assert "longer than the column" in caplog.text
+
+
+def test_an_unreadable_kickoff_is_skipped(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a page carrying a fixture whose kick-off is present but not a provider stamp
+    WHEN the window is read
+    THEN the fixture is dropped with a warning rather than scheduled at a guessed time
+    """
+
+    caplog.set_level(logging.WARNING, logger=FIXTURES_LOGGER)
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[fixture_payload(starting_at="soon")]])
 
-    assert read_window() == []
+    assert read_fixtures() == []
+    assert "not a readable kick-off" in caplog.text
+
+
+def test_a_fixture_the_provider_has_not_scheduled_is_reported_as_routine(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a fixture the provider announced before fixing its date, so it carries no kick-off
+    WHEN the window is read
+    THEN it is dropped at debug level, because an unscheduled match is documented rather than broken
+    """
+
+    caplog.set_level(logging.DEBUG, logger=FIXTURES_LOGGER)
+
+    announced = fixture_payload()
+
+    del announced["starting_at"]
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[announced]])
+
+    assert read_fixtures() == []
+    assert "not scheduled yet" in caplog.text
 
 
 def test_every_page_of_the_window_contributes_its_fixtures(provider: StubbedProvider) -> None:
@@ -556,7 +774,44 @@ def test_every_page_of_the_window_contributes_its_fixtures(provider: StubbedProv
         fixtures=[[fixture_payload(provider_id=1)], [fixture_payload(provider_id=2)]],
     )
 
-    assert [fixture.provider_id for fixture in read_window()] == [1, 2]
+    assert [fixture.provider_id for fixture in read_fixtures()] == [1, 2]
+
+
+def test_a_competition_without_a_fixture_in_the_window_is_still_returned(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a subscription whose second competition schedules nothing inside the window
+    WHEN the window is read
+    THEN both competitions are returned, so neither vanishes from the product during its break
+    """
+
+    provider.serve(
+        leagues=[[league_payload(), league_payload(BUNDESLIGA)]],
+        fixtures=[[fixture_payload()]],
+    )
+
+    window = read_window()
+
+    assert window.leagues == {PREMIER_LEAGUE_ID: PREMIER_LEAGUE, BUNDESLIGA_ID: BUNDESLIGA}
+    assert [fixture.provider_id for fixture in window.fixtures] == [FIXTURE_ID]
+
+
+def test_a_competition_outside_the_requested_set_is_narrowed_away_here(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a leagues resource answering with a competition the window did not request
+    WHEN the window is read
+    THEN it is dropped by this boundary rather than by a filter the endpoint does not document
+    """
+
+    provider.serve(
+        leagues=[[league_payload(), league_payload(UNREQUESTED_LEAGUE)]],
+        fixtures=[[fixture_payload()]],
+    )
+
+    assert sorted(read_window().leagues) == [PREMIER_LEAGUE_ID]
 
 
 def test_an_omitted_optional_string_becomes_empty_rather_than_absent(
@@ -583,7 +838,7 @@ def test_an_omitted_optional_string_becomes_empty_rather_than_absent(
         fixtures=[[fixture_payload(participants=[away, participant(FOREST, "home")])]],
     )
 
-    fixture = read_window()[0]
+    fixture = read_fixtures()[0]
 
     assert fixture.league.short_code == ""
     assert fixture.league.country_name == ""
@@ -592,13 +847,13 @@ def test_an_omitted_optional_string_becomes_empty_rather_than_absent(
     assert fixture.away_team.crest_url == ""
 
 
-def test_the_window_and_the_competitions_are_stated_to_the_provider(
+def test_the_window_is_stated_to_the_provider_and_the_competitions_are_not_filtered(
     provider: StubbedProvider,
 ) -> None:
     """
     GIVEN a window over two competitions
     WHEN it is read
-    THEN the competitions are resolved first and both requests state the filter
+    THEN the competitions are resolved first without a filter and both requests state UTC
     """
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[fixture_payload()]])
@@ -609,17 +864,18 @@ def test_the_window_and_the_competitions_are_stated_to_the_provider(
         (
             LEAGUES_PATH,
             {
-                "filters": f"leagueIds:{PREMIER_LEAGUE_ID},{BUNDESLIGA_ID}",
                 "include": "country",
                 "per_page": PAGE_SIZE,
+                "timezone": PROVIDER_TIMEZONE,
             },
         ),
         (
             WINDOW_PATH,
             {
                 "filters": f"fixtureLeagues:{PREMIER_LEAGUE_ID},{BUNDESLIGA_ID}",
-                "include": "participants;league;state;scores",
+                "include": "participants;state;scores",
                 "per_page": PAGE_SIZE,
+                "timezone": PROVIDER_TIMEZONE,
             },
         ),
     ]

@@ -20,7 +20,9 @@ const PLACEHOLDER_GROUPS = [
  * uneven counts stop the placeholder reading as a table.
  *
  * Nothing here is announced: a screen reader gains nothing from seven empty
- * rows, and the list that replaces them carries the status role.
+ * rows, and there is nothing to hold a status role for either, because the
+ * region that announces the outcome lives above the `Suspense` boundary and
+ * survives the swap rather than arriving with the list.
  *
  * @returns The placeholder groups.
  */

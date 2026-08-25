@@ -47,12 +47,67 @@ describe("FixtureList", () => {
   it("renders the empty state for an answered day with no fixtures", () => {
     render(<FixtureList result={{ loaded: true, fixtures: [] }} />);
 
+    expect(screen.getByText("No fixtures on this day.")).toBeVisible();
+
     expect(
-      screen.getByText("No fixtures on this day for this competition."),
+      screen.getByText("Pick another day, or widen the competition filter."),
     ).toBeVisible();
 
-    expect(screen.getByRole("status")).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN any of the three outcomes of a fixtures request
+   * WHEN each is rendered
+   * THEN none declares a live region of its own, since the route owns the one
+   */
+  it("declares no live region of its own", () => {
+    const { container, rerender } = render(
+      <FixtureList result={{ loaded: true, fixtures: [] }} />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    rerender(<FixtureList result={{ loaded: false, reason: "Nope." }} />);
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    rerender(<FixtureList result={{ loaded: true, fixtures: [FIXTURE] }} />);
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(container.querySelector("[aria-live='polite']")).toBeNull();
+  });
+
+  /**
+   * GIVEN a day that produced rows, the one outcome that used to announce nothing
+   * WHEN the list is rendered
+   * THEN it states its own counts and keeps the rows out of the announcement
+   */
+  it("summarises a loaded day for the region above it", () => {
+    const { container } = render(
+      <FixtureList
+        result={{
+          loaded: true,
+          fixtures: [
+            FIXTURE,
+            {
+              ...FIXTURE,
+              id: 13,
+              kickoffAt: new Date("2026-08-29T13:30:00Z"),
+              league: SERIE_A,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("2 matches in 2 competitions."),
+    ).toBeInTheDocument();
+
+    expect(container.querySelector("[aria-live='off']")).toContainElement(
+      screen.getAllByRole("listitem")[0] ?? null,
+    );
   });
 
   /**
@@ -73,7 +128,7 @@ describe("FixtureList", () => {
     expect(screen.getByText("The API could not be reached.")).toBeVisible();
 
     expect(
-      screen.queryByText("No fixtures on this day for this competition."),
+      screen.queryByText("No fixtures on this day."),
     ).not.toBeInTheDocument();
   });
 

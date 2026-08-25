@@ -1,12 +1,13 @@
 from datetime import date
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from pytest_django.fixtures import DjangoAssertNumQueries
 
 from apps.fixtures.api.schemas import FixtureResponse
 from apps.fixtures.application.queries import list_fixtures_on, list_leagues
-from apps.fixtures.infrastructure.repositories import upsert_fixtures
-from apps.fixtures.models import League
+from apps.fixtures.models import Fixture, League
 from integrations.sportmonks.fixtures import ProviderLeague, ProviderTeam
 from tests.unit.fixtures.conftest import (
     BARCELONA,
@@ -14,12 +15,18 @@ from tests.unit.fixtures.conftest import (
     LA_LIGA,
     PREMIER_LEAGUE,
     SEVILLA,
-    SYNCHRONIZED_AT,
     kickoff,
     provider_fixture,
+    store_window,
 )
 
 NEXT_DAY = date(2026, 8, 30)
+
+FIXTURE_TABLE = "fixtures_fixture"
+
+KICKOFF_THEN_KEY_ORDERING = (
+    f'ORDER BY "{FIXTURE_TABLE}"."kickoff_at" ASC, "{FIXTURE_TABLE}"."id" ASC'
+)
 
 SERIE_A = ProviderLeague(
     provider_id=384,
@@ -59,15 +66,14 @@ def store_three_competitions() -> dict[int, League]:
         Stored competitions keyed by their Sportmonks identifier.
     """
 
-    upsert_fixtures(
+    store_window(
         [
             provider_fixture(1, kickoff(11, 30)),
             provider_fixture(
                 2, kickoff(14), league=LA_LIGA, home_team=BARCELONA, away_team=SEVILLA
             ),
             provider_fixture(3, kickoff(17), league=SERIE_A, home_team=JUVENTUS, away_team=NAPOLI),
-        ],
-        SYNCHRONIZED_AT,
+        ]
     )
 
     return {league.sportmonks_id: league for league in League.objects.all()}
@@ -81,14 +87,13 @@ def test_list_leagues_orders_the_competitions_alphabetically() -> None:
     THEN they come back alphabetically by name
     """
 
-    upsert_fixtures(
+    store_window(
         [
             provider_fixture(1, kickoff(11, 30)),
             provider_fixture(
                 2, kickoff(14), league=LA_LIGA, home_team=BARCELONA, away_team=SEVILLA
             ),
-        ],
-        SYNCHRONIZED_AT,
+        ]
     )
 
     assert [league.name for league in list_leagues()] == ["La Liga", "Premier League"]
@@ -102,7 +107,7 @@ def test_list_fixtures_on_includes_a_fixture_kicking_off_at_midnight() -> None:
     THEN the fixture is included
     """
 
-    upsert_fixtures([provider_fixture(1, kickoff(0))], SYNCHRONIZED_AT)
+    store_window([provider_fixture(1, kickoff(0))])
 
     assert [fixture.sportmonks_id for fixture in list_fixtures_on(DAY, [])] == [1]
 
@@ -115,7 +120,7 @@ def test_list_fixtures_on_excludes_a_fixture_kicking_off_at_the_next_midnight() 
     THEN the fixture is excluded and the following day carries it
     """
 
-    upsert_fixtures([provider_fixture(1, kickoff(0, day=NEXT_DAY))], SYNCHRONIZED_AT)
+    store_window([provider_fixture(1, kickoff(0, day=NEXT_DAY))])
 
     assert list_fixtures_on(DAY, []) == []
 
@@ -145,14 +150,13 @@ def test_list_fixtures_on_narrows_the_day_to_one_competition() -> None:
     THEN only that competition's fixture comes back
     """
 
-    upsert_fixtures(
+    store_window(
         [
             provider_fixture(1, kickoff(11, 30)),
             provider_fixture(
                 2, kickoff(14), league=LA_LIGA, home_team=BARCELONA, away_team=SEVILLA
             ),
-        ],
-        SYNCHRONIZED_AT,
+        ]
     )
 
     la_liga = League.objects.get(sportmonks_id=LA_LIGA.provider_id)
@@ -206,7 +210,7 @@ def test_list_fixtures_on_returns_an_empty_day_for_an_unknown_competition() -> N
     THEN an empty list comes back rather than an error
     """
 
-    upsert_fixtures([provider_fixture(1, kickoff(11, 30))], SYNCHRONIZED_AT)
+    store_window([provider_fixture(1, kickoff(11, 30))])
 
     premier_league = League.objects.get(sportmonks_id=PREMIER_LEAGUE.provider_id)
 
@@ -221,13 +225,12 @@ def test_list_fixtures_on_orders_the_day_by_kick_off() -> None:
     THEN they come back earliest kick-off first
     """
 
-    upsert_fixtures(
+    store_window(
         [
             provider_fixture(1, kickoff(20)),
             provider_fixture(2, kickoff(11, 30)),
             provider_fixture(3, kickoff(14)),
-        ],
-        SYNCHRONIZED_AT,
+        ]
     )
 
     listed = list_fixtures_on(DAY, [])
@@ -236,21 +239,27 @@ def test_list_fixtures_on_orders_the_day_by_kick_off() -> None:
 
 
 @pytest.mark.django_db
-def test_list_fixtures_on_breaks_a_shared_kick_off_by_identifier() -> None:
+def test_list_fixtures_on_breaks_a_shared_kick_off_by_primary_key() -> None:
     """
-    GIVEN two fixtures of one day kicking off at the same instant
+    GIVEN two fixtures sharing a kick-off whose keys ascend against their provider identifiers
     WHEN the day is listed
-    THEN they come back in ascending identifier order
+    THEN they come back in primary-key order, which is the tiebreak the model pins
     """
 
-    window = [provider_fixture(1, kickoff(14)), provider_fixture(2, kickoff(14))]
+    store_window([provider_fixture(2, kickoff(14))])
+    store_window([provider_fixture(1, kickoff(14)), provider_fixture(2, kickoff(14))])
 
-    upsert_fixtures(window, SYNCHRONIZED_AT)
+    ascending_keys = list(Fixture.objects.order_by("pk").values_list("sportmonks_id", flat=True))
 
-    identifiers = [fixture.pk for fixture in list_fixtures_on(DAY, [])]
+    # The test database returns equal-key rows in insertion order whatever the
+    # statement asked for, so the data alone cannot tell a tiebreak that is
+    # present from one that is absent; the emitted ordering can.
+    with CaptureQueriesContext(connection) as executed:
+        listed = list_fixtures_on(DAY, [])
 
-    assert len(identifiers) == len(window)
-    assert identifiers == sorted(identifiers)
+    assert ascending_keys == [2, 1]
+    assert [fixture.sportmonks_id for fixture in listed] == ascending_keys
+    assert executed.captured_queries[0]["sql"].endswith(KICKOFF_THEN_KEY_ORDERING)
 
 
 @pytest.mark.django_db
@@ -270,7 +279,7 @@ def test_list_fixtures_on_serializes_a_day_without_a_query_per_fixture(
         provider_fixture(4, kickoff(20), league=LA_LIGA, home_team=SEVILLA, away_team=BARCELONA),
     ]
 
-    upsert_fixtures(window, SYNCHRONIZED_AT)
+    store_window(window)
 
     with django_assert_num_queries(1):
         responses = [FixtureResponse.from_orm(fixture) for fixture in list_fixtures_on(DAY, [])]

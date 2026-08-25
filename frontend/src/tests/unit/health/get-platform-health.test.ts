@@ -14,18 +14,22 @@ describe("getPlatformHealth", () => {
   /**
    * GIVEN a backend base URL configured as whitespace only
    * WHEN platform health is probed
-   * THEN health is unreported and no request is attempted
+   * THEN nothing is probed and the reason names no environment variable
    */
   it("reports nothing without probing when the backend URL is blank", async () => {
     const fetchStub = vi.fn();
 
     vi.stubEnv("BACKEND_API_BASE_URL", "   ");
     vi.stubGlobal("fetch", fetchStub);
+    vi.stubGlobal("console", { ...console, error: vi.fn() });
 
     const health = await getPlatformHealth();
 
     expect(health.reported).toBe(false);
     expect(fetchStub).not.toHaveBeenCalled();
+    expect(health.reported === false && health.reason).not.toContain(
+      "BACKEND_API_BASE_URL",
+    );
   });
 
   /**

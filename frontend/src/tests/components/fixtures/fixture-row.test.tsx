@@ -48,6 +48,12 @@ function buildFixture(overrides: Partial<Fixture> = {}): Fixture {
   };
 }
 
+/** Restricts a text query to the nodes a screen reader can reach. */
+const ANNOUNCED = { ignore: '[aria-hidden="true"]' };
+
+/** Restricts a text query to the painted nodes, which are hidden from it. */
+const PAINTED = { selector: '[aria-hidden="true"]' };
+
 describe("FixtureRow", () => {
   /**
    * GIVEN a fixture between two clubs that both publish a crest
@@ -57,8 +63,8 @@ describe("FixtureRow", () => {
   it("renders both sides with their crests", () => {
     const { container } = render(<FixtureRow fixture={buildFixture()} />);
 
-    expect(screen.getByText("Liverpool")).toBeInTheDocument();
-    expect(screen.getByText("Nottingham Forest")).toBeInTheDocument();
+    expect(screen.getByText("Liverpool", PAINTED)).toBeInTheDocument();
+    expect(screen.getByText("Nottingham Forest", PAINTED)).toBeInTheDocument();
     expect(container.querySelectorAll("img")).toHaveLength(2);
   });
 
@@ -71,8 +77,8 @@ describe("FixtureRow", () => {
     render(<FixtureRow fixture={buildFixture()} />);
 
     const separator = screen.getByText("vs");
-    const home = screen.getByText("Liverpool");
-    const away = screen.getByText("Nottingham Forest");
+    const home = screen.getByText("Liverpool", PAINTED);
+    const away = screen.getByText("Nottingham Forest", PAINTED);
 
     expect(separator).toBeInTheDocument();
     expect(
@@ -95,6 +101,22 @@ describe("FixtureRow", () => {
 
     expect(screen.getByText("LIV")).toBeInTheDocument();
     expect(screen.getByText("NFO")).toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a row narrow enough to paint abbreviations instead of full names
+   * WHEN the names a screen reader can reach are queried
+   * THEN each side is announced in full and neither abbreviation is announced
+   */
+  it("announces the full club name at every width", () => {
+    render(<FixtureRow fixture={buildFixture()} />);
+
+    expect(screen.getByText("Liverpool", ANNOUNCED)).toBeInTheDocument();
+    expect(
+      screen.getByText("Nottingham Forest", ANNOUNCED),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("LIV", ANNOUNCED)).not.toBeInTheDocument();
+    expect(screen.queryByText("NFO", ANNOUNCED)).not.toBeInTheDocument();
   });
 
   /**
@@ -143,7 +165,9 @@ describe("FixtureRow", () => {
     );
 
     expect(container.querySelectorAll("img")).toHaveLength(1);
-    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[data-slot="crest-placeholder"]'),
+    ).toHaveLength(1);
   });
 
   /**
@@ -202,6 +226,37 @@ describe("FixtureRow", () => {
     render(<FixtureRow fixture={buildFixture({ status: "finished" })} />);
 
     expect(screen.getByText("vs")).toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a marker painted as `vs` by a text transform
+   * WHEN the row is announced
+   * THEN the word is announced instead of the abbreviation
+   */
+  it("announces an unplayed match as a word", () => {
+    render(<FixtureRow fixture={buildFixture()} />);
+
+    expect(screen.getByText("versus", ANNOUNCED)).toBeInTheDocument();
+    expect(screen.queryByText("vs", ANNOUNCED)).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a result painted with a hyphen, which assistive technology may drop
+   * WHEN the row is announced
+   * THEN the score is announced as two numbers joined by a word
+   */
+  it("announces a result without its separator", () => {
+    render(
+      <FixtureRow
+        fixture={buildFixture({
+          status: "finished",
+          score: { home: 2, away: 0 },
+        })}
+      />,
+    );
+
+    expect(screen.getByText("2 to 0", ANNOUNCED)).toBeInTheDocument();
+    expect(screen.queryByText("2 - 0", ANNOUNCED)).not.toBeInTheDocument();
   });
 
   /**

@@ -9,7 +9,11 @@ from integrations.sportmonks.exceptions import SportmonksError
 
 logger = logging.getLogger(__name__)
 
-PAGE_SIZE = 100
+# Rows a page. The provider honours one to fifty and silently falls back to its own default of
+# twenty-five for anything larger, so a hundred would quadruple the pages instead of halving them.
+PAGE_SIZE = 50
+
+PROVIDER_TIMEZONE = "UTC"
 
 KICKOFF_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -18,6 +22,20 @@ HOME_LOCATION = "home"
 AWAY_LOCATION = "away"
 
 CURRENT_SCORE = "CURRENT"
+
+# The three bounds below mirror the columns of ``apps.fixtures.models`` rather than importing
+# them, because the provider adapter must not depend on the persistence it feeds.
+NAME_LIMIT = 255
+
+SHORT_CODE_LIMIT = 16
+
+URL_LIMIT = 512
+
+GOALS_LIMIT = 32767
+
+IDENTIFIER_MINIMUM = -(2**63)
+
+IDENTIFIER_MAXIMUM = 2**63 - 1
 
 PROVIDER_STATES: dict[str, FixtureStatus] = {
     "NS": FixtureStatus.SCHEDULED,
@@ -35,6 +53,7 @@ PROVIDER_STATES: dict[str, FixtureStatus] = {
     "PEN_BREAK": FixtureStatus.LIVE,
     "INTERRUPTED": FixtureStatus.LIVE,
     "SUSPENDED": FixtureStatus.LIVE,
+    "ABANDONED": FixtureStatus.LIVE,
     "FT": FixtureStatus.FINISHED,
     "AET": FixtureStatus.FINISHED,
     "FT_PEN": FixtureStatus.FINISHED,
@@ -43,7 +62,6 @@ PROVIDER_STATES: dict[str, FixtureStatus] = {
     "POSTPONED": FixtureStatus.POSTPONED,
     "DELAYED": FixtureStatus.POSTPONED,
     "CANCELLED": FixtureStatus.CANCELLED,
-    "ABANDONED": FixtureStatus.CANCELLED,
     "DELETED": FixtureStatus.CANCELLED,
 }
 
@@ -137,11 +155,33 @@ class ProviderFixture:
     away_goals: int | None
 
 
-def fetch_fixtures_between(
-    start: date, end: date, league_ids: Sequence[int]
-) -> list[ProviderFixture]:
+@dataclass(frozen=True, slots=True)
+class ProviderWindow:
     """
-    Return the fixtures the provider schedules in a window, normalized.
+    Everything one complete read of a fixture window resolved.
+
+    The competitions are carried separately from the fixtures because they are
+    reference data for the whole subscription rather than a property of the
+    window. A competition on its winter break, or one whose season has not
+    started, schedules nothing in a fortnight and would otherwise disappear from
+    the product for as long as that lasts.
+
+    Attributes
+    ----------
+    leagues : dict of int to ProviderLeague
+        Every subscribed competition the provider returned, keyed by provider
+        identifier, whether or not it schedules a fixture inside the window.
+    fixtures : list of ProviderFixture
+        Fixtures of the window, in provider order.
+    """
+
+    leagues: dict[int, ProviderLeague]
+    fixtures: list[ProviderFixture]
+
+
+def fetch_fixtures_between(start: date, end: date, league_ids: Sequence[int]) -> ProviderWindow:
+    """
+    Return the competitions and the fixtures a window covers, normalized.
 
     Two provider resources are read. The competitions are fetched first, with
     their country included, because the fixture payload carries a competition
@@ -150,7 +190,19 @@ def fetch_fixtures_between(
 
     A row the provider returns malformed is dropped with a warning instead of
     failing the window, so one broken fixture cannot cost a refresh every other
-    fixture in the same range.
+    fixture in the same range. A window the provider cannot serve completely is
+    the opposite case and fails: the client raises rather than returning the
+    pages it managed to read, because a caller cannot tell a prefix of a window
+    from the whole of it.
+
+    Both requests state ``timezone=UTC``, so the instant every stored kick-off
+    is derived from is part of the request rather than a provider default that
+    nothing checks.
+
+    One read cannot exceed ``PAGE_SIZE`` rows over ``MAX_PAGE_COUNT`` pages, or
+    two thousand fixtures. The five subscribed leagues schedule roughly a
+    hundred and fifty in the widest window this project synchronizes, so the
+    ceiling is an order of magnitude clear of the traffic it bounds.
 
     Parameters
     ----------
@@ -163,13 +215,14 @@ def fetch_fixtures_between(
 
     Returns
     -------
-    list of ProviderFixture
-        Fixtures of the window, in provider order.
+    ProviderWindow
+        Subscribed competitions and the normalized fixtures of the window.
 
     Raises
     ------
     SportmonksError
-        When no league is requested, or when the provider cannot be read.
+        When no league is requested, or when the provider cannot be read
+        completely.
     """
 
     if not league_ids:
@@ -181,8 +234,9 @@ def fetch_fixtures_between(
 
     params = {
         "filters": f"fixtureLeagues:{_joined(league_ids)}",
-        "include": "participants;league;state;scores",
+        "include": "participants;state;scores",
         "per_page": PAGE_SIZE,
+        "timezone": PROVIDER_TIMEZONE,
     }
 
     path = f"/fixtures/between/{start.isoformat()}/{end.isoformat()}"
@@ -196,38 +250,47 @@ def fetch_fixtures_between(
             if fixture is not None:
                 fixtures.append(fixture)
 
-    return fixtures
+    return ProviderWindow(leagues=leagues, fixtures=fixtures)
 
 
 def _fetch_leagues(
     client: SportmonksClient, league_ids: Sequence[int]
 ) -> dict[int, ProviderLeague]:
     """
-    Return the requested competitions, keyed by provider identifier.
+    Return the subscribed competitions among those requested, keyed by identifier.
+
+    The request states no filter. ``/leagues`` already answers with exactly the
+    competitions the subscription covers, ``leagueIds`` is not one of the
+    filters that endpoint documents, and the provider has an error of its own
+    for a filter it does not recognize. Narrowing against ``league_ids`` here
+    instead makes the guarantee true by construction rather than by trusting a
+    parameter the provider may ignore.
 
     Parameters
     ----------
     client : SportmonksClient
         Client the request is issued through.
     league_ids : sequence of int
-        Sportmonks league identifiers to fetch.
+        Sportmonks league identifiers the window is restricted to.
 
     Returns
     -------
     dict of int to ProviderLeague
-        Competitions the provider returned for the requested identifiers.
+        Competitions the subscription exposes whose identifier was requested.
 
     Raises
     ------
     SportmonksError
-        When the provider cannot be read.
+        When the provider cannot be read completely.
     """
 
     params = {
-        "filters": f"leagueIds:{_joined(league_ids)}",
         "include": "country",
         "per_page": PAGE_SIZE,
+        "timezone": PROVIDER_TIMEZONE,
     }
+
+    requested = set(league_ids)
 
     leagues: dict[int, ProviderLeague] = {}
 
@@ -235,7 +298,7 @@ def _fetch_leagues(
         for entry in page:
             league = _league_of(entry)
 
-            if league is not None:
+            if league is not None and league.provider_id in requested:
                 leagues[league.provider_id] = league
 
     return leagues
@@ -270,7 +333,7 @@ def _fixture_of(
 
         return None
 
-    league_id = _league_reference(entry)
+    league_id = _identifier(entry.get("league_id"))
 
     league = leagues.get(league_id) if league_id is not None else None
 
@@ -286,11 +349,7 @@ def _fixture_of(
     kickoff_at = _kickoff_of(entry.get("starting_at"))
 
     if kickoff_at is None:
-        logger.warning(
-            "Skipping Sportmonks fixture %d: %r is not a readable kick-off.",
-            provider_id,
-            entry.get("starting_at"),
-        )
+        _report_unusable_kickoff(entry.get("starting_at"), provider_id)
 
         return None
 
@@ -321,15 +380,54 @@ def _fixture_of(
     )
 
 
+def _report_unusable_kickoff(value: object, provider_id: int) -> None:
+    """
+    Record why a fixture without a readable kick-off is being dropped.
+
+    A fixture the provider has not scheduled yet carries no ``starting_at`` at
+    all, which is the documented shape of a match announced before its date is
+    fixed. That is routine and belongs at debug level; a value that is present
+    and still unreadable is a contract the boundary got wrong and warns.
+
+    Parameters
+    ----------
+    value : object
+        Value the ``starting_at`` field carried.
+    provider_id : int
+        Identifier of the fixture being dropped.
+    """
+
+    if value is None:
+        logger.debug(
+            "Skipping Sportmonks fixture %d: it is not scheduled yet.",
+            provider_id,
+        )
+
+        return
+
+    logger.warning(
+        "Skipping Sportmonks fixture %d: %r is not a readable kick-off.",
+        provider_id,
+        value,
+    )
+
+
 def _status_of(payload: object, provider_id: int) -> FixtureStatus:
     """
     Map the state a fixture entry reports onto the platform's vocabulary.
 
-    The provider publishes twenty-five states and the mapping is an explicit
-    lookup rather than a test on the shape of a code, because the shape carries
-    no meaning: ``FT`` and ``FT_PEN`` are both finished while
+    Twenty-five states were observed on a live read of the provider's states
+    resource, and that recording is what the test suite compares this table
+    against; the published documentation table is stale. The mapping is an
+    explicit lookup rather than a test on the shape of a code, because the shape
+    carries no meaning: ``FT`` and ``FT_PEN`` are both finished while
     ``INPLAY_PENALTIES`` is not, and a state added later must be reported rather
     than guessed at.
+
+    ``ABANDONED`` maps onto the live stage rather than the cancelled one. The
+    provider defines it as abandoned and resuming later, which is the same
+    semantics as ``SUSPENDED``, and the opposite of ``CANCELLED``, which it
+    defines as not being played and yielding no result.
 
     Parameters
     ----------
@@ -393,7 +491,7 @@ def _goals_of(payload: object, provider_id: int) -> tuple[int | None, int | None
     by_location: dict[str, int] = {}
 
     for entry in payload:
-        side = _current_side_of(entry) if isinstance(entry, dict) else None
+        side = _current_side_of(entry, provider_id) if isinstance(entry, dict) else None
 
         if side is None:
             continue
@@ -418,14 +516,23 @@ def _goals_of(payload: object, provider_id: int) -> tuple[int | None, int | None
     return by_location[HOME_LOCATION], by_location[AWAY_LOCATION]
 
 
-def _current_side_of(entry: ProviderPayload) -> tuple[str, int] | None:
+def _current_side_of(entry: ProviderPayload, provider_id: int) -> tuple[str, int] | None:
     """
     Normalize one score entry into the side it belongs to and its goal count.
+
+    An entry describing another period is not this function's business and is
+    passed over silently. A ``CURRENT`` entry, however, is the score of the
+    match, so discarding one is reported: at debug level when the provider has
+    simply not filled the count in yet, which it documents, and at warning level
+    for any other shape, which the boundary would otherwise lose as quietly as
+    a match that has produced no score at all.
 
     Parameters
     ----------
     entry : ProviderPayload
         One entry of the ``scores`` include.
+    provider_id : int
+        Identifier of the fixture, named when a current entry is discarded.
 
     Returns
     -------
@@ -441,16 +548,38 @@ def _current_side_of(entry: ProviderPayload) -> tuple[str, int] | None:
     score = entry.get("score")
 
     if not isinstance(score, dict):
-        return None
+        logger.warning(
+            "Ignoring a current score of Sportmonks fixture %d: %r is not a score object.",
+            provider_id,
+            score,
+        )
 
-    goals = _goal_count(score.get("goals"))
+        return None
 
     location = _text(score.get("participant"))
 
-    if goals is None or location not in (HOME_LOCATION, AWAY_LOCATION):
+    goals = _goal_count(score.get("goals"))
+
+    if goals is not None and location in (HOME_LOCATION, AWAY_LOCATION):
+        return location, goals
+
+    if score.get("goals") is None and location in (HOME_LOCATION, AWAY_LOCATION):
+        logger.debug(
+            "Sportmonks fixture %d carries no goal count for its %s side yet.",
+            provider_id,
+            location,
+        )
+
         return None
 
-    return location, goals
+    logger.warning(
+        "Ignoring a current score of Sportmonks fixture %d: %r states no readable count for a "
+        "named side.",
+        provider_id,
+        score,
+    )
+
+    return None
 
 
 def _league_of(entry: ProviderPayload) -> ProviderLeague | None:
@@ -466,7 +595,7 @@ def _league_of(entry: ProviderPayload) -> ProviderLeague | None:
     -------
     ProviderLeague or None
         Normalized competition, or ``None`` when the entry carries no usable
-        identifier.
+        identifier, or a text no column could hold.
     """
 
     provider_id = _identifier(entry.get("id"))
@@ -480,41 +609,35 @@ def _league_of(entry: ProviderPayload) -> ProviderLeague | None:
 
     country_payload: ProviderPayload = country if isinstance(country, dict) else {}
 
+    name = _stored_text(entry.get("name"), NAME_LIMIT)
+    short_code = _stored_text(entry.get("short_code"), SHORT_CODE_LIMIT)
+    logo_url = _stored_text(entry.get("image_path"), URL_LIMIT)
+    country_name = _stored_text(country_payload.get("name"), NAME_LIMIT)
+    country_flag_url = _stored_text(country_payload.get("image_path"), URL_LIMIT)
+
+    if (
+        name is None
+        or short_code is None
+        or logo_url is None
+        or country_name is None
+        or country_flag_url is None
+    ):
+        logger.warning(
+            "Skipping Sportmonks league %d: one of its texts is longer than the column that "
+            "stores it.",
+            provider_id,
+        )
+
+        return None
+
     return ProviderLeague(
         provider_id=provider_id,
-        name=_text(entry.get("name")),
-        short_code=_text(entry.get("short_code")),
-        logo_url=_text(entry.get("image_path")),
-        country_name=_text(country_payload.get("name")),
-        country_flag_url=_text(country_payload.get("image_path")),
+        name=name,
+        short_code=short_code,
+        logo_url=logo_url,
+        country_name=country_name,
+        country_flag_url=country_flag_url,
     )
-
-
-def _league_reference(entry: ProviderPayload) -> int | None:
-    """
-    Return the competition a fixture entry belongs to.
-
-    Parameters
-    ----------
-    entry : ProviderPayload
-        One entry of a fixtures page.
-
-    Returns
-    -------
-    int or None
-        Sportmonks league identifier taken from the entry's own field, or from
-        the included competition when the field is absent, or ``None`` when
-        neither names one.
-    """
-
-    from_field = _identifier(entry.get("league_id"))
-
-    if from_field is not None:
-        return from_field
-
-    included = entry.get("league")
-
-    return _identifier(included.get("id")) if isinstance(included, dict) else None
 
 
 def _sides_of(payload: object) -> tuple[ProviderTeam, ProviderTeam] | None:
@@ -566,8 +689,8 @@ def _side_of(entry: ProviderPayload) -> tuple[str, ProviderTeam] | None:
     -------
     tuple of str and ProviderTeam or None
         Location, either ``"home"`` or ``"away"``, and the team playing there,
-        or ``None`` when the entry names neither location or carries no usable
-        identifier.
+        or ``None`` when the entry names neither location, carries no usable
+        identifier, or carries a text no column could hold.
     """
 
     provider_id = _identifier(entry.get("id"))
@@ -579,11 +702,24 @@ def _side_of(entry: ProviderPayload) -> tuple[str, ProviderTeam] | None:
     if provider_id is None or location not in (HOME_LOCATION, AWAY_LOCATION):
         return None
 
+    name = _stored_text(entry.get("name"), NAME_LIMIT)
+    short_code = _stored_text(entry.get("short_code"), SHORT_CODE_LIMIT)
+    crest_url = _stored_text(entry.get("image_path"), URL_LIMIT)
+
+    if name is None or short_code is None or crest_url is None:
+        logger.warning(
+            "Skipping Sportmonks team %d: one of its texts is longer than the column that "
+            "stores it.",
+            provider_id,
+        )
+
+        return None
+
     team = ProviderTeam(
         provider_id=provider_id,
-        name=_text(entry.get("name")),
-        short_code=_text(entry.get("short_code")),
-        crest_url=_text(entry.get("image_path")),
+        name=name,
+        short_code=short_code,
+        crest_url=crest_url,
     )
 
     return location, team
@@ -597,7 +733,8 @@ def _kickoff_of(value: object) -> datetime | None:
     ----------
     value : object
         Value the ``starting_at`` field carried, documented as
-        ``"YYYY-MM-DD HH:MM:SS"`` in UTC and carrying no offset of its own.
+        ``"YYYY-MM-DD HH:MM:SS"`` and requested in UTC, so it carries no offset
+        of its own.
 
     Returns
     -------
@@ -619,7 +756,7 @@ def _kickoff_of(value: object) -> datetime | None:
 
 def _goal_count(value: object) -> int | None:
     """
-    Return a goal count as a non-negative integer.
+    Return a goal count the column that stores it can hold.
 
     Parameters
     ----------
@@ -631,10 +768,16 @@ def _goal_count(value: object) -> int | None:
     -------
     int or None
         Goals scored, or ``None`` when the value is not a count, which includes
-        the boolean and negative cases the column would refuse anyway.
+        the boolean, the negative, and the beyond-``GOALS_LIMIT`` cases the
+        column would refuse. Refusing them here matters because the window is
+        written in one transaction, so a single unstorable count would discard
+        every other fixture of the run.
     """
 
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+
+    if value < 0 or value > GOALS_LIMIT:
         return None
 
     return value
@@ -642,7 +785,7 @@ def _goal_count(value: object) -> int | None:
 
 def _identifier(value: object) -> int | None:
     """
-    Return a provider identifier as an integer.
+    Return a provider identifier the column that stores it can hold.
 
     Parameters
     ----------
@@ -653,24 +796,59 @@ def _identifier(value: object) -> int | None:
     Returns
     -------
     int or None
-        Identifier, or ``None`` when the value does not denote one.
+        Identifier, or ``None`` when the value does not denote one or falls
+        outside the signed 64-bit range of the column that stores it.
     """
 
     if isinstance(value, bool):
         return None
 
     if isinstance(value, int):
-        return value
+        return value if IDENTIFIER_MINIMUM <= value <= IDENTIFIER_MAXIMUM else None
 
     if isinstance(value, str) and value.isdigit():
-        return int(value)
+        parsed = int(value)
+
+        return parsed if parsed <= IDENTIFIER_MAXIMUM else None
 
     return None
 
 
+def _stored_text(value: object, limit: int) -> str | None:
+    """
+    Return a provider string short enough for the column that stores it.
+
+    Parameters
+    ----------
+    value : object
+        Value an optional text field carried.
+    limit : int
+        Characters the column holds, one of ``NAME_LIMIT``,
+        ``SHORT_CODE_LIMIT`` or ``URL_LIMIT``.
+
+    Returns
+    -------
+    str or None
+        The string, ``""`` when the provider omitted it or sent something else,
+        or ``None`` when it is longer than the column. The caller drops the row
+        in that case, because the window is written in one transaction and a
+        single overlong value would otherwise discard every other fixture of
+        the run.
+    """
+
+    if not isinstance(value, str):
+        return ""
+
+    return value if len(value) <= limit else None
+
+
 def _text(value: object) -> str:
     """
-    Return a provider string, collapsing an absent one to the empty string.
+    Return a provider string that is read rather than stored.
+
+    Only values compared against a closed vocabulary go through here: a state
+    code, a score period, a participant location. None of them reaches a column,
+    so none of them is length-bounded; a stored value uses ``_stored_text``.
 
     Parameters
     ----------

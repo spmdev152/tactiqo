@@ -6,14 +6,20 @@ import { SidebarNavigationDismissal } from "@/components/sidebar-navigation-dism
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-const { usePathname, useIsMobile } = vi.hoisted(() => ({
+const { requireUser, usePathname, useIsMobile } = vi.hoisted(() => ({
+  requireUser: vi.fn(),
   usePathname: vi.fn(),
   useIsMobile: vi.fn(),
 }));
 
+// The server-only marker throws outside the React Server condition, which Vitest does not set.
+vi.mock("server-only", () => ({}));
+
 vi.mock("next/navigation", () => ({ usePathname }));
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile }));
+
+vi.mock("@/features/auth/server/require-user", () => ({ requireUser }));
 
 vi.mock("@/features/auth/server/actions", () => ({ signOutAction: vi.fn() }));
 
@@ -37,15 +43,19 @@ function installDrawerEnvironment(): void {
 /**
  * The shell as a phone renders it, with the dismissal effect mounted.
  *
+ * @remarks
+ * The sidebar is an async Server Component, so it is awaited into an element
+ * here rather than mounted as one, exactly as the shell layout does.
+ *
  * @returns The shell tree.
  */
-function shell() {
+async function shell() {
   return (
     <TooltipProvider>
       <SidebarProvider>
         <SidebarNavigationDismissal />
         <SidebarTrigger />
-        <AppSidebar />
+        {await AppSidebar()}
       </SidebarProvider>
     </TooltipProvider>
   );
@@ -56,8 +66,8 @@ function shell() {
  *
  * @returns The render result, so a test can land a navigation on it.
  */
-function renderOpenDrawer() {
-  const rendered = render(shell());
+async function renderOpenDrawer() {
+  const rendered = render(await shell());
 
   fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
 
@@ -68,6 +78,11 @@ describe("AppSidebar on a phone", () => {
   beforeAll(installDrawerEnvironment);
 
   beforeEach(() => {
+    requireUser.mockResolvedValue({
+      id: 7,
+      email: "alexandra.fernandez@example.com",
+      fullName: "Alexandra Fernández",
+    });
     usePathname.mockReturnValue("/");
     useIsMobile.mockReturnValue(true);
   });
@@ -78,7 +93,7 @@ describe("AppSidebar on a phone", () => {
    * THEN the drawer stays open, so nothing animates while the request is in flight
    */
   it("keeps the drawer open until the navigation lands", async () => {
-    renderOpenDrawer();
+    await renderOpenDrawer();
 
     expect(await screen.findByRole("dialog")).toBeVisible();
 
@@ -93,13 +108,13 @@ describe("AppSidebar on a phone", () => {
    * THEN the drawer is dismissed
    */
   it("dismisses the drawer once the route has changed", async () => {
-    const { rerender } = renderOpenDrawer();
+    const { rerender } = await renderOpenDrawer();
 
     expect(await screen.findByRole("dialog")).toBeVisible();
 
     usePathname.mockReturnValue("/fixtures");
 
-    rerender(shell());
+    rerender(await shell());
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
@@ -110,13 +125,13 @@ describe("AppSidebar on a phone", () => {
    * THEN the marker that suppressed the exit animation has been cleared
    */
   it("leaves no dismissal marker behind", async () => {
-    const { rerender } = renderOpenDrawer();
+    const { rerender } = await renderOpenDrawer();
 
     expect(await screen.findByRole("dialog")).toBeVisible();
 
     usePathname.mockReturnValue("/account");
 
-    rerender(shell());
+    rerender(await shell());
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 

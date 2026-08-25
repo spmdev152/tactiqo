@@ -164,7 +164,10 @@ class Fixture(models.Model):
         fixture listing issues.
     status : str
         Lifecycle stage of the match in the platform's own vocabulary, one of
-        ``FixtureStatus``. Deliberately unindexed: nothing filters on it yet.
+        ``FixtureStatus``. Deliberately unindexed although the admin change list
+        filters on it: five distinct values over a season of a few thousand rows
+        select too large a fraction of the table for an index to beat the
+        sequential scan the planner would prefer anyway.
     home_goals : int or None
         Goals the home club has scored, ``None`` until the match produces a
         score. A check constraint pairs it with ``away_goals``.

@@ -1,6 +1,11 @@
+import logging
+
 from django.contrib import admin
+from django.http import HttpRequest
 
 from apps.fixtures.models import Fixture, League, Team
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(League)
@@ -14,6 +19,10 @@ class LeagueAdmin(admin.ModelAdmin):
     provider, so the next run inserts a duplicate, or point it at another
     competition whose values the next run then overwrites.
 
+    The add form follows from that. The task owns every row, and a hand-added
+    one could carry no provider identity at all, since the column is not null
+    and the form that would supply it is the one being refused.
+
     Attributes
     ----------
     list_display : tuple of str
@@ -25,12 +34,36 @@ class LeagueAdmin(admin.ModelAdmin):
         Ordering of the change list.
     readonly_fields : tuple of str
         Fields the synchronization task owns, shown but not editable.
+
+    Methods
+    -------
+    has_add_permission(request) -> bool
+        Refuse the creation of a competition through the admin.
     """
 
     list_display = ("name", "short_code", "country_name", "sportmonks_id")
     search_fields = ("name", "country_name")
     ordering = ("name",)
     readonly_fields = ("sportmonks_id",)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """
+        Refuse the creation of a competition through the admin.
+
+        Parameters
+        ----------
+        request : HttpRequest
+            Admin request the permission is evaluated for.
+
+        Returns
+        -------
+        bool
+            Always ``False``: the synchronization task writes every row.
+        """
+
+        logger.debug("Withheld the competition add form from %s", request.user)
+
+        return False
 
 
 @admin.register(Team)
@@ -41,7 +74,8 @@ class TeamAdmin(admin.ModelAdmin):
     ``sportmonks_id`` is read-only for the reason given on ``LeagueAdmin``: the
     synchronization task writes every row and matches it on that identifier, so
     editing it only makes the next run insert a duplicate or overwrite the
-    wrong club.
+    wrong club. The add form is refused for the same reason, and because a club
+    typed in by hand would have no provider identity to be matched on.
 
     Attributes
     ----------
@@ -54,12 +88,36 @@ class TeamAdmin(admin.ModelAdmin):
         Ordering of the change list.
     readonly_fields : tuple of str
         Fields the synchronization task owns, shown but not editable.
+
+    Methods
+    -------
+    has_add_permission(request) -> bool
+        Refuse the creation of a club through the admin.
     """
 
     list_display = ("name", "short_code", "sportmonks_id")
     search_fields = ("name", "short_code")
     ordering = ("name",)
     readonly_fields = ("sportmonks_id",)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """
+        Refuse the creation of a club through the admin.
+
+        Parameters
+        ----------
+        request : HttpRequest
+            Admin request the permission is evaluated for.
+
+        Returns
+        -------
+        bool
+            Always ``False``: the synchronization task writes every row.
+        """
+
+        logger.debug("Withheld the club add form from %s", request.user)
+
+        return False
 
 
 @admin.register(Fixture)
@@ -71,7 +129,11 @@ class FixtureAdmin(admin.ModelAdmin):
     synchronization task owns both: the identifier is the natural key the run
     matches a row on, and the instant is the record of when that run happened,
     so an edited value is either undone by the next run or a lie about the
-    freshness of provider-sourced data.
+    freshness of provider-sourced data. Both columns are also not null and carry
+    no default, which is why the add form is refused rather than made to accept
+    them: making them editable would contradict the reason they are read-only,
+    and a fixture invented in the admin would be deleted by the next run
+    reconciling its window anyway.
 
     Attributes
     ----------
@@ -90,7 +152,13 @@ class FixtureAdmin(admin.ModelAdmin):
     date_hierarchy : str
         Field the change list drill-down by year, month, and day walks.
     ordering : tuple of str
-        Ordering of the change list.
+        Ordering of the change list, earliest kick-off first and broken by
+        primary key, which is the model's own ordering. Naming the tiebreak is
+        what keeps the two agreeing: fixture kick-offs are heavily tied, and a
+        change list ordered on ``kickoff_at`` alone is not left non-deterministic
+        but silently completed, because Django appends ``-pk`` to any ordering
+        that no unique column settles. An operator would then read tied matches
+        in the reverse of the order the model and the public listing put them in.
     list_select_related : tuple of str
         Relations joined into the change list query, which a day of around
         fifty rows displaying three related names each cannot do without: read
@@ -103,6 +171,11 @@ class FixtureAdmin(admin.ModelAdmin):
         otherwise load every competition and every club into the change form.
     readonly_fields : tuple of str
         Fields the synchronization task owns, shown but not editable.
+
+    Methods
+    -------
+    has_add_permission(request) -> bool
+        Refuse the creation of a fixture through the admin.
     """
 
     list_display = (
@@ -120,7 +193,26 @@ class FixtureAdmin(admin.ModelAdmin):
 
     search_fields = ("home_team__name", "away_team__name", "league__name")
     date_hierarchy = "kickoff_at"
-    ordering = ("kickoff_at",)
+    ordering = ("kickoff_at", "id")
     list_select_related = ("league", "home_team", "away_team")
     autocomplete_fields = ("league", "home_team", "away_team")
     readonly_fields = ("sportmonks_id", "synchronized_at")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """
+        Refuse the creation of a fixture through the admin.
+
+        Parameters
+        ----------
+        request : HttpRequest
+            Admin request the permission is evaluated for.
+
+        Returns
+        -------
+        bool
+            Always ``False``: the synchronization task writes every row.
+        """
+
+        logger.debug("Withheld the fixture add form from %s", request.user)
+
+        return False

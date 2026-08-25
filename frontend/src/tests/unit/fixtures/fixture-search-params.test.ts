@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  fixtureScopeKey,
   localDateToUtcDay,
   parseUtcDay,
   resolveLeagueIds,
@@ -137,5 +138,50 @@ describe("resolveLeagueIds", () => {
     expect(resolveLeagueIds("1.5")).toEqual([]);
     expect(resolveLeagueIds("premier-league")).toEqual([]);
     expect(resolveLeagueIds(["1", "nope", "2"])).toEqual([1, 2]);
+  });
+});
+
+describe("fixtureScopeKey", () => {
+  /**
+   * GIVEN identifiers a lexicographic sort would order as 10 before 9
+   * WHEN the scope key is built
+   * THEN they are ordered numerically, so the key does not depend on the default sort
+   */
+  it("orders the identifiers numerically", () => {
+    expect(fixtureScopeKey("2026-08-29", [9, 10, 2])).toBe("2026-08-29|2,9,10");
+  });
+
+  /**
+   * GIVEN the same competitions staged in two different orders
+   * WHEN both scope keys are built
+   * THEN they are identical, so choosing order cannot look like a new scope
+   */
+  it("names one scope whatever order it was chosen in", () => {
+    expect(fixtureScopeKey("2026-08-29", [10, 2])).toBe(
+      fixtureScopeKey("2026-08-29", [2, 10]),
+    );
+  });
+
+  /**
+   * GIVEN a day carrying no competition filter
+   * WHEN the scope key is built
+   * THEN it still differs from the same day filtered to a competition
+   */
+  it("separates an unfiltered day from a filtered one", () => {
+    expect(fixtureScopeKey("2026-08-29", [])).toBe("2026-08-29|");
+    expect(fixtureScopeKey("2026-08-29", [2])).toBe("2026-08-29|2");
+  });
+
+  /**
+   * GIVEN the identifiers the caller holds
+   * WHEN the scope key is built
+   * THEN the caller's own list is left in its original order
+   */
+  it("leaves the caller's list alone", () => {
+    const leagueIds = [10, 2];
+
+    fixtureScopeKey("2026-08-29", leagueIds);
+
+    expect(leagueIds).toEqual([10, 2]);
   });
 });

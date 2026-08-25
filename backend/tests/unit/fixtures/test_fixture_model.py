@@ -2,9 +2,8 @@ import pytest
 from django.db import IntegrityError
 
 from apps.fixtures.domain.enums import FixtureStatus
-from apps.fixtures.infrastructure.repositories import upsert_fixtures
 from apps.fixtures.models import Fixture, League, Team
-from tests.unit.fixtures.conftest import SYNCHRONIZED_AT, kickoff, provider_fixture
+from tests.unit.fixtures.conftest import SYNCHRONIZED_AT, kickoff, provider_fixture, store_window
 
 
 def store_bare_fixture() -> Fixture:
@@ -60,7 +59,7 @@ def test_the_database_refuses_one_goal_column_without_the_other() -> None:
     THEN the database refuses the row rather than storing half a score
     """
 
-    upsert_fixtures([provider_fixture(1, kickoff(11, 30))], SYNCHRONIZED_AT)
+    store_window([provider_fixture(1, kickoff(11, 30))])
 
     stored = Fixture.objects.get()
 

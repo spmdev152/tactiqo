@@ -41,12 +41,29 @@ describe("LeagueFlag", () => {
   /**
    * GIVEN a competition with no published flag
    * WHEN the chip is rendered
-   * THEN nothing is rendered, rather than an image with no source
+   * THEN the box is kept as a neutral chip, rather than collapsed or requested
    */
-  it("renders nothing without a published flag", () => {
+  it("keeps the box without a published flag", () => {
     const { container } = render(<LeagueFlag league={NOWHERE} />);
 
+    const placeholder = container.firstElementChild;
+
     expect(container.querySelector("img")).toBeNull();
+    expect(placeholder).toHaveClass("h-3.5", "w-5", "bg-muted");
+    expect(placeholder).toHaveAttribute("aria-hidden", "true");
+  });
+
+  /**
+   * GIVEN a competition with no published flag shown in a group heading
+   * WHEN the chip is rendered at the heading's size
+   * THEN the placeholder takes that size too, so no group heading shifts
+   */
+  it("sizes the neutral chip like the flag it stands in for", () => {
+    const { container } = render(
+      <LeagueFlag className="h-[17px] w-6" league={NOWHERE} />,
+    );
+
+    expect(container.firstElementChild).toHaveClass("h-[17px]", "w-6");
   });
 
   /**

@@ -12,13 +12,16 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
+import { requireUser } from "@/features/auth/server/require-user";
 
 /**
  * Renders the navigation shell of the authenticated application.
  *
  * @remarks
- * A Server Component wrapping one client leaf. The brand and the sign-out form
- * are rendered on the server, so both keep working before hydration.
+ * A Server Component wrapping several client leaves: the sidebar primitives
+ * themselves, the navigation and the account entry, which both mark the current
+ * route, and the sign-out submit. The brand and the sign-out form are rendered
+ * on the server, so both keep working before hydration.
  *
  * The sidebar collapses to icons rather than off-canvas, so navigation survives
  * a collapse on a laptop instead of disappearing behind the trigger. Every
@@ -31,14 +34,20 @@ import { SignOutButton } from "@/features/auth/components/sign-out-button";
  * grow and no animation runs while a request is in flight.
  *
  * The footer holds what belongs to the session rather than to the platform: the
- * account the visitor is signed in as, and the control that ends it. The
- * signed-in address itself lives on the account page, because a sidebar this
- * narrow truncates an e-mail address to the point of uselessness and a
- * collapsed sidebar cannot show it at all.
+ * account the visitor is signed in as, stated as the address itself, and the
+ * control that ends it. `SidebarAccountLink` owns the truncation that a sidebar
+ * this narrow forces on an address.
+ *
+ * Resolving the session here costs no second round trip. `getCurrentUser` is
+ * memoized per request with React `cache`, so this call and the shell layout's
+ * own gate share one answer, and asking again rather than taking the user as a
+ * prop keeps the sidebar renderable from any authenticated layout.
  *
  * @returns The sidebar tree.
  */
-export function AppSidebar() {
+export async function AppSidebar() {
+  const user = await requireUser();
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -53,7 +62,7 @@ export function AppSidebar() {
 
       <SidebarFooter>
         <SidebarMenu className="gap-1.5">
-          <SidebarAccountLink />
+          <SidebarAccountLink email={user.email} />
 
           <SidebarMenuItem>
             <SignOutButton />

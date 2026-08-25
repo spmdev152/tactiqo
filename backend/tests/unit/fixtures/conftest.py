@@ -1,11 +1,22 @@
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 
 from apps.fixtures.domain.enums import FixtureStatus
-from integrations.sportmonks.fixtures import ProviderFixture, ProviderLeague, ProviderTeam
+from apps.fixtures.infrastructure.repositories import upsert_fixtures
+from integrations.sportmonks.fixtures import (
+    ProviderFixture,
+    ProviderLeague,
+    ProviderTeam,
+    ProviderWindow,
+)
 
 DAY = date(2026, 8, 29)
 
 SYNCHRONIZED_AT = datetime(2026, 8, 25, 6, 0, tzinfo=UTC)
+
+WINDOW_START = date(2026, 8, 23)
+
+WINDOW_END = date(2026, 9, 8)
 
 PREMIER_LEAGUE = ProviderLeague(
     provider_id=8,
@@ -125,3 +136,68 @@ def provider_fixture(
         home_goals=home_goals,
         away_goals=away_goals,
     )
+
+
+def provider_window(
+    provider_fixtures: Sequence[ProviderFixture],
+    leagues: Sequence[ProviderLeague] | None = None,
+) -> ProviderWindow:
+    """
+    Build a provider window without contacting the provider.
+
+    Parameters
+    ----------
+    provider_fixtures : Sequence of ProviderFixture
+        Fixtures the window carries, in the order the provider listed them.
+    leagues : Sequence of ProviderLeague or None
+        Subscribed competitions the window carries. ``None`` derives them from
+        the fixtures, which is what a window whose every subscribed competition
+        schedules a match looks like.
+
+    Returns
+    -------
+    ProviderWindow
+        Window shaped exactly as the Sportmonks boundary yields one.
+    """
+
+    if leagues is None:
+        leagues = [provider_fixture.league for provider_fixture in provider_fixtures]
+
+    return ProviderWindow(
+        leagues={league.provider_id: league for league in leagues},
+        fixtures=list(provider_fixtures),
+    )
+
+
+def store_window(
+    provider_fixtures: Sequence[ProviderFixture],
+    synchronized_at: datetime = SYNCHRONIZED_AT,
+    *,
+    leagues: Sequence[ProviderLeague] | None = None,
+    start: date = WINDOW_START,
+    end: date = WINDOW_END,
+) -> int:
+    """
+    Store a provider window over the range a scheduled run reads.
+
+    Parameters
+    ----------
+    provider_fixtures : Sequence of ProviderFixture
+        Fixtures the window carries.
+    synchronized_at : datetime
+        Instant stamped on every fixture the call writes.
+    leagues : Sequence of ProviderLeague or None
+        Subscribed competitions the window carries, derived from the fixtures
+        when ``None``.
+    start : date
+        First calendar day the window covers.
+    end : date
+        Last calendar day the window covers, included in the range.
+
+    Returns
+    -------
+    int
+        Number of distinct fixtures written.
+    """
+
+    return upsert_fixtures(provider_window(provider_fixtures, leagues), start, end, synchronized_at)

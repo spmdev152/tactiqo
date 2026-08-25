@@ -9,14 +9,24 @@ const LEAGUES_PATH = "/leagues";
 
 const LEAGUES_TIMEOUT_MS = 5_000;
 
+const UNSENDABLE_REASON = "The competitions request could not be sent.";
+
+const UNCONFIGURED_LOG =
+  "BACKEND_API_BASE_URL is not configured; the competitions request was not attempted.";
+
 /**
  * Reads the competitions the platform covers.
  *
  * @remarks
  * Never throws. The competition filter is one control on a page whose subject
- * is the fixture list, so an unreachable API has to disable that control rather
- * than take the route down with it; every failure is therefore normalized into
- * the unavailable branch of {@link LeaguesResult}.
+ * is the fixture list, so an unreachable API has to state that control's
+ * unavailability rather than take the route down with it; every failure is
+ * therefore normalized into the unavailable branch of {@link LeaguesResult}.
+ *
+ * Every reason reaches the visitor, so none of them names a server-side
+ * variable. A misconfigured deployment is reported to the operator through the
+ * server log, where the name of the missing variable is useful, and to the
+ * visitor as a request that could not be sent, which is all they can act on.
  *
  * `cache: "no-store"` even though the league list barely changes. The request
  * is authenticated, and a cached response would be a response to one visitor's
@@ -29,9 +39,11 @@ export async function getLeagues(): Promise<LeaguesResult> {
   const baseUrl = getBackendApiBaseUrl();
 
   if (baseUrl === null) {
+    console.error(UNCONFIGURED_LOG);
+
     return {
       loaded: false,
-      reason: "BACKEND_API_BASE_URL is not configured for this environment.",
+      reason: UNSENDABLE_REASON,
     };
   }
 

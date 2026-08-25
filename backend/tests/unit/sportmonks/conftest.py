@@ -27,6 +27,11 @@ def provider_base_url(api_token: str) -> Iterator[str]:
     """
     Point the boundary at a stub provider reachable only through a transport.
 
+    Parameters
+    ----------
+    api_token : str
+        Generated token the boundary is configured with.
+
     Yields
     ------
     str
@@ -41,6 +46,11 @@ def provider_base_url(api_token: str) -> Iterator[str]:
 def sleeps(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[float]]:
     """
     Record every backoff delay instead of waiting it out.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Patcher replacing the standard-library sleep for the test.
 
     Yields
     ------
