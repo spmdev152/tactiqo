@@ -12,6 +12,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 /**
@@ -35,19 +36,25 @@ const NAVIGATION_ENTRIES: readonly NavigationEntry[] = [
  * Renders the primary navigation of the application sidebar.
  *
  * @remarks
- * The one client leaf of the shell, because marking the current entry needs
- * `usePathname` and nothing else in the sidebar needs the browser. Keeping the
- * boundary here leaves the header, the footer and the sign-out form on the
- * server.
+ * A client leaf, because marking the current entry needs `usePathname` and
+ * dismissing the drawer needs the sidebar context. Keeping the boundary here
+ * leaves the header and the footer's own form on the server.
  *
  * A nested route marks its section current, which is why the match is a prefix
  * rather than an equality. The root is the exception: every path starts with
  * `/`, so a prefix match there would light up the whole menu at once.
  *
+ * Choosing an entry dismisses the mobile drawer. On a phone the sidebar covers
+ * the page it navigates to, so leaving it open would hide the answer to the
+ * click that opened it. It is dismissed rather than unmounted, which is what
+ * lets the sheet play its exit animation.
+ *
  * @returns The navigation group.
  */
 export function SidebarNavigation() {
   const pathname = usePathname();
+
+  const { setOpenMobile } = useSidebar();
 
   return (
     <SidebarGroup>
@@ -66,7 +73,7 @@ export function SidebarNavigation() {
                 }
                 tooltip={entry.label}
               >
-                <Link href={entry.href}>
+                <Link href={entry.href} onClick={() => setOpenMobile(false)}>
                   <entry.icon />
                   <span>{entry.label}</span>
                 </Link>
