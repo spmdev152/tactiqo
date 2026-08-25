@@ -2,7 +2,7 @@ import datetime
 import logging
 from http import HTTPStatus
 
-from ninja import Router, Status
+from ninja import P, QueryEx, Router, Status
 
 from apps.accounts.api.security import AuthenticatedRequest, SessionTokenAuth
 from apps.fixtures.api.schemas import FixtureResponse, LeagueResponse
@@ -51,10 +51,15 @@ def read_leagues(request: AuthenticatedRequest) -> Status[list[LeagueResponse]]:
     summary="List the fixtures kicking off on a UTC calendar day",
 )
 def read_fixtures(
-    request: AuthenticatedRequest, date: datetime.date, league_id: int | None = None
+    request: AuthenticatedRequest,
+    date: datetime.date,
+    league_id: QueryEx[list[int], P(default_factory=list)],
 ) -> Status[list[FixtureResponse]]:
     """
-    Return the fixtures of one UTC calendar day, optionally within one league.
+    Return the fixtures of one UTC calendar day, optionally within some leagues.
+
+    A competition repeated in the query string is collapsed to one identifier,
+    so repeating it cannot widen the ``IN`` clause the listing generates.
 
     Parameters
     ----------
@@ -63,9 +68,11 @@ def read_fixtures(
     date : date
         Calendar day, interpreted in UTC, whose fixtures are wanted. An
         unparseable value is rejected with HTTP 422.
-    league_id : int or None
-        Primary key of a competition to narrow the day to, or ``None`` for every
-        competition.
+    league_id : list of int
+        Primary keys of the competitions to narrow the day to, repeated once per
+        competition in the query string. An absent parameter binds to the empty
+        list and asks for every competition; a value that is not an integer is
+        rejected with HTTP 422.
 
     Returns
     -------
@@ -75,6 +82,10 @@ def read_fixtures(
 
     logger.debug("Listing fixtures on %s for %s.", date.isoformat(), request.auth.email)
 
-    fixtures = [FixtureResponse.from_orm(fixture) for fixture in list_fixtures_on(date, league_id)]
+    requested_leagues = list(dict.fromkeys(league_id))
+
+    fixtures = [
+        FixtureResponse.from_orm(fixture) for fixture in list_fixtures_on(date, requested_leagues)
+    ]
 
     return Status(HTTPStatus.OK, fixtures)

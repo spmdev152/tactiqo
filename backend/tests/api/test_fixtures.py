@@ -101,6 +101,26 @@ def store_la_liga() -> League:
     )
 
 
+def store_serie_a() -> League:
+    """
+    Persist Serie A, the third competition the multi-select tests need.
+
+    Returns
+    -------
+    League
+        Stored competition.
+    """
+
+    return League.objects.create(
+        sportmonks_id=384,
+        name="Serie A",
+        short_code="IT SA",
+        logo_url="https://cdn.example.test/leagues/384.png",
+        country_name="Italy",
+        country_flag_url="https://cdn.example.test/countries/it.png",
+    )
+
+
 def store_team(sportmonks_id: int, name: str, short_code: str) -> Team:
     """
     Persist a club.
@@ -161,6 +181,42 @@ def store_fixture(
         kickoff_at=kickoff_at,
         synchronized_at=SYNCHRONIZED_AT,
     )
+
+
+def store_three_competitions() -> list[Fixture]:
+    """
+    Persist one fixture of the requested day in each of three competitions.
+
+    The three kick off in ascending order, so the returned order is the order
+    the endpoint lists them in and a narrowed listing keeps the same relative
+    order.
+
+    Returns
+    -------
+    list of Fixture
+        Stored fixtures, each carrying the competition it belongs to.
+    """
+
+    premier_league = store_premier_league()
+    la_liga = store_la_liga()
+    serie_a = store_serie_a()
+
+    liverpool = store_team(8, "Liverpool", "LIV")
+    nottingham_forest = store_team(63, "Nottingham Forest", "NFO")
+    barcelona = store_team(83, "Barcelona", "BAR")
+    sevilla = store_team(1, "Sevilla", "SEV")
+    juventus = store_team(625, "Juventus", "JUV")
+    napoli = store_team(268, "Napoli", "NAP")
+
+    english = store_fixture(
+        1, premier_league, liverpool, nottingham_forest, datetime(2026, 8, 29, 11, 30, tzinfo=UTC)
+    )
+
+    spanish = store_fixture(2, la_liga, barcelona, sevilla, datetime(2026, 8, 29, 14, tzinfo=UTC))
+
+    italian = store_fixture(3, serie_a, juventus, napoli, datetime(2026, 8, 29, 17, tzinfo=UTC))
+
+    return [english, spanish, italian]
 
 
 @pytest.mark.django_db
@@ -344,6 +400,106 @@ def test_fixtures_narrows_the_day_to_one_league(
 
 
 @pytest.mark.django_db
+def test_fixtures_returns_every_competition_without_a_league_filter(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN one fixture of the requested day in each of three competitions
+    WHEN the day is requested with no competition
+    THEN every competition's fixture comes back
+    """
+
+    english, spanish, italian = store_three_competitions()
+
+    token = bearer_token(api_post, user, user_password)
+
+    response = api_get(f"{FIXTURES_URL}?date={DAY}", token=token)
+
+    assert response.status_code == HTTPStatus.OK
+
+    listed = json_list(response.json())
+
+    assert [fixture["id"] for fixture in listed] == [english.pk, spanish.pk, italian.pk]
+
+
+@pytest.mark.django_db
+def test_fixtures_narrows_the_day_to_several_leagues(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN one fixture of the requested day in each of three competitions
+    WHEN the day is requested for two of them
+    THEN exactly those two fixtures come back and the third is left out
+    """
+
+    _english, spanish, italian = store_three_competitions()
+
+    token = bearer_token(api_post, user, user_password)
+
+    response = api_get(
+        f"{FIXTURES_URL}?date={DAY}&league_id={spanish.league.pk}&league_id={italian.league.pk}",
+        token=token,
+    )
+
+    assert response.status_code == HTTPStatus.OK
+
+    listed = json_list(response.json())
+
+    assert [fixture["id"] for fixture in listed] == [spanish.pk, italian.pk]
+
+
+@pytest.mark.django_db
+def test_fixtures_collapses_a_repeated_league(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN one fixture of the requested day in each of three competitions
+    WHEN the day is requested for one competition named twice
+    THEN the listing matches the one that competition named once produces
+    """
+
+    _english, spanish, _italian = store_three_competitions()
+
+    token = bearer_token(api_post, user, user_password)
+
+    repeated = api_get(
+        f"{FIXTURES_URL}?date={DAY}&league_id={spanish.league.pk}&league_id={spanish.league.pk}",
+        token=token,
+    )
+
+    assert repeated.status_code == HTTPStatus.OK
+
+    assert [fixture["id"] for fixture in json_list(repeated.json())] == [spanish.pk]
+
+
+@pytest.mark.django_db
+def test_fixtures_returns_an_empty_day_for_an_unknown_league(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN a stored fixture of the requested day and an unused competition key
+    WHEN the day is requested for that competition
+    THEN the API answers with an empty list rather than an error
+    """
+
+    premier_league = store_premier_league()
+
+    liverpool = store_team(8, "Liverpool", "LIV")
+    nottingham_forest = store_team(63, "Nottingham Forest", "NFO")
+
+    store_fixture(
+        1, premier_league, liverpool, nottingham_forest, datetime(2026, 8, 29, 11, 30, tzinfo=UTC)
+    )
+
+    token = bearer_token(api_post, user, user_password)
+
+    response = api_get(f"{FIXTURES_URL}?date={DAY}&league_id={premier_league.pk + 1}", token=token)
+
+    assert response.status_code == HTTPStatus.OK
+    assert json_list(response.json()) == []
+
+
+@pytest.mark.django_db
 def test_fixtures_selects_the_day_by_its_utc_calendar_boundary(
     api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
 ) -> None:
@@ -406,6 +562,23 @@ def test_fixtures_rejects_an_unparseable_day(
     token = bearer_token(api_post, user, user_password)
 
     response = api_get(f"{FIXTURES_URL}?date=not-a-date", token=token)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.django_db
+def test_fixtures_rejects_a_league_that_is_not_an_integer(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN an authenticated client asking for a competition that is not a number
+    WHEN the fixture listing is requested
+    THEN the API answers unprocessable entity instead of ignoring the value
+    """
+
+    token = bearer_token(api_post, user, user_password)
+
+    response = api_get(f"{FIXTURES_URL}?date={DAY}&league_id=not-a-number", token=token)
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 

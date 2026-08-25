@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
 
 from apps.fixtures.models import Fixture, League
@@ -20,7 +21,7 @@ def list_leagues() -> list[League]:
     return list(League.objects.all())
 
 
-def list_fixtures_on(day: date, league_id: int | None) -> list[Fixture]:
+def list_fixtures_on(day: date, league_ids: Sequence[int]) -> list[Fixture]:
     """
     Return the fixtures kicking off on a UTC calendar day.
 
@@ -30,9 +31,10 @@ def list_fixtures_on(day: date, league_id: int | None) -> list[Fixture]:
         Calendar day, interpreted in UTC, whose fixtures are wanted. A fixture
         kicking off exactly at midnight belongs to the day that opens, not to
         the one that closes.
-    league_id : int or None
-        Primary key of a competition to narrow the day to, or ``None`` for every
-        competition.
+    league_ids : sequence of int
+        Primary keys of the competitions the day is narrowed to. An empty
+        sequence asks for every competition, so no filter is a single state
+        rather than one split between an absent value and an empty one.
 
     Returns
     -------
@@ -47,7 +49,7 @@ def list_fixtures_on(day: date, league_id: int | None) -> list[Fixture]:
         kickoff_at__gte=day_starts_at, kickoff_at__lt=day_starts_at + timedelta(days=1)
     )
 
-    if league_id is not None:
-        fixtures = fixtures.filter(league_id=league_id)
+    if league_ids:
+        fixtures = fixtures.filter(league_id__in=league_ids)
 
     return list(fixtures)
