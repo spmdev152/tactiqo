@@ -13,14 +13,6 @@ import {
 } from "@/features/fixtures/domain/fixture-search-params";
 import { getLeagues } from "@/features/fixtures/server/get-leagues";
 
-const DAY_HEADING_FORMAT = new Intl.DateTimeFormat("en-GB", {
-  weekday: "long",
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
 /**
  * Opts the route out of prerendering.
  *
@@ -58,12 +50,14 @@ interface FixturesPageProps {
  * that stays inside it, so a page that reached the shell once would keep
  * rendering after its session was revoked.
  *
- * Only the fixture query is deferred. The heading and both controls are
- * resolved from the URL and the competition list, so they render immediately
- * and stay on screen while a new day loads behind a `Suspense` boundary keyed
- * to the scope. A whole-page loading state used to replace them with a
- * shimmer, which meant covering text that was already correct and jumping the
- * toolbar the moment the rows arrived.
+ * Only the fixture query is deferred. The label and both controls resolve
+ * without it, so they render immediately and stay on screen while a new day
+ * loads behind a `Suspense` boundary keyed to the scope. A whole-page loading
+ * state used to replace them with a shimmer, which meant covering text that was
+ * already correct and jumping the toolbar the moment the rows arrived.
+ *
+ * The chosen day is stated once, by the picker itself. A heading repeating it
+ * cost a line of the viewport to say what the control beside it already said.
  *
  * The day and the competition are URL state and nothing else, which is what
  * makes a view linkable and lets it survive a reload. The two controls navigate
@@ -88,29 +82,19 @@ export default async function FixturesPage({
   const leagues = await getLeagues();
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
-      <header className="flex flex-col gap-3">
-        <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
-          Fixtures
-        </p>
-
-        <h1 className="font-display text-4xl leading-[0.95] font-bold tracking-tight uppercase">
-          {DAY_HEADING_FORMAT.format(new Date(`${day}T00:00:00Z`))}
-        </h1>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
+      <h1 className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
+        Fixtures
+      </h1>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <FixturesDatePicker selectedDay={day} />
 
           <LeagueSelect
             leagues={leagues.loaded ? leagues.leagues : []}
             selectedLeagueId={leagueId}
           />
-
-          <span className="font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground uppercase sm:ml-auto">
-            Kick-off times in UTC
-          </span>
         </div>
 
         <Suspense fallback={<FixtureListSkeleton />} key={`${day}|${leagueId}`}>

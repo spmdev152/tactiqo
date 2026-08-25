@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useTransition } from "react";
 
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -59,18 +59,28 @@ export interface FixturesDatePickerProps {
  * Leaving the calendar at its natural size hung a 212px month under a 240px
  * control on a laptop and under a full-width one on a phone.
  *
- * The trigger label is formatted in UTC to match the day the URL names, so the
- * control and the heading below it cannot disagree west of Greenwich.
+ * The trigger label is formatted in UTC to match the day the URL names, so it
+ * cannot disagree with the kick-off times below it west of Greenwich. It is
+ * also the only place the chosen day is stated.
  *
  * The existing query is copied before `date` is replaced, so choosing a day
  * keeps the chosen competition instead of quietly widening the list back to
  * every league.
+ *
+ * The navigation runs inside a transition. Without one, React commits the
+ * pending state before the replacement page is ready and the control repaints
+ * against a half-rendered tree, which is the flash a visitor sees on picking a
+ * day. A transition keeps the current tree on screen until the new one is
+ * ready, while the fixture list still shows its skeleton, because its boundary
+ * is keyed to the scope and therefore mounts fresh rather than being reused.
  *
  * @returns The day picker.
  */
 export function FixturesDatePicker({ selectedDay }: FixturesDatePickerProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const [, startTransition] = useTransition();
 
   const [open, setOpen] = useState(false);
 
@@ -83,7 +93,10 @@ export function FixturesDatePicker({ selectedDay }: FixturesDatePickerProps) {
       next.set(FIXTURE_DATE_PARAMETER, localDateToUtcDay(day));
 
       setOpen(false);
-      router.push(`?${next.toString()}`, { scroll: false });
+
+      startTransition(() => {
+        router.push(`?${next.toString()}`, { scroll: false });
+      });
     },
     [router, searchParams],
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useTransition } from "react";
 
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -116,11 +116,24 @@ export interface LeagueSelectProps {
  * The existing query is copied before `league` is replaced, so changing
  * competition keeps the chosen day.
  *
+ * The list is positioned below the trigger and pinned to its width. The
+ * primitive's default aligns the selected option over the trigger instead,
+ * which overlaps the control it belongs to and leaves the list free to size
+ * itself to its widest option. That default also suppresses the open
+ * animation, which is a second reason to leave it.
+ *
+ * The navigation runs inside a transition. Without one, React commits the
+ * pending state before the replacement page is ready and the control repaints
+ * against a half-rendered tree, which is the flash a visitor sees on choosing a
+ * competition.
+ *
  * @returns The competition filter.
  */
 export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const [, startTransition] = useTransition();
 
   const handleValueChange = useCallback(
     (value: string) => {
@@ -132,7 +145,9 @@ export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
         next.set(FIXTURE_LEAGUE_PARAMETER, value);
       }
 
-      router.push(`?${next.toString()}`, { scroll: false });
+      startTransition(() => {
+        router.push(`?${next.toString()}`, { scroll: false });
+      });
     },
     [router, searchParams],
   );
@@ -161,7 +176,10 @@ export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
         </SelectValue>
       </SelectTrigger>
 
-      <SelectContent>
+      <SelectContent
+        className="w-(--radix-select-trigger-width)"
+        position="popper"
+      >
         <SelectItem value={ALL_COMPETITIONS_VALUE}>
           <AllCompetitionsLabel />
         </SelectItem>

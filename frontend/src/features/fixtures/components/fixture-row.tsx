@@ -102,14 +102,17 @@ export interface FixtureRowProps {
  * Renders one match: both sides, the kick-off time and the competition.
  *
  * @remarks
- * The kick-off is formatted in UTC on the server, and the surrounding toolbar
- * says so. This is a deliberate trade rather than an omission. The visitor's
- * timezone is not knowable while rendering on the server, so the alternatives
- * are to guess one, which is wrong for most visitors and silently so, or to
- * render a placeholder and correct it after hydration, which flashes the wrong
- * time and produces a server/client mismatch on every fixture in the list. One
- * stated timezone that every visitor reads the same way is the honest option,
- * and it also keeps the row renderable on the server.
+ * The kick-off is formatted in UTC on the server. The visitor's timezone is not
+ * knowable while rendering there, so the alternatives are to guess one, which is
+ * wrong for most visitors and silently so, or to render a placeholder and
+ * correct it after hydration, which flashes the wrong time and mismatches on
+ * every row of the list. One timezone every visitor reads the same way is the
+ * honest option, and it keeps the row renderable on the server.
+ *
+ * The zone is no longer written beside the list, so the only statement of it is
+ * the machine-readable `dateTime` each row carries. Resolving it properly needs
+ * the visitor's own zone, which needs a stored preference and a product
+ * decision; until then the displayed time is UTC and unlabelled.
  *
  * Every cell flanking the two sides has a fixed width: the kick-off, and the
  * competition on both widths. The two sides then split what is left evenly, so
