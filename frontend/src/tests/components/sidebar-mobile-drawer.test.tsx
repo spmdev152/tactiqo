@@ -86,4 +86,19 @@ describe("AppSidebar on a phone", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
+
+  /**
+   * GIVEN the sidebar opened as a drawer on a phone
+   * WHEN the brand is used to return to the landing route
+   * THEN the drawer dismisses itself, as every other link in it does
+   */
+  it("dismisses the drawer when the brand is used", async () => {
+    renderOpenDrawer();
+
+    expect(await screen.findByRole("dialog")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("link", { name: "tactiqo" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
 });

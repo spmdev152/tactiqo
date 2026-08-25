@@ -1,8 +1,6 @@
-import Link from "next/link";
-
 import { SidebarAccountLink } from "@/components/sidebar-account-link";
+import { SidebarBrand } from "@/components/sidebar-brand";
 import { SidebarNavigation } from "@/components/sidebar-navigation";
-import { TactiqoWordmark } from "@/components/tactiqo-wordmark";
 import {
   Sidebar,
   SidebarContent,
@@ -19,21 +17,17 @@ import { SignOutButton } from "@/features/auth/components/sign-out-button";
  * Renders the navigation shell of the authenticated application.
  *
  * @remarks
- * A Server Component wrapping two client leaves. The sign-out form is rendered
- * on the server, so it keeps working before hydration.
+ * A Server Component wrapping three client leaves. The sign-out form is
+ * rendered on the server, so it keeps working before hydration.
  *
  * The sidebar collapses to icons rather than off-canvas, so navigation survives
  * a collapse on a laptop instead of disappearing behind the trigger. Every
- * element that carries text therefore has an icon-mode counterpart. The brand
- * mark and the wordmark swap places rather than sitting side by side, since a
- * mark repeating the initial of the word next to it says nothing twice; the
- * mark is set in the same typeface as the wordmark so the swap reads as one
- * brand rather than two. The wordmark turns screen-reader-only rather than
- * being removed, which would leave the link with no accessible name at all.
+ * element that carries text therefore has an icon-mode counterpart, which each
+ * leaf owns for itself.
  *
- * Only the desktop sidebar carries the `group` those variants key off, so the
- * mobile sheet keeps the wordmark at its full width, which is what it has room
- * for.
+ * Every link the sidebar offers dismisses the mobile drawer, which is why the
+ * brand is a leaf of its own rather than markup here: it navigates, so it needs
+ * the sidebar context that only a client component can read.
  *
  * The footer holds what belongs to the session rather than to the platform: the
  * account the visitor is signed in as, and the control that ends it. The
@@ -47,19 +41,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <Link
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 outline-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 focus-visible:ring-3 focus-visible:ring-sidebar-ring/50"
-          href="/"
-        >
-          <span
-            aria-hidden
-            className="hidden size-7 shrink-0 items-center justify-center rounded-md bg-primary font-sans text-sm leading-none font-semibold tracking-tight text-primary-foreground group-data-[collapsible=icon]:flex"
-          >
-            t
-          </span>
-
-          <TactiqoWordmark className="font-sans text-lg leading-none font-semibold tracking-tight group-data-[collapsible=icon]:sr-only" />
-        </Link>
+        <SidebarBrand />
       </SidebarHeader>
 
       <SidebarContent>
