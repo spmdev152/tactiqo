@@ -19,6 +19,11 @@ const PLACEHOLDER_GROUPS = [
  * a day with fixtures almost always spans more than one competition, and the
  * uneven counts stop the placeholder reading as a table.
  *
+ * The trailing square is the chevron column every real row reserves, whether or
+ * not that match has predictions to open. Leaving it out would have moved both
+ * sides of every row sideways by a chevron and a gap at the moment the list
+ * arrived, which is the one thing this component exists to prevent.
+ *
  * Nothing here is announced: a screen reader gains nothing from seven empty
  * rows, and there is nothing to hold a status role for either, because the
  * region that announces the outcome lives above the `Suspense` boundary and
@@ -54,6 +59,8 @@ export function FixtureListSkeleton() {
 
                   <Skeleton className="h-5 flex-1" />
                 </div>
+
+                <Skeleton className="size-4 shrink-0 rounded-sm" />
               </div>
             ))}
           </div>

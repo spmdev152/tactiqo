@@ -58,6 +58,9 @@ export interface Fixture {
 
   /** Side playing away. */
   readonly awayTeam: FixtureTeam;
+
+  /** Whether the platform holds prediction probabilities for the match. */
+  readonly hasPredictions: boolean;
 }
 
 /**

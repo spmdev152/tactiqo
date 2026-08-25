@@ -31,6 +31,7 @@ const FIXTURE_PAYLOAD = {
     short_code: "NFO",
     crest_url: "",
   },
+  has_predictions: false,
 };
 
 describe("toFixtures", () => {
@@ -61,8 +62,23 @@ describe("toFixtures", () => {
             shortCode: "NFO",
             crestUrl: "",
           },
+          hasPredictions: false,
         },
       ],
+    });
+  });
+
+  /**
+   * GIVEN a fixture the platform holds prediction probabilities for
+   * WHEN it is normalized for the product
+   * THEN the flag reaches the product contract as its own field
+   */
+  it("carries the prediction availability flag", () => {
+    const result = toFixtures([{ ...FIXTURE_PAYLOAD, has_predictions: true }]);
+
+    expect(result).toEqual({
+      loaded: true,
+      fixtures: [expect.objectContaining({ hasPredictions: true })],
     });
   });
 

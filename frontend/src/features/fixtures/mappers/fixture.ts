@@ -82,6 +82,7 @@ export function toFixtures(payload: unknown): FixturesResult {
     league: toLeague(fixture.league),
     homeTeam: toFixtureTeam(fixture.home_team),
     awayTeam: toFixtureTeam(fixture.away_team),
+    hasPredictions: fixture.has_predictions,
   }));
 
   return { loaded: true, fixtures };

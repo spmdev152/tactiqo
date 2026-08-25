@@ -1,9 +1,14 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { FixtureList } from "@/features/fixtures/components/fixture-list";
 import type { Fixture } from "@/features/fixtures/types/fixture";
 import type { League } from "@/features/fixtures/types/league";
+
+// A row reaches the Server Action module through the disclosure it may render, and that module's import chain is server-only.
+vi.mock("@/features/fixtures/server/actions", () => ({
+  loadFixturePredictionsAction: vi.fn(),
+}));
 
 const PREMIER_LEAGUE: League = {
   id: 1,
@@ -27,6 +32,7 @@ const FIXTURE: Fixture = {
     shortCode: "NFO",
     crestUrl: "",
   },
+  hasPredictions: false,
 };
 
 const SERIE_A: League = {

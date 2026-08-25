@@ -23,6 +23,11 @@ export const fixtureTeamPayloadSchema = z.object({
  * server and the browser, and the mismatch would surface as a kick-off time an
  * hour out rather than as an error.
  *
+ * `has_predictions` is a flag rather than the predictions themselves. The
+ * backend answers it with one semi-join, so a day's list still costs one query,
+ * and the row only offers a toggle when there is something behind it. The
+ * probabilities are a separate read, made when a visitor asks for them.
+ *
  * The two goal counts are independently nullable here even though the API
  * promises they move together, because a schema states what the transport may
  * carry and the mapper is where the pair is enforced. Validating the pair here
@@ -37,6 +42,7 @@ export const fixturePayloadSchema = z.object({
   league: leaguePayloadSchema,
   home_team: fixtureTeamPayloadSchema,
   away_team: fixtureTeamPayloadSchema,
+  has_predictions: z.boolean(),
 });
 
 /**
