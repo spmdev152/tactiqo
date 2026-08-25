@@ -2,8 +2,6 @@
 
 import { useCallback } from "react";
 
-import Image from "next/image";
-
 import { ChevronDown, Globe } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { LeagueFlag } from "@/features/fixtures/components/league-flag";
 import type { League } from "@/features/fixtures/types/league";
 
 const ALL_COMPETITIONS_LABEL = "All competitions";
@@ -21,45 +20,6 @@ const ALL_COMPETITIONS_LABEL = "All competitions";
 const COMPETITION_LABEL = "Competitions";
 
 const SUMMARISED_FLAG_LIMIT = 3;
-
-const FLAG_WIDTH = 20;
-
-const FLAG_HEIGHT = 14;
-
-/**
- * Props of {@link LeagueFlag}.
- */
-interface LeagueFlagProps {
-  /** Competition whose country flag is shown. */
-  readonly league: League;
-}
-
-/**
- * Renders the country flag of a competition, where one is published.
- *
- * @remarks
- * The flag carries an empty `alt` on purpose. Wherever it appears, the
- * competition name is beside it or the count is, so announcing the country
- * would be noise. A competition with no published flag renders nothing rather
- * than an empty `src` that would request a broken image.
- *
- * @returns The flag, or nothing.
- */
-function LeagueFlag({ league }: LeagueFlagProps) {
-  if (league.countryFlagUrl === "") {
-    return null;
-  }
-
-  return (
-    <Image
-      alt=""
-      className="h-3.5 w-5 shrink-0 rounded-[2px] object-cover"
-      height={FLAG_HEIGHT}
-      src={league.countryFlagUrl}
-      width={FLAG_WIDTH}
-    />
-  );
-}
 
 /**
  * Props of {@link TriggerLabel}.

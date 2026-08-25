@@ -1,8 +1,7 @@
-import Image from "next/image";
-
 import { CalendarX2, TriangleAlert } from "lucide-react";
 
 import { FixtureRow } from "@/features/fixtures/components/fixture-row";
+import { LeagueFlag } from "@/features/fixtures/components/league-flag";
 import {
   type FixtureGroup,
   groupFixturesByLeague,
@@ -14,10 +13,6 @@ const EMPTY_MESSAGE = "No fixtures on this day for this competition.";
 const EMPTY_HINT = "Pick another day, or widen the filter to all competitions.";
 
 const ERROR_MESSAGE = "Fixtures are unavailable right now.";
-
-const FLAG_WIDTH = 24;
-
-const FLAG_HEIGHT = 17;
 
 /**
  * Props of {@link FixtureGroupSection}.
@@ -47,15 +42,7 @@ function FixtureGroupSection({ group }: FixtureGroupSectionProps) {
   return (
     <section className="overflow-hidden rounded-xl border">
       <header className="flex items-center gap-2.5 border-b border-border bg-muted/40 px-4 py-2.5">
-        {league.countryFlagUrl !== "" && (
-          <Image
-            alt=""
-            className="h-[17px] w-6 shrink-0 rounded-[2px] object-cover"
-            height={FLAG_HEIGHT}
-            src={league.countryFlagUrl}
-            width={FLAG_WIDTH}
-          />
-        )}
+        <LeagueFlag className="h-[17px] w-6" league={league} />
 
         <h2 className="truncate text-sm font-medium">{league.name}</h2>
 
