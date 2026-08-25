@@ -208,4 +208,37 @@ describe("FixtureFilters", () => {
     );
     expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
   });
+
+  /**
+   * GIVEN a scope applied and then left through a link back to the plain route
+   * WHEN the applied scope returns to the one the staging was made against
+   * THEN the staging stays abandoned rather than reappearing over the new list
+   */
+  it("does not resurrect a staging when the applied scope comes back", () => {
+    const { rerender } = renderFilters("2026-08-29", []);
+
+    chooseCompetition("Serie A");
+
+    rerender(
+      <FixtureFilters
+        appliedDay="2026-08-29"
+        appliedLeagueIds={[2]}
+        leagues={LEAGUES}
+      />,
+    );
+
+    rerender(
+      <FixtureFilters
+        appliedDay="2026-08-29"
+        appliedLeagueIds={[]}
+        leagues={LEAGUES}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Competitions" }),
+    ).toHaveTextContent("All competitions");
+
+    expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
+  });
 });

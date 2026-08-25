@@ -20,18 +20,8 @@ const APPLY_LABEL = "Filter";
 
 /**
  * Scope the visitor has staged but not yet applied.
- *
- * @remarks
- * `from` records the applied scope the staging was made against, which is what
- * lets a staged scope expire on its own. A back or forward navigation moves the
- * applied scope without this component doing anything, and a staging that no
- * longer describes what is on screen has to be abandoned rather than left
- * offering to re-apply a day the visitor has already navigated away from.
  */
 interface StagedScope {
-  /** Applied scope this staging was made against. */
-  readonly from: string;
-
   /** Staged UTC calendar day, as `YYYY-MM-DD`. */
   readonly day: string;
 
@@ -79,9 +69,16 @@ export interface FixtureFiltersProps {
  *
  * The staged scope is not seeded from the props. It starts absent and the
  * controls fall back to the applied scope, so there is no copy of a prop to go
- * stale and no remount needed to refresh one. It also carries the applied scope
- * it was staged against, which is what makes it expire when the URL moves
- * underneath it.
+ * stale.
+ *
+ * It is discarded whenever the applied scope changes, by comparing this render's
+ * against the last one's. The comparison has to be of the change, not of the
+ * value: an earlier version recorded the scope a staging was made against and
+ * kept it while that scope still matched, which meant returning to a scope the
+ * visitor had once staged from resurrected the staging. Choosing a day and a
+ * competition, applying them, then following the sidebar back to the unfiltered
+ * page left the controls showing the abandoned choice over a list that no
+ * longer matched it.
  *
  * The button is disabled while the staged scope equals the applied one, so the
  * control states whether there is anything to apply and a second press cannot
@@ -105,23 +102,27 @@ export function FixtureFilters({
 
   const applied = `${appliedDay}|${[...appliedLeagueIds].sort().join(",")}`;
 
-  const scope =
-    staged !== null && staged.from === applied
-      ? staged
-      : { from: applied, day: appliedDay, leagueIds: appliedLeagueIds };
+  const [lastApplied, setLastApplied] = useState(applied);
+
+  if (lastApplied !== applied) {
+    setLastApplied(applied);
+    setStaged(null);
+  }
+
+  const scope = staged ?? { day: appliedDay, leagueIds: appliedLeagueIds };
 
   const stageDay = useCallback(
     (day: string) => {
-      setStaged({ from: applied, day, leagueIds: scope.leagueIds });
+      setStaged({ day, leagueIds: scope.leagueIds });
     },
-    [applied, scope.leagueIds],
+    [scope.leagueIds],
   );
 
   const stageLeagues = useCallback(
     (leagueIds: number[]) => {
-      setStaged({ from: applied, day: scope.day, leagueIds });
+      setStaged({ day: scope.day, leagueIds });
     },
-    [applied, scope.day],
+    [scope.day],
   );
 
   const apply = useCallback(() => {
