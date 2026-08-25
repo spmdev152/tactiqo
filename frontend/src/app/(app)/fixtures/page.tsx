@@ -1,5 +1,8 @@
+import { Suspense } from "react";
+
 import { requireUser } from "@/features/auth/server/require-user";
-import { FixtureList } from "@/features/fixtures/components/fixture-list";
+import { FixtureListSection } from "@/features/fixtures/components/fixture-list-section";
+import { FixtureListSkeleton } from "@/features/fixtures/components/fixture-list-skeleton";
 import { FixturesDatePicker } from "@/features/fixtures/components/fixtures-date-picker";
 import { LeagueSelect } from "@/features/fixtures/components/league-select";
 import {
@@ -8,7 +11,6 @@ import {
   resolveLeagueId,
   resolveUtcDay,
 } from "@/features/fixtures/domain/fixture-search-params";
-import { getFixtures } from "@/features/fixtures/server/get-fixtures";
 import { getLeagues } from "@/features/fixtures/server/get-leagues";
 
 const DAY_HEADING_FORMAT = new Intl.DateTimeFormat("en-GB", {
@@ -56,9 +58,12 @@ interface FixturesPageProps {
  * that stays inside it, so a page that reached the shell once would keep
  * rendering after its session was revoked.
  *
- * Both reads are issued together. Neither depends on the other's answer, and
- * awaiting them in sequence would add the competition round trip to the time
- * before the first fixture appears.
+ * Only the fixture query is deferred. The heading and both controls are
+ * resolved from the URL and the competition list, so they render immediately
+ * and stay on screen while a new day loads behind a `Suspense` boundary keyed
+ * to the scope. A whole-page loading state used to replace them with a
+ * shimmer, which meant covering text that was already correct and jumping the
+ * toolbar the moment the rows arrived.
  *
  * The day and the competition are URL state and nothing else, which is what
  * makes a view linkable and lets it survive a reload. The two controls navigate
@@ -80,10 +85,7 @@ export default async function FixturesPage({
   const day = resolveUtcDay(query[FIXTURE_DATE_PARAMETER]);
   const leagueId = resolveLeagueId(query[FIXTURE_LEAGUE_PARAMETER]);
 
-  const [leagues, fixtures] = await Promise.all([
-    getLeagues(),
-    getFixtures({ day, leagueId }),
-  ]);
+  const leagues = await getLeagues();
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
@@ -111,7 +113,9 @@ export default async function FixturesPage({
           </span>
         </div>
 
-        <FixtureList result={fixtures} />
+        <Suspense fallback={<FixtureListSkeleton />} key={`${day}|${leagueId}`}>
+          <FixtureListSection day={day} leagueId={leagueId} />
+        </Suspense>
       </div>
     </div>
   );

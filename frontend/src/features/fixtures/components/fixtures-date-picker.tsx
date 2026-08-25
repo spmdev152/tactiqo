@@ -53,6 +53,12 @@ export interface FixturesDatePickerProps {
  * `required` — clicking the highlighted day again must not clear a value the
  * route cannot render without.
  *
+ * The popover is pinned to the trigger's own width and the calendar's cell size
+ * is derived from it rather than fixed, so the seven columns plus the
+ * calendar's own padding come to exactly that width at every breakpoint.
+ * Leaving the calendar at its natural size hung a 212px month under a 240px
+ * control on a laptop and under a full-width one on a phone.
+ *
  * The trigger label is formatted in UTC to match the day the URL names, so the
  * control and the heading below it cannot disagree west of Greenwich.
  *
@@ -96,8 +102,12 @@ export function FixturesDatePicker({ selectedDay }: FixturesDatePickerProps) {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-auto p-0">
+      <PopoverContent
+        align="start"
+        className="w-(--radix-popover-trigger-width) p-0"
+      >
         <Calendar
+          className="[--cell-size:calc((var(--radix-popover-trigger-width)-1rem)/7)]"
           mode="single"
           required
           selected={selected}

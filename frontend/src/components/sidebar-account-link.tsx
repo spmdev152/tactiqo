@@ -5,11 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { UserRound } from "lucide-react";
 
-import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar";
+import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 
 const ACCOUNT_PATH = "/account";
 
@@ -26,6 +22,9 @@ const ACCOUNT_LABEL = "Account";
  * a bordered surface against the ghost entries above it, pairing with the
  * tinted sign-out button below.
  *
+ * It returns a menu item rather than its own menu, so the footer holds one list
+ * and both footer entries share its spacing and its geometry.
+ *
  * A client leaf for the same single reason the navigation is: marking the
  * current entry needs `usePathname`.
  *
@@ -35,20 +34,18 @@ export function SidebarAccountLink() {
   const pathname = usePathname();
 
   return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          asChild
-          isActive={pathname.startsWith(ACCOUNT_PATH)}
-          tooltip={ACCOUNT_LABEL}
-          variant="outline"
-        >
-          <Link href={ACCOUNT_PATH}>
-            <UserRound />
-            <span>{ACCOUNT_LABEL}</span>
-          </Link>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        isActive={pathname.startsWith(ACCOUNT_PATH)}
+        tooltip={ACCOUNT_LABEL}
+        variant="outline"
+      >
+        <Link href={ACCOUNT_PATH}>
+          <UserRound />
+          <span>{ACCOUNT_LABEL}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }

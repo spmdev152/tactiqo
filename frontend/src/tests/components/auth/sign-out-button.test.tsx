@@ -1,11 +1,28 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
 
 const { signOutAction } = vi.hoisted(() => ({ signOutAction: vi.fn() }));
 
 vi.mock("@/features/auth/server/actions", () => ({ signOutAction }));
+
+/**
+ * Renders the sign-out form inside the sidebar context its submit needs.
+ *
+ * @returns The render result, for the container queries a test needs.
+ */
+function renderSignOut() {
+  return render(
+    <TooltipProvider>
+      <SidebarProvider>
+        <SignOutButton />
+      </SidebarProvider>
+    </TooltipProvider>,
+  );
+}
 
 describe("SignOutButton", () => {
   beforeEach(() => {
@@ -19,7 +36,7 @@ describe("SignOutButton", () => {
    * THEN it submits a form and carries a single trailing icon
    */
   it("renders a submit control with one icon", () => {
-    const { container } = render(<SignOutButton />);
+    const { container } = renderSignOut();
 
     const submit = screen.getByRole("button", { name: "Sign out" });
 
@@ -38,7 +55,7 @@ describe("SignOutButton", () => {
 
     signOutAction.mockReturnValue(promise);
 
-    const { container } = render(<SignOutButton />);
+    const { container } = renderSignOut();
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 

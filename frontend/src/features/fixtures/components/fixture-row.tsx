@@ -111,6 +111,12 @@ export interface FixtureRowProps {
  * stated timezone that every visitor reads the same way is the honest option,
  * and it also keeps the row renderable on the server.
  *
+ * Every cell flanking the two sides has a fixed width: the kick-off, and the
+ * competition on both widths. The two sides then split what is left evenly, so
+ * the marker between them lands on the same pixel column in every row of the
+ * list. Letting the competition size itself to its own text moved that column
+ * by the difference between "Ligue 1" and "Premier League".
+ *
  * @returns The match row.
  */
 export function FixtureRow({ fixture }: FixtureRowProps) {
@@ -139,11 +145,11 @@ export function FixtureRow({ fixture }: FixtureRowProps) {
         </div>
       </div>
 
-      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+      <span className="hidden w-28 shrink-0 truncate text-right text-xs text-muted-foreground sm:inline-block">
         {fixture.league.name}
       </span>
 
-      <span className="shrink-0 font-mono text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase sm:hidden">
+      <span className="w-14 shrink-0 truncate text-right font-mono text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase sm:hidden">
         {fixture.league.shortCode === ""
           ? fixture.league.name
           : fixture.league.shortCode}

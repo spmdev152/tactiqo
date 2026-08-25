@@ -8,6 +8,8 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
@@ -67,9 +69,13 @@ export function AppSidebar() {
       <SidebarSeparator />
 
       <SidebarFooter>
-        <SidebarAccountLink />
+        <SidebarMenu className="gap-1.5">
+          <SidebarAccountLink />
 
-        <SignOutButton />
+          <SidebarMenuItem>
+            <SignOutButton />
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
 
       <SidebarRail />
