@@ -20,8 +20,8 @@ export interface FixtureQuery {
   /** UTC calendar day to list, as `YYYY-MM-DD`. */
   readonly day: string;
 
-  /** Internal league identifier, or `null` for every competition. */
-  readonly leagueId: number | null;
+  /** Internal league identifiers, empty for every competition. */
+  readonly leagueIds: readonly number[];
 }
 
 /**
@@ -75,8 +75,8 @@ export async function getFixtures(
 
   const search = new URLSearchParams({ [FIXTURES_DAY_QUERY]: query.day });
 
-  if (query.leagueId !== null) {
-    search.set(FIXTURES_LEAGUE_QUERY, String(query.leagueId));
+  for (const leagueId of query.leagueIds) {
+    search.append(FIXTURES_LEAGUE_QUERY, String(leagueId));
   }
 
   try {

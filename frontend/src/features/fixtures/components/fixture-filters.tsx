@@ -35,8 +35,8 @@ interface StagedScope {
   /** Staged UTC calendar day, as `YYYY-MM-DD`. */
   readonly day: string;
 
-  /** Staged competition, or `null` for all of them. */
-  readonly leagueId: number | null;
+  /** Staged competitions, empty for all of them. */
+  readonly leagueIds: readonly number[];
 }
 
 /**
@@ -49,8 +49,8 @@ export interface FixtureFiltersProps {
   /** UTC calendar day the list currently shows, as `YYYY-MM-DD`. */
   readonly appliedDay: string;
 
-  /** Competition the list is currently filtered to, or `null` for all. */
-  readonly appliedLeagueId: number | null;
+  /** Competitions the list is currently filtered to, empty for all. */
+  readonly appliedLeagueIds: readonly number[];
 }
 
 /**
@@ -94,7 +94,7 @@ export interface FixtureFiltersProps {
 export function FixtureFilters({
   leagues,
   appliedDay,
-  appliedLeagueId,
+  appliedLeagueIds,
 }: FixtureFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -103,23 +103,23 @@ export function FixtureFilters({
 
   const [staged, setStaged] = useState<StagedScope | null>(null);
 
-  const applied = `${appliedDay}|${appliedLeagueId}`;
+  const applied = `${appliedDay}|${[...appliedLeagueIds].sort().join(",")}`;
 
   const scope =
     staged !== null && staged.from === applied
       ? staged
-      : { from: applied, day: appliedDay, leagueId: appliedLeagueId };
+      : { from: applied, day: appliedDay, leagueIds: appliedLeagueIds };
 
   const stageDay = useCallback(
     (day: string) => {
-      setStaged({ from: applied, day, leagueId: scope.leagueId });
+      setStaged({ from: applied, day, leagueIds: scope.leagueIds });
     },
-    [applied, scope.leagueId],
+    [applied, scope.leagueIds],
   );
 
-  const stageLeague = useCallback(
-    (leagueId: number | null) => {
-      setStaged({ from: applied, day: scope.day, leagueId });
+  const stageLeagues = useCallback(
+    (leagueIds: number[]) => {
+      setStaged({ from: applied, day: scope.day, leagueIds });
     },
     [applied, scope.day],
   );
@@ -129,19 +129,23 @@ export function FixtureFilters({
 
     next.set(FIXTURE_DATE_PARAMETER, scope.day);
 
-    if (scope.leagueId === null) {
-      next.delete(FIXTURE_LEAGUE_PARAMETER);
-    } else {
-      next.set(FIXTURE_LEAGUE_PARAMETER, String(scope.leagueId));
+    next.delete(FIXTURE_LEAGUE_PARAMETER);
+
+    for (const leagueId of scope.leagueIds) {
+      next.append(FIXTURE_LEAGUE_PARAMETER, String(leagueId));
     }
 
     startTransition(() => {
       router.push(`?${next.toString()}`, { scroll: false });
     });
-  }, [router, scope.day, scope.leagueId, searchParams]);
+  }, [router, scope.day, scope.leagueIds, searchParams]);
+
+  const appliedIdentifiers = new Set(appliedLeagueIds);
 
   const isApplied =
-    scope.day === appliedDay && scope.leagueId === appliedLeagueId;
+    scope.day === appliedDay &&
+    scope.leagueIds.length === appliedIdentifiers.size &&
+    scope.leagueIds.every((one) => appliedIdentifiers.has(one));
 
   return (
     <div className="flex flex-col gap-3 @xl:flex-row @xl:items-center">
@@ -149,8 +153,8 @@ export function FixtureFilters({
 
       <LeagueSelect
         leagues={leagues}
-        onChange={stageLeague}
-        value={scope.leagueId}
+        onChange={stageLeagues}
+        value={scope.leagueIds}
       />
 
       <Button

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   localDateToUtcDay,
   parseUtcDay,
-  resolveLeagueId,
+  resolveLeagueIds,
   resolveUtcDay,
   utcDayToLocalDate,
 } from "@/features/fixtures/domain/fixture-search-params";
@@ -96,28 +96,46 @@ describe("parseUtcDay", () => {
   });
 });
 
-describe("resolveLeagueId", () => {
+describe("resolveLeagueIds", () => {
   /**
    * GIVEN a league parameter holding a positive integer
    * WHEN the filter is resolved
    * THEN the internal identifier is returned as a number
    */
   it("resolves a positive integer", () => {
-    expect(resolveLeagueId("12")).toBe(12);
+    expect(resolveLeagueIds("12")).toEqual([12]);
   });
 
   /**
-   * GIVEN league parameters that are absent, empty, zero, signed or fractional
+   * GIVEN the parameter repeated, as choosing several competitions writes it
    * WHEN the filter is resolved
-   * THEN every one of them clears the filter
+   * THEN every identifier is kept, in the order the query carried them
    */
-  it("clears the filter for anything that is not a positive integer", () => {
-    expect(resolveLeagueId(undefined)).toBeNull();
-    expect(resolveLeagueId("")).toBeNull();
-    expect(resolveLeagueId("0")).toBeNull();
-    expect(resolveLeagueId("-3")).toBeNull();
-    expect(resolveLeagueId("1.5")).toBeNull();
-    expect(resolveLeagueId("premier-league")).toBeNull();
-    expect(resolveLeagueId(["1", "2"])).toBeNull();
+  it("resolves a repeated parameter into every identifier", () => {
+    expect(resolveLeagueIds(["3", "1", "2"])).toEqual([3, 1, 2]);
+  });
+
+  /**
+   * GIVEN a parameter repeating one identifier
+   * WHEN the filter is resolved
+   * THEN the repeat is dropped, so it cannot widen the query it becomes
+   */
+  it("drops a repeated identifier", () => {
+    expect(resolveLeagueIds(["2", "2", "5"])).toEqual([2, 5]);
+  });
+
+  /**
+   * GIVEN a parameter mixing usable identifiers with unusable ones
+   * WHEN the filter is resolved
+   * THEN only the positive integers survive and nothing throws
+   */
+  it("keeps only the positive integers", () => {
+    expect(resolveLeagueIds(undefined)).toEqual([]);
+    expect(resolveLeagueIds("")).toEqual([]);
+    expect(resolveLeagueIds("0")).toEqual([]);
+    expect(resolveLeagueIds("-3")).toEqual([]);
+    expect(resolveLeagueIds("1.5")).toEqual([]);
+    expect(resolveLeagueIds("premier-league")).toEqual([]);
+    expect(resolveLeagueIds(["1", "nope", "2"])).toEqual([1, 2]);
   });
 });

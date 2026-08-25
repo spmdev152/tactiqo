@@ -4,12 +4,13 @@
 export const FIXTURE_DATE_PARAMETER = "date";
 
 /**
- * Search parameter carrying the internal identifier of the selected league.
+ * Search parameter carrying the internal identifiers of the chosen leagues.
  *
  * @remarks
- * Named `league` rather than `league_id`, because the address bar is read by
- * people and the value being an identifier is an implementation detail. An
- * absent parameter means every subscribed competition.
+ * It repeats, once per competition, rather than carrying a delimited list. A
+ * repeated parameter is what `URLSearchParams` reads and writes natively on
+ * both sides of the boundary, so neither the browser nor the server has to
+ * agree on a separator or escape one.
  */
 export const FIXTURE_LEAGUE_PARAMETER = "league";
 
@@ -74,27 +75,34 @@ export function resolveUtcDay(
 }
 
 /**
- * Resolves the league filter a fixture list should apply.
+ * Resolves the competition filter a fixture list should apply.
  *
  * @remarks
- * Anything that is not a positive integer clears the filter rather than
- * failing. The identifier is visitor-controllable, and once the backend has
- * answered, an unknown league is indistinguishable from a league with no
- * fixtures that day, so refusing to render would buy nothing.
+ * The parameter repeats, once per chosen competition, so `searchParams` hands
+ * over a string for one and an array for several. Both shapes and the absent
+ * one collapse to a list here, which leaves the rest of the feature with a
+ * single case to handle and makes "every competition" the empty list rather
+ * than a second kind of nothing.
+ *
+ * Anything that is not a positive integer is dropped rather than failing, and
+ * a repeat is dropped too. The identifiers are visitor-controllable, and once
+ * the backend has answered, an unknown competition is indistinguishable from
+ * one with no fixtures that day, so refusing to render would buy nothing.
  *
  * @param value - Raw `league` parameter, as `searchParams` supplies it.
- * @returns The internal league identifier, or `null` for every competition.
+ * @returns The chosen competition identifiers, empty for all of them.
  */
-export function resolveLeagueId(
+export function resolveLeagueIds(
   value: string | string[] | undefined,
-): number | null {
-  if (typeof value !== "string" || !LEAGUE_ID_PATTERN.test(value)) {
-    return null;
-  }
+): number[] {
+  const raw = value === undefined ? [] : [value].flat();
 
-  const leagueId = Number(value);
+  const identifiers = raw
+    .filter((one) => LEAGUE_ID_PATTERN.test(one))
+    .map(Number)
+    .filter((one) => one > 0);
 
-  return leagueId > 0 ? leagueId : null;
+  return [...new Set(identifiers)];
 }
 
 /**

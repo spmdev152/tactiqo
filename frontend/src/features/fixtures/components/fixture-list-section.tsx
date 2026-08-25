@@ -8,8 +8,8 @@ export interface FixtureListSectionProps {
   /** UTC calendar day to list, as `YYYY-MM-DD`. */
   readonly day: string;
 
-  /** Internal league identifier, or `null` for every competition. */
-  readonly leagueId: number | null;
+  /** Internal league identifiers, empty for every competition. */
+  readonly leagueIds: readonly number[];
 }
 
 /**
@@ -26,9 +26,9 @@ export interface FixtureListSectionProps {
  */
 export async function FixtureListSection({
   day,
-  leagueId,
+  leagueIds,
 }: FixtureListSectionProps) {
-  const fixtures = await getFixtures({ day, leagueId });
+  const fixtures = await getFixtures({ day, leagueIds });
 
   return <FixtureList result={fixtures} />;
 }

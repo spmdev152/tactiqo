@@ -27,6 +27,15 @@ const FIXTURE: Fixture = {
   },
 };
 
+const SERIE_A: League = {
+  id: 2,
+  name: "Serie A",
+  shortCode: "ITA SA",
+  logoUrl: "",
+  countryName: "Italy",
+  countryFlagUrl: "",
+};
+
 describe("FixtureList", () => {
   /**
    * GIVEN a day the backend answered with no fixtures
@@ -93,5 +102,75 @@ describe("FixtureList", () => {
       .map((row) => row.querySelector("time")?.textContent);
 
     expect(times).toEqual(["11:30", "14:00"]);
+  });
+
+  /**
+   * GIVEN fixtures of two competitions interleaved by kick-off
+   * WHEN the list is rendered
+   * THEN each competition gets one heading and its own matches, not a heading per match
+   */
+  it("groups the day under one heading per competition", () => {
+    render(
+      <FixtureList
+        result={{
+          loaded: true,
+          fixtures: [
+            FIXTURE,
+            {
+              ...FIXTURE,
+              id: 13,
+              kickoffAt: new Date("2026-08-29T13:30:00Z"),
+              league: SERIE_A,
+            },
+            {
+              ...FIXTURE,
+              id: 14,
+              kickoffAt: new Date("2026-08-29T14:00:00Z"),
+            },
+          ],
+        }}
+      />,
+    );
+
+    const headings = screen.getAllByRole("heading", { level: 2 });
+
+    expect(headings.map((one) => one.textContent)).toEqual([
+      "Premier League",
+      "Serie A",
+    ]);
+
+    expect(screen.getAllByRole("list")).toHaveLength(2);
+  });
+
+  /**
+   * GIVEN a competition with several matches and one with a single match
+   * WHEN the list is rendered
+   * THEN each heading counts its own matches, in the singular where there is one
+   */
+  it("counts the matches under each heading", () => {
+    render(
+      <FixtureList
+        result={{
+          loaded: true,
+          fixtures: [
+            FIXTURE,
+            {
+              ...FIXTURE,
+              id: 13,
+              kickoffAt: new Date("2026-08-29T13:30:00Z"),
+              league: SERIE_A,
+            },
+            {
+              ...FIXTURE,
+              id: 14,
+              kickoffAt: new Date("2026-08-29T14:00:00Z"),
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("2 matches")).toBeVisible();
+    expect(screen.getByText("1 match")).toBeVisible();
   });
 });

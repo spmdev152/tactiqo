@@ -4,81 +4,115 @@ import { useCallback } from "react";
 
 import Image from "next/image";
 
-import { Globe } from "lucide-react";
+import { ChevronDown, Globe } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { League } from "@/features/fixtures/types/league";
-
-const ALL_COMPETITIONS_VALUE = "all";
 
 const ALL_COMPETITIONS_LABEL = "All competitions";
 
-const COMPETITION_LABEL = "Competition";
+const COMPETITION_LABEL = "Competitions";
+
+const SUMMARISED_FLAG_LIMIT = 3;
 
 const FLAG_WIDTH = 20;
 
 const FLAG_HEIGHT = 14;
 
 /**
- * Props of {@link LeagueLabel}.
+ * Props of {@link LeagueFlag}.
  */
-interface LeagueLabelProps {
-  /** Competition to label. */
+interface LeagueFlagProps {
+  /** Competition whose country flag is shown. */
   readonly league: League;
 }
 
 /**
- * Renders the label of the option that clears the competition filter.
+ * Renders the country flag of a competition, where one is published.
  *
  * @remarks
- * The globe stands where a country flag stands on every other option, so the
- * list reads as one column of marks rather than one indented item among five
- * aligned ones. It is decorative for the same reason the flags are: the label
- * beside it already says what it means.
+ * The flag carries an empty `alt` on purpose. Wherever it appears, the
+ * competition name is beside it or the count is, so announcing the country
+ * would be noise. A competition with no published flag renders nothing rather
+ * than an empty `src` that would request a broken image.
  *
- * @returns The clear-filter label.
+ * @returns The flag, or nothing.
  */
-function AllCompetitionsLabel() {
-  return (
-    <>
-      <Globe aria-hidden className="h-3.5 w-5 shrink-0 text-muted-foreground" />
+function LeagueFlag({ league }: LeagueFlagProps) {
+  if (league.countryFlagUrl === "") {
+    return null;
+  }
 
-      {ALL_COMPETITIONS_LABEL}
-    </>
+  return (
+    <Image
+      alt=""
+      className="h-3.5 w-5 shrink-0 rounded-[2px] object-cover"
+      height={FLAG_HEIGHT}
+      src={league.countryFlagUrl}
+      width={FLAG_WIDTH}
+    />
   );
 }
 
 /**
- * Renders a competition as its country flag followed by its name.
+ * Props of {@link TriggerLabel}.
+ */
+interface TriggerLabelProps {
+  /** Competitions currently staged, in the order they are offered. */
+  readonly selected: readonly League[];
+}
+
+/**
+ * Renders what the trigger says about the current selection.
  *
  * @remarks
- * The flag carries an empty `alt` on purpose. It repeats what the name beside
- * it already says, so announcing the country twice would be noise; the name is
- * the accessible content. A competition with no published flag simply renders
- * its name, rather than an empty `src` that would request a broken image.
+ * Three states, because a list of names does not survive a 14rem control. None
+ * chosen is the unfiltered day and says so with a globe. One chosen is worth
+ * naming. Several are summarised as a count behind their flags, capped so the
+ * trigger cannot grow past its neighbour: five flags and a count overflow it,
+ * three and a count do not.
  *
- * @returns The competition label.
+ * @returns The trigger contents.
  */
-function LeagueLabel({ league }: LeagueLabelProps) {
+function TriggerLabel({ selected }: TriggerLabelProps) {
+  if (selected.length === 0) {
+    return (
+      <>
+        <Globe
+          aria-hidden
+          className="h-3.5 w-5 shrink-0 text-muted-foreground"
+        />
+        {ALL_COMPETITIONS_LABEL}
+      </>
+    );
+  }
+
+  const [only] = selected;
+
+  if (selected.length === 1 && only !== undefined) {
+    return (
+      <>
+        <LeagueFlag league={only} />
+        <span className="truncate">{only.name}</span>
+      </>
+    );
+  }
+
   return (
     <>
-      {league.countryFlagUrl !== "" && (
-        <Image
-          alt=""
-          className="h-3.5 w-5 shrink-0 rounded-[2px] object-cover"
-          height={FLAG_HEIGHT}
-          src={league.countryFlagUrl}
-          width={FLAG_WIDTH}
-        />
-      )}
-
-      {league.name}
+      <span aria-hidden className="flex shrink-0 items-center gap-1">
+        {selected.slice(0, SUMMARISED_FLAG_LIMIT).map((league) => (
+          <LeagueFlag key={league.id} league={league} />
+        ))}
+      </span>
+      {selected.length} competitions
     </>
   );
 }
@@ -90,18 +124,18 @@ export interface LeagueSelectProps {
   /** Competitions the platform covers, already ordered by name. */
   readonly leagues: readonly League[];
 
-  /** Competition currently staged, or `null` for all of them. */
-  readonly value: number | null;
+  /** Competitions currently staged, empty for all of them. */
+  readonly value: readonly number[];
 
-  /** Called with the newly staged competition, or `null` to clear the filter. */
-  readonly onChange: (leagueId: number | null) => void;
+  /** Called with the newly staged competitions, empty to clear the filter. */
+  readonly onChange: (leagueIds: number[]) => void;
 }
 
 /**
  * Renders the competition picker of the fixture filters.
  *
  * @remarks
- * Choosing a competition stages it and nothing else. The control neither reads
+ * Choosing competitions stages them and nothing else. The control neither reads
  * the URL nor navigates: {@link FixtureFilters} owns the staged scope and
  * applies it. That separation is the point rather than tidiness — while a
  * navigation is in flight React holds the previous tree on screen, and a list
@@ -109,69 +143,90 @@ export interface LeagueSelectProps {
  * again. With the navigation moved to a button, nothing is animating when it
  * starts.
  *
- * The clear option carries the sentinel value `all` rather than an empty
- * string, because the underlying primitive reserves the empty string for "no
- * selection" and an item declaring it would never become selectable.
+ * It is a menu of checkboxes rather than a select, because a select carries one
+ * value and this filter carries several. The menu also stays open across a
+ * click, which is what makes choosing three competitions three clicks instead
+ * of three round trips through the trigger.
  *
- * The trigger is given its own children rather than left to mirror the selected
- * option. The primitive unmounts its option list while closed, so there is no
- * option text to mirror until the visitor opens the control, and the trigger
- * would otherwise render empty on arrival. Supplying the children also tells
- * the primitive to stop portalling the option text in, so the label is not
- * rendered twice once the list has been opened.
+ * The clear entry is a checkbox rather than a command, so the menu reads as one
+ * column of states: it is the one that is ticked while nothing else is, and
+ * ticking it empties the rest. Emptying is spelled as the empty list, so
+ * "every competition" has one representation everywhere.
  *
- * The list is positioned below the trigger and pinned to its width. The
- * primitive's default aligns the selected option over the trigger instead,
- * which overlaps the control it belongs to and leaves the list free to size
- * itself to its widest option. That default also suppresses the open
- * animation, which is a second reason to leave it.
+ * The trigger widens against the page container rather than the viewport, so it
+ * matches the day picker beside it whatever the sidebar is doing.
  *
  * @returns The competition picker.
  */
 export function LeagueSelect({ leagues, value, onChange }: LeagueSelectProps) {
-  const handleValueChange = useCallback(
-    (chosen: string) => {
-      onChange(chosen === ALL_COMPETITIONS_VALUE ? null : Number(chosen));
+  const staged = new Set(value);
+
+  const selected = leagues.filter((league) => staged.has(league.id));
+
+  const toggle = useCallback(
+    (leagueId: number) => {
+      onChange(
+        value.includes(leagueId)
+          ? value.filter((one) => one !== leagueId)
+          : [...value, leagueId],
+      );
     },
-    [onChange],
+    [onChange, value],
   );
 
-  const selectedLeague = leagues.find((league) => league.id === value);
+  const clear = useCallback(() => {
+    onChange([]);
+  }, [onChange]);
 
   return (
-    <Select
-      value={
-        selectedLeague === undefined
-          ? ALL_COMPETITIONS_VALUE
-          : String(selectedLeague.id)
-      }
-      onValueChange={handleValueChange}
-      disabled={leagues.length === 0}
-    >
-      <SelectTrigger aria-label={COMPETITION_LABEL} className="w-full @xl:w-56">
-        <SelectValue>
-          {selectedLeague === undefined ? (
-            <AllCompetitionsLabel />
-          ) : (
-            <LeagueLabel league={selectedLeague} />
-          )}
-        </SelectValue>
-      </SelectTrigger>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          aria-label={COMPETITION_LABEL}
+          className="w-full justify-start font-normal @xl:w-56"
+          disabled={leagues.length === 0}
+          variant="outline"
+        >
+          <TriggerLabel selected={selected} />
 
-      <SelectContent
-        className="w-(--radix-select-trigger-width)"
-        position="popper"
+          <ChevronDown aria-hidden className="ml-auto size-4 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent
+        align="start"
+        className="w-(--radix-dropdown-menu-trigger-width)"
       >
-        <SelectItem value={ALL_COMPETITIONS_VALUE}>
-          <AllCompetitionsLabel />
-        </SelectItem>
+        <DropdownMenuCheckboxItem
+          checked={value.length === 0}
+          onSelect={(event) => {
+            event.preventDefault();
+            clear();
+          }}
+        >
+          <Globe
+            aria-hidden
+            className="h-3.5 w-5 shrink-0 text-muted-foreground"
+          />
+          {ALL_COMPETITIONS_LABEL}
+        </DropdownMenuCheckboxItem>
+
+        <DropdownMenuSeparator />
 
         {leagues.map((league) => (
-          <SelectItem key={league.id} value={String(league.id)}>
-            <LeagueLabel league={league} />
-          </SelectItem>
+          <DropdownMenuCheckboxItem
+            checked={staged.has(league.id)}
+            key={league.id}
+            onSelect={(event) => {
+              event.preventDefault();
+              toggle(league.id);
+            }}
+          >
+            <LeagueFlag league={league} />
+            {league.name}
+          </DropdownMenuCheckboxItem>
         ))}
-      </SelectContent>
-    </Select>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

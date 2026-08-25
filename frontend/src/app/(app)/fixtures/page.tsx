@@ -7,7 +7,7 @@ import { FixtureListSkeleton } from "@/features/fixtures/components/fixture-list
 import {
   FIXTURE_DATE_PARAMETER,
   FIXTURE_LEAGUE_PARAMETER,
-  resolveLeagueId,
+  resolveLeagueIds,
   resolveUtcDay,
 } from "@/features/fixtures/domain/fixture-search-params";
 import { getLeagues } from "@/features/fixtures/server/get-leagues";
@@ -83,11 +83,11 @@ export default async function FixturesPage({
   const query = await searchParams;
 
   const day = resolveUtcDay(query[FIXTURE_DATE_PARAMETER]);
-  const leagueId = resolveLeagueId(query[FIXTURE_LEAGUE_PARAMETER]);
+  const leagueIds = resolveLeagueIds(query[FIXTURE_LEAGUE_PARAMETER]);
 
   const leagues = await getLeagues();
 
-  const scope = `${day}|${leagueId}`;
+  const scope = `${day}|${[...leagueIds].sort().join(",")}`;
 
   return (
     <div className="@container mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
@@ -98,12 +98,12 @@ export default async function FixturesPage({
       <div className="flex min-w-0 flex-col gap-4">
         <FixtureFilters
           appliedDay={day}
-          appliedLeagueId={leagueId}
+          appliedLeagueIds={leagueIds}
           leagues={leagues.loaded ? leagues.leagues : []}
         />
 
         <Suspense fallback={<FixtureListSkeleton />} key={scope}>
-          <FixtureListSection day={day} leagueId={leagueId} />
+          <FixtureListSection day={day} leagueIds={leagueIds} />
         </Suspense>
       </div>
     </div>

@@ -145,13 +145,14 @@ describe("FixtureRow", () => {
   });
 
   /**
-   * GIVEN a fixture in a named competition
+   * GIVEN a fixture whose competition is named by the heading above its group
    * WHEN the row is rendered
-   * THEN the competition is stated beside the match
+   * THEN the row does not repeat it, leaving the width to the two sides
    */
-  it("states the competition", () => {
+  it("leaves the competition to the group heading", () => {
     render(<FixtureRow fixture={buildFixture()} />);
 
-    expect(screen.getByText("Premier League")).toBeInTheDocument();
+    expect(screen.queryByText("Premier League")).not.toBeInTheDocument();
+    expect(screen.queryByText("UK PL")).not.toBeInTheDocument();
   });
 });

@@ -55,30 +55,37 @@ function installPopupEnvironment(): void {
  * Renders the filter bar on a given applied scope.
  *
  * @param appliedDay - UTC calendar day the list currently shows.
- * @param appliedLeagueId - Competition the list is filtered to, or `null`.
+ * @param appliedLeagueIds - Competitions the list is filtered to.
  * @returns The render result, so a test can move the applied scope underneath.
  */
 function renderFilters(
   appliedDay = "2026-08-29",
-  appliedLeagueId: number | null = null,
+  appliedLeagueIds: readonly number[] = [],
 ) {
   return render(
     <FixtureFilters
       appliedDay={appliedDay}
-      appliedLeagueId={appliedLeagueId}
+      appliedLeagueIds={appliedLeagueIds}
       leagues={LEAGUES}
     />,
   );
 }
 
 /**
- * Stages a competition through the select.
+ * Stages a competition through the picker.
  *
- * @param name - Option label to choose.
+ * @param name - Menu entry to choose.
  */
 function chooseCompetition(name: string): void {
-  fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
-  fireEvent.click(screen.getByRole("option", { name }));
+  fireEvent.keyDown(screen.getByRole("button", { name: "Competitions" }), {
+    key: "Enter",
+  });
+
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name }));
+
+  fireEvent.keyDown(document.activeElement ?? document.body, {
+    key: "Escape",
+  });
 }
 
 describe("FixtureFilters", () => {
@@ -143,7 +150,7 @@ describe("FixtureFilters", () => {
       new URLSearchParams({ date: "2026-08-29", league: "2" }),
     );
 
-    renderFilters("2026-08-29", 2);
+    renderFilters("2026-08-29", [2]);
 
     chooseCompetition("All competitions");
 
@@ -160,13 +167,13 @@ describe("FixtureFilters", () => {
    * THEN applying is refused again, so the list on screen cannot be re-requested
    */
   it("refuses to apply a scope equal to the one on screen", () => {
-    renderFilters("2026-08-29", 2);
+    renderFilters("2026-08-29", [2]);
 
     chooseCompetition("Premier League");
 
     expect(screen.getByRole("button", { name: "Filter" })).toBeEnabled();
 
-    chooseCompetition("Serie A");
+    chooseCompetition("Premier League");
 
     expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
   });
@@ -177,21 +184,25 @@ describe("FixtureFilters", () => {
    * THEN the staging is abandoned and the bar describes the list on screen
    */
   it("abandons a staging the applied scope has moved past", () => {
-    const { rerender } = renderFilters("2026-08-29", null);
+    const { rerender } = renderFilters("2026-08-29", []);
 
     chooseCompetition("Serie A");
 
-    expect(screen.getByRole("combobox")).toHaveTextContent("Serie A");
+    expect(
+      screen.getByRole("button", { name: "Competitions" }),
+    ).toHaveTextContent("Serie A");
 
     rerender(
       <FixtureFilters
         appliedDay="2026-08-30"
-        appliedLeagueId={null}
+        appliedLeagueIds={[]}
         leagues={LEAGUES}
       />,
     );
 
-    expect(screen.getByRole("combobox")).toHaveTextContent("All competitions");
+    expect(
+      screen.getByRole("button", { name: "Competitions" }),
+    ).toHaveTextContent("All competitions");
     expect(screen.getByRole("button", { name: "Match day" })).toHaveTextContent(
       "Sun, 30 Aug 2026",
     );

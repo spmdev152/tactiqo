@@ -99,7 +99,7 @@ export interface FixtureRowProps {
 }
 
 /**
- * Renders one match: both sides, the kick-off time and the competition.
+ * Renders one match: both sides and the kick-off time.
  *
  * @remarks
  * The kick-off is formatted in UTC on the server. The visitor's timezone is not
@@ -118,11 +118,13 @@ export interface FixtureRowProps {
  * because the sidebar takes 16rem of the window when it is expanded and the row
  * therefore has less space than the window suggests.
  *
- * Every cell flanking the two sides has a fixed width: the kick-off, and the
- * competition on both widths. The two sides then split what is left evenly, so
- * the marker between them lands on the same pixel column in every row of the
- * list. Letting the competition size itself to its own text moved that column
- * by the difference between "Ligue 1" and "Premier League".
+ * The kick-off is the only fixed-width cell, and the two sides split the rest
+ * evenly, so the marker between them lands on the same pixel column in every
+ * row of the list.
+ *
+ * The competition is no longer named on the row. The heading above the group
+ * says it once for every match under it, and repeating it cost the widest
+ * column in the row for a fact that no longer varies within a group.
  *
  * @returns The match row.
  */
@@ -151,16 +153,6 @@ export function FixtureRow({ fixture }: FixtureRowProps) {
           <TeamName team={fixture.awayTeam} />
         </div>
       </div>
-
-      <span className="hidden w-28 shrink-0 truncate text-right text-xs text-muted-foreground @lg:inline-block">
-        {fixture.league.name}
-      </span>
-
-      <span className="w-14 shrink-0 truncate text-right font-mono text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase @lg:hidden">
-        {fixture.league.shortCode === ""
-          ? fixture.league.name
-          : fixture.league.shortCode}
-      </span>
     </li>
   );
 }

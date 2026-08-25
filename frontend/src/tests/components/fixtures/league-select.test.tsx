@@ -19,7 +19,7 @@ const LEAGUES: readonly League[] = [
   {
     id: 2,
     name: "Serie A",
-    shortCode: "IT SA",
+    shortCode: "ITA SA",
     logoUrl: "https://cdn.sportmonks.com/images/soccer/leagues/384.png",
     countryName: "Italy",
     countryFlagUrl: "",
@@ -27,10 +27,10 @@ const LEAGUES: readonly League[] = [
 ];
 
 /**
- * Teaches jsdom the layout and pointer APIs the select popup measures itself
- * with. None of them exist there, and the popup throws on mount without them.
+ * Teaches jsdom the layout and pointer APIs the menu measures itself with.
+ * None of them exist there, and the menu throws on mount without them.
  */
-function installPopupEnvironment(): void {
+function installMenuEnvironment(): void {
   globalThis.ResizeObserver = class {
     observe(): void {}
     unobserve(): void {}
@@ -44,112 +44,132 @@ function installPopupEnvironment(): void {
 }
 
 /**
- * Renders the competition filter and opens its list of options.
+ * Renders the competition picker and opens its menu.
  *
- * @param value - Competition the filter starts staged on.
+ * @param value - Competitions the filter starts staged on.
  */
-function renderOpenSelect(value: number | null = null): void {
+function renderOpenMenu(value: readonly number[] = []): void {
   render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={value} />);
 
-  fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
+  fireEvent.keyDown(screen.getByRole("button", { name: "Competitions" }), {
+    key: "Enter",
+  });
 }
 
 describe("LeagueSelect", () => {
-  beforeAll(installPopupEnvironment);
+  beforeAll(installMenuEnvironment);
 
   beforeEach(() => {
     onChange.mockReset();
   });
 
   /**
-   * GIVEN a filter narrowed to one competition and a list never opened
-   * WHEN the trigger is read
-   * THEN it names that competition, which the unmounted options cannot supply
-   */
-  it("names the current competition before the list is opened", () => {
-    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={2} />);
-
-    expect(
-      screen.getByRole("combobox", { name: "Competition" }),
-    ).toHaveTextContent("Serie A");
-  });
-
-  /**
-   * GIVEN an unfiltered list and a list never opened
+   * GIVEN an unfiltered day and a menu never opened
    * WHEN the trigger is read
    * THEN it states that every competition is included
    */
-  it("states an unfiltered list on the trigger", () => {
-    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={null} />);
+  it("states an unfiltered day on the trigger", () => {
+    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={[]} />);
 
     expect(
-      screen.getByRole("combobox", { name: "Competition" }),
+      screen.getByRole("button", { name: "Competitions" }),
     ).toHaveTextContent("All competitions");
   });
 
   /**
-   * GIVEN the covered competitions
-   * WHEN the filter is opened
-   * THEN every competition is offered alongside the option that clears the filter
+   * GIVEN exactly one competition staged
+   * WHEN the trigger is read
+   * THEN it names that competition rather than counting it
    */
-  it("lists every competition and the clear option", () => {
-    renderOpenSelect();
+  it("names a single staged competition", () => {
+    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={[2]} />);
 
-    const options = screen.getAllByRole("option").map((one) => one.textContent);
+    expect(
+      screen.getByRole("button", { name: "Competitions" }),
+    ).toHaveTextContent("Serie A");
+  });
+
+  /**
+   * GIVEN several competitions staged
+   * WHEN the trigger is read
+   * THEN it summarises them as a count, which a narrow control can hold
+   */
+  it("summarises several staged competitions", () => {
+    render(
+      <LeagueSelect leagues={LEAGUES} onChange={onChange} value={[1, 2]} />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Competitions" }),
+    ).toHaveTextContent("2 competitions");
+  });
+
+  /**
+   * GIVEN the covered competitions
+   * WHEN the menu is opened
+   * THEN each is offered as a checkbox alongside the one that clears the filter
+   */
+  it("offers every competition and the clear entry as checkboxes", () => {
+    renderOpenMenu();
+
+    const options = screen
+      .getAllByRole("menuitemcheckbox")
+      .map((one) => one.textContent);
 
     expect(options).toEqual(["All competitions", "Premier League", "Serie A"]);
   });
 
   /**
-   * GIVEN a competition that publishes a country flag and one that does not
-   * WHEN the filter is opened
-   * THEN only the first carries a decorative flag beside its name
+   * GIVEN a competition already staged
+   * WHEN another is ticked
+   * THEN both are staged, so the filter accumulates rather than replaces
    */
-  it("renders a decorative flag only where one is published", () => {
-    renderOpenSelect();
+  it("adds a competition to the staged ones", () => {
+    renderOpenMenu([1]);
 
-    const flags = screen
-      .getAllByRole("option")
-      .flatMap((option) => Array.from(option.querySelectorAll("img")));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Serie A" }));
 
-    expect(flags).toHaveLength(1);
-    expect(flags[0]).toHaveAttribute("alt", "");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([1, 2]);
   });
 
   /**
-   * GIVEN a filter showing every competition
-   * WHEN a competition is chosen
-   * THEN it is staged by identifier and nothing navigates
+   * GIVEN two competitions staged
+   * WHEN one of them is unticked
+   * THEN only the other remains staged
    */
-  it("stages the chosen competition", () => {
-    renderOpenSelect();
+  it("removes a competition from the staged ones", () => {
+    renderOpenMenu([1, 2]);
 
-    fireEvent.click(screen.getByRole("option", { name: "Serie A" }));
+    fireEvent.click(
+      screen.getByRole("menuitemcheckbox", { name: "Premier League" }),
+    );
 
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(2);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([2]);
   });
 
   /**
-   * GIVEN a filter narrowed to one competition
-   * WHEN the clear option is chosen
-   * THEN the absence of a filter is staged rather than a sentinel value
+   * GIVEN a filter narrowed to some competitions
+   * WHEN the clear entry is chosen
+   * THEN the staged competitions are emptied rather than set to a sentinel
    */
-  it("stages the cleared filter as no competition", () => {
-    renderOpenSelect(2);
+  it("clears every staged competition", () => {
+    renderOpenMenu([1, 2]);
 
-    fireEvent.click(screen.getByRole("option", { name: "All competitions" }));
+    fireEvent.click(
+      screen.getByRole("menuitemcheckbox", { name: "All competitions" }),
+    );
 
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(null);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([]);
   });
 
   /**
    * GIVEN competitions that could not be loaded
-   * WHEN the filter is rendered
-   * THEN the control is disabled instead of offering an empty list
+   * WHEN the picker is rendered
+   * THEN the control is disabled instead of offering an empty menu
    */
   it("disables itself when no competition is available", () => {
-    render(<LeagueSelect leagues={[]} onChange={onChange} value={null} />);
+    render(<LeagueSelect leagues={[]} onChange={onChange} value={[]} />);
 
-    expect(screen.getByRole("combobox")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Competitions" })).toBeDisabled();
   });
 });

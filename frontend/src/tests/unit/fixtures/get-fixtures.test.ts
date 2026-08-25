@@ -19,7 +19,7 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const QUERY = { day: "2026-08-29", leagueId: null };
+const QUERY = { day: "2026-08-29", leagueIds: [] };
 
 describe("getFixtures", () => {
   afterEach(() => {
@@ -121,11 +121,11 @@ describe("getFixtures", () => {
   });
 
   /**
-   * GIVEN a reachable API and a request filtered to one competition
+   * GIVEN a reachable API and a request filtered to several competitions
    * WHEN the fixtures of a day are read
-   * THEN the day and the competition are sent as the API's own query names
+   * THEN each competition is sent as its own repetition of the API's query name
    */
-  it("sends the day and the competition uncached with a bearer credential", async () => {
+  it("repeats the competition query once per competition", async () => {
     const fetchStub = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -136,11 +136,11 @@ describe("getFixtures", () => {
     vi.stubGlobal("fetch", fetchStub);
 
     await expect(
-      getFixtures({ day: "2026-08-29", leagueId: 1 }),
+      getFixtures({ day: "2026-08-29", leagueIds: [1, 4] }),
     ).resolves.toEqual({ loaded: true, fixtures: [] });
 
     expect(fetchStub).toHaveBeenCalledWith(
-      "http://api.test/api/v1/fixtures?date=2026-08-29&league_id=1",
+      "http://api.test/api/v1/fixtures?date=2026-08-29&league_id=1&league_id=4",
       expect.objectContaining({
         cache: "no-store",
         headers: expect.objectContaining({
