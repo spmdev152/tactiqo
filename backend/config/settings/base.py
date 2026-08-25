@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.accounts",
     "apps.fixtures",
+    "apps.predictions",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
