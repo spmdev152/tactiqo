@@ -1,10 +1,9 @@
 import { Suspense } from "react";
 
 import { requireUser } from "@/features/auth/server/require-user";
+import { FixtureFilters } from "@/features/fixtures/components/fixture-filters";
 import { FixtureListSection } from "@/features/fixtures/components/fixture-list-section";
 import { FixtureListSkeleton } from "@/features/fixtures/components/fixture-list-skeleton";
-import { FixturesDatePicker } from "@/features/fixtures/components/fixtures-date-picker";
-import { LeagueSelect } from "@/features/fixtures/components/league-select";
 import {
   FIXTURE_DATE_PARAMETER,
   FIXTURE_LEAGUE_PARAMETER,
@@ -50,19 +49,19 @@ interface FixturesPageProps {
  * that stays inside it, so a page that reached the shell once would keep
  * rendering after its session was revoked.
  *
- * Only the fixture query is deferred. The label and both controls resolve
- * without it, so they render immediately and stay on screen while a new day
- * loads behind a `Suspense` boundary keyed to the scope. A whole-page loading
- * state used to replace them with a shimmer, which meant covering text that was
- * already correct and jumping the toolbar the moment the rows arrived.
+ * Only the fixture query is deferred. The label and the filters resolve without
+ * it, so they render immediately and stay on screen while a new scope loads
+ * behind a `Suspense` boundary keyed to it. A whole-page loading state used to
+ * replace them with a shimmer, which meant covering text that was already
+ * correct and jumping the toolbar the moment the rows arrived.
  *
  * The chosen day is stated once, by the picker itself. A heading repeating it
  * cost a line of the viewport to say what the control beside it already said.
  *
  * The day and the competition are URL state and nothing else, which is what
- * makes a view linkable and lets it survive a reload. The two controls navigate
- * rather than hold state, so the server stays the single place either value is
- * resolved.
+ * makes a view linkable and lets it survive a reload. The filter bar stages a
+ * scope locally and applies it in one navigation, so the server stays the
+ * single place either value is resolved.
  *
  * The page root is a `div` rather than a `main`, because `SidebarInset` is
  * itself the `main` element of the shell.
@@ -81,6 +80,8 @@ export default async function FixturesPage({
 
   const leagues = await getLeagues();
 
+  const scope = `${day}|${leagueId}`;
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
       <h1 className="font-mono text-[0.7rem] tracking-[0.2em] text-muted-foreground uppercase">
@@ -88,16 +89,13 @@ export default async function FixturesPage({
       </h1>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <FixturesDatePicker selectedDay={day} />
+        <FixtureFilters
+          appliedDay={day}
+          appliedLeagueId={leagueId}
+          leagues={leagues.loaded ? leagues.leagues : []}
+        />
 
-          <LeagueSelect
-            leagues={leagues.loaded ? leagues.leagues : []}
-            selectedLeagueId={leagueId}
-          />
-        </div>
-
-        <Suspense fallback={<FixtureListSkeleton />} key={`${day}|${leagueId}`}>
+        <Suspense fallback={<FixtureListSkeleton />} key={scope}>
           <FixtureListSection day={day} leagueId={leagueId} />
         </Suspense>
       </div>

@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useOptimistic, useTransition } from "react";
+import { useCallback } from "react";
 
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
 
 import { Globe } from "lucide-react";
 
@@ -14,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FIXTURE_LEAGUE_PARAMETER } from "@/features/fixtures/domain/fixture-search-params";
 import type { League } from "@/features/fixtures/types/league";
 
 const ALL_COMPETITIONS_VALUE = "all";
@@ -92,19 +90,28 @@ export interface LeagueSelectProps {
   /** Competitions the platform covers, already ordered by name. */
   readonly leagues: readonly League[];
 
-  /** Competition the fixture list is filtered to, or `null` for all of them. */
-  readonly selectedLeagueId: number | null;
+  /** Competition currently staged, or `null` for all of them. */
+  readonly value: number | null;
+
+  /** Called with the newly staged competition, or `null` to clear the filter. */
+  readonly onChange: (leagueId: number | null) => void;
 }
 
 /**
- * Renders the competition filter that scopes the fixture list.
+ * Renders the competition picker of the fixture filters.
  *
  * @remarks
+ * Choosing a competition stages it and nothing else. The control neither reads
+ * the URL nor navigates: {@link FixtureFilters} owns the staged scope and
+ * applies it. That separation is the point rather than tidiness — while a
+ * navigation is in flight React holds the previous tree on screen, and a list
+ * that closed on the same click could be caught in that window and painted open
+ * again. With the navigation moved to a button, nothing is animating when it
+ * starts.
+ *
  * The clear option carries the sentinel value `all` rather than an empty
  * string, because the underlying primitive reserves the empty string for "no
- * selection" and an item declaring it would never become selectable. Choosing
- * it removes the parameter instead of writing a value, so an unfiltered list
- * has one address rather than two.
+ * selection" and an item declaring it would never become selectable.
  *
  * The trigger is given its own children rather than left to mirror the selected
  * option. The primitive unmounts its option list while closed, so there is no
@@ -113,52 +120,23 @@ export interface LeagueSelectProps {
  * the primitive to stop portalling the option text in, so the label is not
  * rendered twice once the list has been opened.
  *
- * The existing query is copied before `league` is replaced, so changing
- * competition keeps the chosen day.
- *
  * The list is positioned below the trigger and pinned to its width. The
  * primitive's default aligns the selected option over the trigger instead,
  * which overlaps the control it belongs to and leaves the list free to size
  * itself to its widest option. That default also suppresses the open
  * animation, which is a second reason to leave it.
  *
- * The navigation runs inside a transition, and the chosen competition is
- * applied optimistically inside the same one. Without that the trigger keeps
- * announcing the previous competition for the whole round trip and then snaps
- * to the new one when the payload lands, which is the flash a visitor sees.
- * With it the control answers the click immediately and the list alone waits.
- *
- * @returns The competition filter.
+ * @returns The competition picker.
  */
-export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const [, startTransition] = useTransition();
-
-  const [chosenLeagueId, chooseLeagueId] = useOptimistic(selectedLeagueId);
-
+export function LeagueSelect({ leagues, value, onChange }: LeagueSelectProps) {
   const handleValueChange = useCallback(
-    (value: string) => {
-      const next = new URLSearchParams(searchParams);
-
-      const leagueId = value === ALL_COMPETITIONS_VALUE ? null : Number(value);
-
-      if (leagueId === null) {
-        next.delete(FIXTURE_LEAGUE_PARAMETER);
-      } else {
-        next.set(FIXTURE_LEAGUE_PARAMETER, value);
-      }
-
-      startTransition(() => {
-        chooseLeagueId(leagueId);
-        router.push(`?${next.toString()}`, { scroll: false });
-      });
+    (chosen: string) => {
+      onChange(chosen === ALL_COMPETITIONS_VALUE ? null : Number(chosen));
     },
-    [chooseLeagueId, router, searchParams],
+    [onChange],
   );
 
-  const selectedLeague = leagues.find((league) => league.id === chosenLeagueId);
+  const selectedLeague = leagues.find((league) => league.id === value);
 
   return (
     <Select
@@ -170,7 +148,7 @@ export function LeagueSelect({ leagues, selectedLeagueId }: LeagueSelectProps) {
       onValueChange={handleValueChange}
       disabled={leagues.length === 0}
     >
-      <SelectTrigger aria-label={COMPETITION_LABEL} className="w-full sm:w-60">
+      <SelectTrigger aria-label={COMPETITION_LABEL} className="w-full sm:w-56">
         <SelectValue>
           {selectedLeague === undefined ? (
             <AllCompetitionsLabel />

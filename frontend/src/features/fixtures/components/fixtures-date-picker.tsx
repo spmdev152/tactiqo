@@ -1,8 +1,6 @@
 "use client";
 
-import { useCallback, useOptimistic, useState, useTransition } from "react";
-
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useState } from "react";
 
 import { CalendarDays } from "lucide-react";
 
@@ -14,7 +12,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  FIXTURE_DATE_PARAMETER,
   localDateToUtcDay,
   utcDayToLocalDate,
 } from "@/features/fixtures/domain/fixture-search-params";
@@ -33,25 +30,31 @@ const TRIGGER_DAY_FORMAT = new Intl.DateTimeFormat("en-GB", {
  * Props of {@link FixturesDatePicker}.
  */
 export interface FixturesDatePickerProps {
-  /** UTC calendar day the fixture list currently shows, as `YYYY-MM-DD`. */
-  readonly selectedDay: string;
+  /** UTC calendar day currently staged, as `YYYY-MM-DD`. */
+  readonly value: string;
+
+  /** Called with the newly staged UTC calendar day. */
+  readonly onChange: (day: string) => void;
 }
 
 /**
- * Renders the day picker that scopes the fixture list.
+ * Renders the day picker of the fixture filters.
  *
  * @remarks
+ * Choosing a day stages it and nothing else. The control neither reads the URL
+ * nor navigates: {@link FixtureFilters} owns the staged scope and applies it.
+ * That separation is the point rather than tidiness — while a navigation is in
+ * flight React holds the previous tree on screen, and a popover that closed on
+ * the same click could be caught in that window and painted open again. With
+ * the navigation moved to a button, nothing is animating when it starts.
+ *
  * The calendar lives in a popover rather than on the page. A permanently open
  * month costs a column of the layout to a control used once per visit, and it
- * pushed the list into a narrow gutter; the trigger states the chosen day, which
- * is the only part worth showing all the time.
+ * pushed the list into a narrow gutter; the trigger states the staged day,
+ * which is the only part worth showing all the time.
  *
- * The selected day lives in the URL and nowhere else, so the picker holds no
- * state of its own beyond whether the popover is open: it renders the day the
- * server resolved and navigates to write a new one. That is what makes a day
- * linkable and survive a reload, and it is also why `mode="single"` is
- * `required` — clicking the highlighted day again must not clear a value the
- * route cannot render without.
+ * `mode="single"` is `required` because clicking the highlighted day again must
+ * not clear a value the route cannot render without.
  *
  * The popover is pinned to the trigger's own width and the calendar's cell size
  * is derived from it rather than fixed, so the seven columns plus the
@@ -60,50 +63,24 @@ export interface FixturesDatePickerProps {
  * control on a laptop and under a full-width one on a phone.
  *
  * The trigger label is formatted in UTC to match the day the URL names, so it
- * cannot disagree with the kick-off times below it west of Greenwich. It is
- * also the only place the chosen day is stated.
- *
- * The existing query is copied before `date` is replaced, so choosing a day
- * keeps the chosen competition instead of quietly widening the list back to
- * every league.
- *
- * The navigation runs inside a transition, and the chosen day is applied
- * optimistically inside the same one. Without that the trigger keeps
- * announcing the previous day for the whole round trip and then snaps to the
- * new one when the payload lands, which is the flash a visitor sees. With it
- * the control answers the click immediately and the list alone waits, behind a
- * boundary keyed to the scope so it still shows its skeleton.
+ * cannot disagree with the kick-off times below it west of Greenwich.
  *
  * @returns The day picker.
  */
-export function FixturesDatePicker({ selectedDay }: FixturesDatePickerProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const [, startTransition] = useTransition();
-
+export function FixturesDatePicker({
+  value,
+  onChange,
+}: FixturesDatePickerProps) {
   const [open, setOpen] = useState(false);
 
-  const [chosenDay, chooseDay] = useOptimistic(selectedDay);
-
-  const selected = utcDayToLocalDate(chosenDay);
+  const selected = utcDayToLocalDate(value);
 
   const handleSelect = useCallback(
     (day: Date) => {
-      const next = new URLSearchParams(searchParams);
-
-      const utcDay = localDateToUtcDay(day);
-
-      next.set(FIXTURE_DATE_PARAMETER, utcDay);
-
       setOpen(false);
-
-      startTransition(() => {
-        chooseDay(utcDay);
-        router.push(`?${next.toString()}`, { scroll: false });
-      });
+      onChange(localDateToUtcDay(day));
     },
-    [chooseDay, router, searchParams],
+    [onChange],
   );
 
   return (
@@ -111,12 +88,12 @@ export function FixturesDatePicker({ selectedDay }: FixturesDatePickerProps) {
       <PopoverTrigger asChild>
         <Button
           aria-label={TRIGGER_LABEL}
-          className="w-full justify-start font-normal sm:w-60"
+          className="w-full justify-start font-normal sm:w-56"
           variant="outline"
         >
           <CalendarDays />
 
-          {TRIGGER_DAY_FORMAT.format(new Date(`${chosenDay}T00:00:00Z`))}
+          {TRIGGER_DAY_FORMAT.format(new Date(`${value}T00:00:00Z`))}
         </Button>
       </PopoverTrigger>
 

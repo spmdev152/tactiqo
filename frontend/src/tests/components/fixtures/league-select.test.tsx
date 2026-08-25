@@ -4,15 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { LeagueSelect } from "@/features/fixtures/components/league-select";
 import type { League } from "@/features/fixtures/types/league";
 
-const { push, useSearchParams } = vi.hoisted(() => ({
-  push: vi.fn(),
-  useSearchParams: vi.fn(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
-  useSearchParams,
-}));
+const onChange = vi.fn();
 
 const LEAGUES: readonly League[] = [
   {
@@ -54,12 +46,10 @@ function installPopupEnvironment(): void {
 /**
  * Renders the competition filter and opens its list of options.
  *
- * @param selectedLeagueId - Competition the filter starts on.
+ * @param value - Competition the filter starts staged on.
  */
-function renderOpenSelect(selectedLeagueId: number | null = null): void {
-  render(
-    <LeagueSelect leagues={LEAGUES} selectedLeagueId={selectedLeagueId} />,
-  );
+function renderOpenSelect(value: number | null = null): void {
+  render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={value} />);
 
   fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
 }
@@ -68,9 +58,7 @@ describe("LeagueSelect", () => {
   beforeAll(installPopupEnvironment);
 
   beforeEach(() => {
-    useSearchParams.mockReturnValue(
-      new URLSearchParams({ date: "2026-08-29" }),
-    );
+    onChange.mockReset();
   });
 
   /**
@@ -79,7 +67,7 @@ describe("LeagueSelect", () => {
    * THEN it names that competition, which the unmounted options cannot supply
    */
   it("names the current competition before the list is opened", () => {
-    render(<LeagueSelect leagues={LEAGUES} selectedLeagueId={2} />);
+    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={2} />);
 
     expect(
       screen.getByRole("combobox", { name: "Competition" }),
@@ -92,7 +80,7 @@ describe("LeagueSelect", () => {
    * THEN it states that every competition is included
    */
   it("states an unfiltered list on the trigger", () => {
-    render(<LeagueSelect leagues={LEAGUES} selectedLeagueId={null} />);
+    render(<LeagueSelect leagues={LEAGUES} onChange={onChange} value={null} />);
 
     expect(
       screen.getByRole("combobox", { name: "Competition" }),
@@ -129,35 +117,29 @@ describe("LeagueSelect", () => {
   });
 
   /**
-   * GIVEN a filter showing every competition and a day already in the query
+   * GIVEN a filter showing every competition
    * WHEN a competition is chosen
-   * THEN the competition is written to the query and the day is kept
+   * THEN it is staged by identifier and nothing navigates
    */
-  it("writes the chosen competition and keeps the day", () => {
+  it("stages the chosen competition", () => {
     renderOpenSelect();
 
     fireEvent.click(screen.getByRole("option", { name: "Serie A" }));
 
-    expect(push).toHaveBeenCalledWith("?date=2026-08-29&league=2", {
-      scroll: false,
-    });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(2);
   });
 
   /**
    * GIVEN a filter narrowed to one competition
    * WHEN the clear option is chosen
-   * THEN the competition parameter is removed rather than set to a sentinel
+   * THEN the absence of a filter is staged rather than a sentinel value
    */
-  it("removes the competition parameter when the filter is cleared", () => {
-    useSearchParams.mockReturnValue(
-      new URLSearchParams({ date: "2026-08-29", league: "2" }),
-    );
-
+  it("stages the cleared filter as no competition", () => {
     renderOpenSelect(2);
 
     fireEvent.click(screen.getByRole("option", { name: "All competitions" }));
 
-    expect(push).toHaveBeenCalledWith("?date=2026-08-29", { scroll: false });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(null);
   });
 
   /**
@@ -166,7 +148,7 @@ describe("LeagueSelect", () => {
    * THEN the control is disabled instead of offering an empty list
    */
   it("disables itself when no competition is available", () => {
-    render(<LeagueSelect leagues={[]} selectedLeagueId={null} />);
+    render(<LeagueSelect leagues={[]} onChange={onChange} value={null} />);
 
     expect(screen.getByRole("combobox")).toBeDisabled();
   });

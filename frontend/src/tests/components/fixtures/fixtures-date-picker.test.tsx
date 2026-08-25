@@ -1,17 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FixturesDatePicker } from "@/features/fixtures/components/fixtures-date-picker";
 
-const { push, useSearchParams } = vi.hoisted(() => ({
-  push: vi.fn(),
-  useSearchParams: vi.fn(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
-  useSearchParams,
-}));
+const onChange = vi.fn();
 
 /**
  * Teaches jsdom the layout and pointer APIs the popover measures itself with.
@@ -34,17 +26,16 @@ describe("FixturesDatePicker", () => {
   beforeAll(installPopupEnvironment);
 
   beforeEach(() => {
-    push.mockReset();
-    useSearchParams.mockReturnValue(new URLSearchParams());
+    onChange.mockReset();
   });
 
   /**
-   * GIVEN a resolved match day
+   * GIVEN a staged match day
    * WHEN the picker is rendered
    * THEN the calendar stays closed and the trigger states the day in UTC
    */
-  it("states the chosen day without opening a calendar", () => {
-    render(<FixturesDatePicker selectedDay="2026-08-29" />);
+  it("states the staged day without opening a calendar", () => {
+    render(<FixturesDatePicker onChange={onChange} value="2026-08-29" />);
 
     expect(screen.getByRole("button", { name: "Match day" })).toHaveTextContent(
       "Sat, 29 Aug 2026",
@@ -54,14 +45,12 @@ describe("FixturesDatePicker", () => {
   });
 
   /**
-   * GIVEN a competition already chosen in the query
-   * WHEN another day is picked from the opened calendar
-   * THEN only the day is replaced and the competition survives
+   * GIVEN the calendar opened from the trigger
+   * WHEN another day is chosen
+   * THEN that UTC day is staged and the calendar dismisses itself
    */
-  it("keeps the competition when the day changes", () => {
-    useSearchParams.mockReturnValue(new URLSearchParams("league=2"));
-
-    render(<FixturesDatePicker selectedDay="2026-08-29" />);
+  it("stages the chosen day and closes", async () => {
+    render(<FixturesDatePicker onChange={onChange} value="2026-08-29" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Match day" }));
 
@@ -69,8 +58,8 @@ describe("FixturesDatePicker", () => {
       screen.getByRole("button", { name: "Monday, August 31st, 2026" }),
     );
 
-    expect(push).toHaveBeenCalledExactlyOnceWith("?league=2&date=2026-08-31", {
-      scroll: false,
-    });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("2026-08-31");
+
+    await waitFor(() => expect(screen.queryByRole("grid")).toBeNull());
   });
 });
