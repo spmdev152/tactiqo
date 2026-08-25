@@ -5,6 +5,13 @@ class FixturesConfig(AppConfig):
     """
     Application configuration of the fixtures slice.
 
+    The admin groups models by this label, and the slice owns competitions and
+    clubs as well as matches, so naming the group after one of the three would
+    file the other two under it. "Football catalogue" names what all three are:
+    the reference entities every later slice hangs measurements off, which is
+    also what keeps the group distinct from a future statistics, odds, or
+    predictions group.
+
     Attributes
     ----------
     default_auto_field : str
@@ -18,4 +25,4 @@ class FixturesConfig(AppConfig):
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.fixtures"
-    verbose_name = "Fixtures"
+    verbose_name = "Football catalogue"
