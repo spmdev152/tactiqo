@@ -316,13 +316,23 @@ def test_upsert_fixtures_refreshes_the_competition_and_club_details() -> None:
 @pytest.mark.django_db
 def test_upsert_fixtures_resolves_a_shared_competition_and_club_once_per_call() -> None:
     """
-    GIVEN two windows of the same competition and clubs differing only in fixture count
-    WHEN each window is stored
+    GIVEN a stored window and two replacements differing only in fixture count
+    WHEN each replacement is stored
     THEN both writes cost the same number of statements
     """
 
+    departing_window = [provider_fixture(index, kickoff(12)) for index in range(100, 103)]
+
     small_window = [provider_fixture(index, kickoff(12)) for index in range(1, 3)]
     large_window = [provider_fixture(index, kickoff(12)) for index in range(10, 40)]
+
+    # Both captures have to reconcile a departure. Since predictions cascade off a
+    # fixture, the reconciliation can no longer fast-delete: it selects the
+    # departing keys first and only then issues a delete per table. A capture with
+    # nothing to delete skips all three statements, so measuring one such write
+    # against one that departs would compare the delete path rather than the
+    # fixture count this test is about.
+    store_window(departing_window)
 
     with CaptureQueriesContext(connection) as small_statements:
         store_window(small_window)

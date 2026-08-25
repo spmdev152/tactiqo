@@ -112,6 +112,46 @@
   --warning: oklch(0.7686 0.12 76.8292);
   --warning-foreground: oklch(0.2166 0.0215 292.8474);
 
+  /* A probability is a quantity, so what it needs is a scale rather than a
+     fourth accent: three anchors, and a `color-mix` between whichever pair a
+     value falls between. `domain/probability-scale.ts` resolves the pair and
+     the blend; nothing addresses these as a Tailwind colour, which is why they
+     get no `@theme inline` entry and are read through an inline
+     `color-mix(in oklch, ...)`.
+
+     Teal and earth red rather than green and red. Red and green are the one
+     pair that collapses under deuteranopia and protanopia, and a scale whose
+     entire meaning is its hue is the last place that may depend on it.
+     Simulated with the Vienot 1999 transform, the low anchor and a teal high
+     anchor stay 71 units apart in sRGB under deuteranopia and 99 under
+     protanopia, where a true green of the same lightness and chroma
+     (`oklch(0.68 0.13 145)`) manages 39 and 80. Nearly double the separation
+     for a hue shift nobody with typical vision reads as a different colour.
+
+     The midpoint is amber and not yellow because of what a light yellow
+     measures on this background. At hue 72 a yellow light enough to read as
+     yellow lands around 0.88 lightness, which is 1.44:1 against
+     `--background`, and `--chart-4` measures 1.47:1; held at 0.75 the amber
+     reaches 2.13:1. The fill is exempt from the 3:1 floor for a non-text
+     graphic, because the bar is `aria-hidden` and every value it paints is
+     also present as text beside it, so the scale is tuned for separation
+     between its own three anchors instead. Against the `bg-muted` track the
+     fill separates on chroma rather than on luminance: 0.13 to 0.16 against
+     the track's 0.014, a tenfold difference at 1.6:1 to 2.8:1.
+
+     The low anchor is red-adjacent and deliberately not `--destructive`. An
+     unlikely outcome is not a failure, so it borrows that hue at a different
+     lightness and never the token, which stays reserved for a surface
+     reporting that something went wrong.
+
+     These are not borrowed from `--chart-*` either, and for the reason the
+     `--warning` comment above gives: those five are a categorical set with no
+     order among them, restyled whenever a chart is restyled, so a sequential
+     scale built from three of them would reorder itself the day one moved. */
+  --probability-high: oklch(0.68 0.13 168);
+  --probability-mid: oklch(0.75 0.14 72);
+  --probability-low: oklch(0.62 0.16 28);
+
   --border: oklch(0.8447 0.0226 300.1421);
   --input: oklch(0.9329 0.0124 301.2783);
   --ring: oklch(0.6104 0.0767 299.7335);
@@ -167,6 +207,14 @@
      surface is still light. */
   --warning: oklch(0.8214 0.12 76.8292);
   --warning-foreground: oklch(0.2166 0.0215 292.8474);
+  /* Each anchor is lifted by 0.06 and holds its hue and chroma, so the scale is
+     one scale in two coats rather than two scales. The dark background is where
+     it is comfortable: the three measure 8.05:1, 9.50:1 and 5.67:1 against it,
+     against 2.54:1, 2.13:1 and 3.68:1 in the light theme, so the ordering that
+     has to survive is the light one and this pair is not the constraint. */
+  --probability-high: oklch(0.74 0.13 168);
+  --probability-mid: oklch(0.81 0.14 72);
+  --probability-low: oklch(0.68 0.16 28);
   --border: oklch(0.3063 0.0359 293.3367);
   --input: oklch(0.2847 0.0346 291.2726);
   --ring: oklch(0.7058 0.0777 302.0489);

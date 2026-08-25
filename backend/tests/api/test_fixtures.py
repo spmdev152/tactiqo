@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from http import HTTPStatus
 from typing import cast
 
@@ -6,6 +7,8 @@ import pytest
 
 from apps.fixtures.domain.enums import FixtureStatus
 from apps.fixtures.models import Fixture, League, Team
+from apps.predictions.domain.enums import PredictionMarket, PredictionSelection
+from apps.predictions.models import FixturePrediction
 from tests.conftest import ApiGet, ApiPost, UserFactory
 
 LOGIN_URL = "/api/v1/auth/login"
@@ -345,6 +348,7 @@ def test_fixtures_returns_the_day_in_the_contracted_shape(
                 "short_code": "NFO",
                 "crest_url": "https://cdn.example.test/teams/63.png",
             },
+            "has_predictions": False,
         }
     ]
 
@@ -384,6 +388,51 @@ def test_fixtures_returns_the_result_of_a_played_fixture(
     played = json_list(response.json())[0]
 
     assert (played["status"], played["home_goals"], played["away_goals"]) == ("finished", 2, 0)
+
+
+@pytest.mark.django_db
+def test_fixtures_flags_only_the_rows_that_carry_a_prediction(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN two fixtures of one day, one of which carries a stored prediction
+    WHEN that day is requested
+    THEN only the predicted fixture is flagged, so a toggle is offered once
+    """
+
+    premier_league = store_premier_league()
+
+    liverpool = store_team(8, "Liverpool", "LIV")
+    nottingham_forest = store_team(63, "Nottingham Forest", "NFO")
+
+    predicted = store_fixture(
+        1, premier_league, liverpool, nottingham_forest, datetime(2026, 8, 29, 11, 30, tzinfo=UTC)
+    )
+
+    unpredicted = store_fixture(
+        2, premier_league, nottingham_forest, liverpool, datetime(2026, 8, 29, 14, tzinfo=UTC)
+    )
+
+    FixturePrediction.objects.create(
+        fixture=predicted,
+        market=PredictionMarket.FULLTIME_RESULT,
+        selection=PredictionSelection.HOME,
+        probability=Decimal("26.96"),
+        synchronized_at=SYNCHRONIZED_AT,
+    )
+
+    token = bearer_token(api_post, user, user_password)
+
+    response = api_get(f"{FIXTURES_URL}?date={DAY}", token=token)
+
+    assert response.status_code == HTTPStatus.OK
+
+    listed = json_list(response.json())
+
+    assert [(fixture["id"], fixture["has_predictions"]) for fixture in listed] == [
+        (predicted.pk, True),
+        (unpredicted.pk, False),
+    ]
 
 
 @pytest.mark.django_db

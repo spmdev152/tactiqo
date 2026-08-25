@@ -39,6 +39,7 @@ function fixture(id: number, kickoff: string, competition: League): Fixture {
     league: competition,
     homeTeam: { id: id * 10, name: "Home", shortCode: "HOM", crestUrl: "" },
     awayTeam: { id: id * 10 + 1, name: "Away", shortCode: "AWA", crestUrl: "" },
+    hasPredictions: false,
   };
 }
 

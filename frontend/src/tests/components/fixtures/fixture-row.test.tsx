@@ -1,9 +1,17 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { FixtureRow } from "@/features/fixtures/components/fixture-row";
 import type { Fixture, FixtureTeam } from "@/features/fixtures/types/fixture";
 import type { League } from "@/features/fixtures/types/league";
+
+const { loadFixturePredictionsAction } = vi.hoisted(() => ({
+  loadFixturePredictionsAction: vi.fn(),
+}));
+
+vi.mock("@/features/fixtures/server/actions", () => ({
+  loadFixturePredictionsAction,
+}));
 
 const PREMIER_LEAGUE: League = {
   id: 1,
@@ -32,6 +40,11 @@ const NOTTINGHAM_FOREST: FixtureTeam = {
 /**
  * Builds a fixture, overriding only what a test cares about.
  *
+ * @remarks
+ * The default has no predictions, which is the plain row: a fixture more than a
+ * fortnight out carries none, and it keeps every test that is about the cells
+ * from also being about the control around them.
+ *
  * @param overrides - Fields to replace on the default fixture.
  * @returns A fixture ready to render.
  */
@@ -44,6 +57,7 @@ function buildFixture(overrides: Partial<Fixture> = {}): Fixture {
     league: PREMIER_LEAGUE,
     homeTeam: LIVERPOOL,
     awayTeam: NOTTINGHAM_FOREST,
+    hasPredictions: false,
     ...overrides,
   };
 }
@@ -279,5 +293,36 @@ describe("FixtureRow", () => {
 
     expect(screen.getByText("vs")).toHaveClass("min-w-11");
     expect(screen.getByText("2 - 0")).toHaveClass("min-w-11");
+  });
+
+  /**
+   * GIVEN a fixture the platform holds no prediction probabilities for
+   * WHEN the row is rendered
+   * THEN it offers nothing to press, so no panel can be opened onto nothing
+   */
+  it("offers no toggle for a fixture without predictions", () => {
+    render(<FixtureRow fixture={buildFixture()} />);
+
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Prediction probabilities"),
+    ).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a fixture the platform holds prediction probabilities for
+   * WHEN the row is rendered
+   * THEN the whole row is one collapsed control naming the match it belongs to
+   */
+  it("turns a fixture with predictions into one collapsed control", () => {
+    render(<FixtureRow fixture={buildFixture({ hasPredictions: true })} />);
+
+    const toggle = screen.getByRole("button", {
+      name: /Prediction probabilities/,
+    });
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAccessibleName(/Liverpool/);
+    expect(toggle).toHaveAccessibleName(/11:30/);
   });
 });

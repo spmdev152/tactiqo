@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from django.db import connection
@@ -8,6 +9,8 @@ from pytest_django.fixtures import DjangoAssertNumQueries
 from apps.fixtures.api.schemas import FixtureResponse
 from apps.fixtures.application.queries import list_fixtures_on, list_leagues
 from apps.fixtures.models import Fixture, League
+from apps.predictions.domain.enums import PredictionMarket, PredictionSelection
+from apps.predictions.models import FixturePrediction
 from integrations.sportmonks.fixtures import ProviderLeague, ProviderTeam
 from tests.unit.fixtures.conftest import (
     BARCELONA,
@@ -15,6 +18,7 @@ from tests.unit.fixtures.conftest import (
     LA_LIGA,
     PREMIER_LEAGUE,
     SEVILLA,
+    SYNCHRONIZED_AT,
     kickoff,
     provider_fixture,
     store_window,
@@ -307,3 +311,34 @@ def test_list_fixtures_on_serializes_several_competitions_in_one_query(
         ]
 
     assert [response.league.id for response in responses] == requested
+
+
+@pytest.mark.django_db
+def test_list_fixtures_on_flags_a_predicted_fixture_within_the_same_query(
+    django_assert_num_queries: DjangoAssertNumQueries,
+) -> None:
+    """
+    GIVEN two fixtures of one day, exactly one of which carries a prediction
+    WHEN the day is listed and every fixture is mapped to its response schema
+    THEN the flag tells them apart and the same single query answers the day
+    """
+
+    store_window([provider_fixture(1, kickoff(11, 30)), provider_fixture(2, kickoff(14))])
+
+    predicted, unpredicted = Fixture.objects.order_by("kickoff_at")
+
+    FixturePrediction.objects.create(
+        fixture=predicted,
+        market=PredictionMarket.FULLTIME_RESULT,
+        selection=PredictionSelection.HOME,
+        probability=Decimal("26.96"),
+        synchronized_at=SYNCHRONIZED_AT,
+    )
+
+    with django_assert_num_queries(1):
+        responses = [FixtureResponse.from_orm(fixture) for fixture in list_fixtures_on(DAY, [])]
+
+    assert [(response.id, response.has_predictions) for response in responses] == [
+        (predicted.pk, True),
+        (unpredicted.pk, False),
+    ]

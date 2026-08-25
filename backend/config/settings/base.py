@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.accounts",
     "apps.fixtures",
+    "apps.predictions",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -127,6 +128,29 @@ FIXTURE_SYNCHRONIZATION_LOCK_SECONDS = 1800
 # discarding it and leaving fixtures unrefreshed for twelve hours.
 FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS = 21000
 
+# Predictions cover exactly the fixtures that exist, so the window is the
+# fixture window rather than one of its own: a fixture the listing can show but
+# the prediction run never read would offer a panel that is permanently empty.
+# That is why the two windows are one pair of constants and not two.
+
+# Five leagues over the fixture window are on the order of a hundred and fifty
+# fixtures, read in one paginated request, so a run is far shorter than the
+# fixture run this lease is sized against; the reasoning above applies
+# unchanged, and the margin is spent on the fifty rows each fixture writes.
+PREDICTION_SYNCHRONIZATION_LOCK_SECONDS = 1800
+
+# Same six-hour cadence as the fixtures, so a queued run stays valid until
+# shortly before its successor.
+PREDICTION_SYNCHRONIZATION_EXPIRY_SECONDS = 21000
+
+# One request per subscribed league, so a run is five calls and a handful of
+# rows. The lease is sized for the request budget rather than the write.
+PREDICTION_RELIABILITY_LOCK_SECONDS = 600
+
+# The grades move over a season, not over a day, so the refresh is daily and a
+# queued run stays valid for almost the whole interval.
+PREDICTION_RELIABILITY_EXPIRY_SECONDS = 82800
+
 CELERY_BEAT_SCHEDULE = {
     "accounts-purge-expired-sessions": {
         "task": "accounts.purge_expired_sessions",
@@ -137,6 +161,16 @@ CELERY_BEAT_SCHEDULE = {
         "task": "fixtures.synchronize_fixtures",
         "schedule": crontab(minute="5", hour="*/6"),
         "options": {"expires": FIXTURE_SYNCHRONIZATION_EXPIRY_SECONDS},
+    },
+    "predictions-synchronize": {
+        "task": "predictions.synchronize_predictions",
+        "schedule": crontab(minute="35", hour="*/6"),
+        "options": {"expires": PREDICTION_SYNCHRONIZATION_EXPIRY_SECONDS},
+    },
+    "predictions-synchronize-reliability": {
+        "task": "predictions.synchronize_reliability",
+        "schedule": crontab(minute="50", hour="3"),
+        "options": {"expires": PREDICTION_RELIABILITY_EXPIRY_SECONDS},
     },
 }
 
