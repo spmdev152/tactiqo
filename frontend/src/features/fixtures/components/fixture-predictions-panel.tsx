@@ -47,7 +47,7 @@ function PredictionsPlaceholder() {
   return (
     <div
       aria-hidden="true"
-      className="grid grid-cols-1 gap-x-8 gap-y-5 @lg:grid-cols-2"
+      className="gap-x-8 *:break-inside-avoid *:not-first:mt-5 @lg:columns-2"
     >
       {PLACEHOLDER_MARKETS.map((market) => (
         <div className="flex min-w-0 flex-col gap-2" key={market.key}>
@@ -201,7 +201,7 @@ function PredictionsBody({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-x-8 gap-y-5 @lg:grid-cols-2">
+      <div className="gap-x-8 *:break-inside-avoid *:not-first:mt-5 @lg:columns-2">
         {markets.map((market) => (
           <PredictionMarketSection
             key={market.market}
@@ -245,6 +245,22 @@ function PredictionsBody({
  * the sidebar owns 16rem of the window when it is expanded, so a viewport
  * breakpoint would split the panel in two while the pane was still too narrow
  * for either column.
+ *
+ * Those two columns are a multi-column flow rather than a two-track grid. The
+ * markets differ in height by an order of magnitude — two rows for an
+ * over/under, nineteen for a correct score — and a grid makes every row as tall
+ * as its tallest cell, so pairing a three-row market with a nine-row one left a
+ * void under the shorter of the two and pushed the market after it down past
+ * both. Multi-column has no rows to align: it balances the two columns by
+ * height, which is the thing that was wanted, and it keeps a single column
+ * below `@lg` with the markets still in the order the contract sends them.
+ *
+ * The spacing between markets is a leading margin, because a multi-column
+ * container has no row gap to set, and because a trailing one would sit under
+ * the last market and push the timestamp away from it. A leading margin cannot:
+ * fragmentation truncates a margin adjoining a column break, so the second
+ * column's first market keeps its top flush with the first column's rather than
+ * starting a row lower.
  *
  * The read's own timestamp is stated, because a probability with no date is a
  * claim with no shelf life and the platform synchronizes on a schedule rather

@@ -84,6 +84,13 @@ interface ReliabilityChipProps {
  * below it would cover the selections being read. Radix flips it leftwards on
  * its own where the column has no room.
  *
+ * The ungraded chip is built on `outline` rather than on `ghost`, which is the
+ * only variant whose hover is not gated behind `[a]:` and so the only one that
+ * responds to a pointer on a `span`. None of the graded chips do, and a chip
+ * that lights up under the cursor without being a control is a promise of
+ * something to click. `outline` already supplies the border colour the dashed
+ * override needs, so the two render identically.
+ *
  * A grade with no hit rate renders as a plain chip. The provider publishes the
  * two together, so this is unreachable through the synchronization as it
  * stands, but the contract types them independently and a chip that opens an
@@ -95,8 +102,8 @@ function ReliabilityChip({ reliability, hitRatio }: ReliabilityChipProps) {
   if (reliability === null) {
     return (
       <Badge
-        className="border-dashed border-border font-normal text-muted-foreground"
-        variant="ghost"
+        className="border-dashed font-normal text-muted-foreground"
+        variant="outline"
       >
         {UNGRADED_LABEL}
       </Badge>
