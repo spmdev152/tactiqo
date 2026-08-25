@@ -9,6 +9,11 @@ import type { FixturePredictionsResult } from "@/features/fixtures/types/predict
 
 const TOGGLE_LABEL = "Prediction probabilities";
 
+const UNREACHABLE_RESULT: FixturePredictionsResult = {
+  loaded: false,
+  reason: "The request did not complete. Check your connection and try again.",
+};
+
 /**
  * Props of {@link FixtureDisclosure}.
  */
@@ -29,22 +34,42 @@ export interface FixtureDisclosureProps {
  * to ask for the probabilities. Everything it renders — the row above and the
  * panel below — stays server-renderable and is handed to it.
  *
- * The read happens on the first expansion and never again. Reading every row's
- * probabilities to render a collapsed toggle would be dozens of authenticated
- * round trips for data nobody looked at, and re-reading on every expansion would
- * charge the visitor a request for changing their mind about a panel they have
- * already seen. The guard is a ref rather than the cached result, because while
- * the first request is still in flight the result is still `null` and a second
- * click would fire a second request; a ref is set in the same tick as the click,
- * which is the only thing that closes that window.
+ * The read happens on the first expansion and, when it worked, never again.
+ * Reading every row's probabilities to render a collapsed toggle would be dozens
+ * of authenticated round trips for data nobody looked at, and re-reading on
+ * every expansion would charge the visitor a request for changing their mind
+ * about a panel they have already seen. The guard is a ref rather than the
+ * cached result, because while the first request is still in flight the result
+ * is still `null` and a second click would fire a second request; a ref is set
+ * in the same tick as the click, which is the only thing that closes that
+ * window. Only an expansion reads; collapsing a row that failed would otherwise
+ * spend a request on a panel the visitor is in the act of dismissing.
  *
- * The panel subtree is mounted from the first expansion rather than always. The
- * collapsed region is real markup with a real placeholder in it, so mounting it
- * for every row of a thirty-match day would put thirty pulsing placeholders in
- * the document to be clipped to nothing. Once opened it stays mounted, so
- * collapsing and reopening is free and animates against content that is already
- * there. The condition names the read in flight as well as the answer, because a
- * panel closed again before its request landed would otherwise unmount its own
+ * A failed read reopens that guard, and this is the whole difference between a
+ * panel that recovers and one that does not. An unavailable answer is worth
+ * asking again — the connection blipped, the API was restarting — so the guard
+ * is closed again only on the answer that is worth keeping. A visitor whose read
+ * failed can therefore collapse and reopen the row, or press the panel's own
+ * retry, instead of reloading the page.
+ *
+ * The rejection is caught rather than left to propagate. A Server Action can
+ * reject for reasons that have nothing to do with the fixture — an offline
+ * browser, an action identifier a redeploy invalidated — and React unwraps a
+ * rejected transition thenable during render and rethrows it. With no
+ * `error.tsx` above this route that replaces the entire page with a client
+ * exception, so one unreachable row would take the whole day's list with it. The
+ * substituted reason is a constant here and names nothing server-side, because
+ * the throw carries no reason a visitor could use.
+ *
+ * Whether the panel has anything to render is the panel's own decision, and it
+ * is handed the one fact it cannot infer: whether a read was ever asked for. A
+ * `null` result on its own conflates "nobody asked" with "the answer has not
+ * landed", and the second of those is a placeholder while the first is nothing at
+ * all. Passing it down also means there is no mount condition here to get wrong:
+ * a collapsed row renders a panel that returns nothing, so a thirty-match day
+ * puts no pulsing placeholder in the document, and once asked the subtree stays
+ * mounted for as long as the row does — including while a request is in flight
+ * that the visitor closed the panel on, which would otherwise unmount its own
  * placeholder mid-transition and vanish instead of sliding shut.
  *
  * The region grows from `grid-template-rows: 0fr` to `1fr` rather than from a
@@ -92,23 +117,46 @@ export function FixtureDisclosure({
 
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  const [asked, setAsked] = useState(false);
   const [result, setResult] = useState<FixturePredictionsResult | null>(null);
 
   const requested = useRef(false);
 
-  const toggle = useCallback(() => {
-    setOpen((expanded) => !expanded);
-
+  const read = useCallback(() => {
     if (requested.current) {
       return;
     }
 
     requested.current = true;
+    setAsked(true);
 
     startTransition(async () => {
-      setResult(await loadFixturePredictionsAction(fixture.id));
+      try {
+        const answer = await loadFixturePredictionsAction(fixture.id);
+
+        requested.current = answer.loaded;
+        setResult(answer);
+      } catch {
+        requested.current = false;
+        setResult(UNREACHABLE_RESULT);
+      }
     });
   }, [fixture.id]);
+
+  const toggle = useCallback(() => {
+    const expanding = !open;
+
+    setOpen(expanding);
+
+    if (expanding) {
+      read();
+    }
+  }, [open, read]);
+
+  const retry = useCallback(() => {
+    setResult(null);
+    read();
+  }, [read]);
 
   return (
     <>
@@ -132,13 +180,13 @@ export function FixtureDisclosure({
         inert={!open}
       >
         <div className="overflow-hidden">
-          {(open || isPending || result !== null) && (
-            <FixturePredictionsPanel
-              pending={isPending}
-              result={result}
-              sides={{ home: fixture.homeTeam, away: fixture.awayTeam }}
-            />
-          )}
+          <FixturePredictionsPanel
+            onRetry={retry}
+            pending={isPending}
+            requested={asked}
+            result={result}
+            sides={{ home: fixture.homeTeam, away: fixture.awayTeam }}
+          />
         </div>
       </div>
     </>
