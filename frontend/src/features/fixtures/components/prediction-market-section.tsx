@@ -84,6 +84,14 @@ interface ReliabilityChipProps {
  * below it would cover the selections being read. Radix flips it leftwards on
  * its own where the column has no room.
  *
+ * It says the number and nothing else. The sentence it replaces named the scope
+ * the rate is measured over, which the chip's own position already gives: it
+ * sits in one market of one fixture of one competition. On a phone that
+ * sentence cost the tooltip the full 20rem the primitive allows, which is wider
+ * than the viewport, so a bubble anchored beside a chip had no side left to
+ * open on. `collisionPadding` keeps the short one clear of both edges rather
+ * than trusting that it always fits.
+ *
  * The ungraded chip is built on `outline` rather than on `ghost`, which is the
  * only variant whose hover is not gated behind `[a]:` and so the only one that
  * responds to a pointer on a `span`. None of the graded chips do, and a chip
@@ -126,9 +134,8 @@ function ReliabilityChip({ reliability, hitRatio }: ReliabilityChipProps) {
         {chip}
       </TooltipTrigger>
 
-      <TooltipContent align="center" side="right">
-        Right on {HIT_RATE_FORMAT.format(hitRatio)} of this market&apos;s
-        predictions in this competition.
+      <TooltipContent align="center" collisionPadding={8} side="right">
+        Hit rate of {HIT_RATE_FORMAT.format(hitRatio)}
       </TooltipContent>
     </Tooltip>
   );

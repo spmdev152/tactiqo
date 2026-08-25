@@ -33,8 +33,7 @@ const DOUBLE_CHANCE: PredictionMarketProbabilities = {
   ],
 };
 
-const HIT_RATE_SENTENCE =
-  "Right on 55% of this market's predictions in this competition.";
+const HIT_RATE_LABEL = "Hit rate of 55%";
 
 /**
  * Teaches jsdom the layout and pointer APIs the tooltip measures itself with.
@@ -99,8 +98,7 @@ describe("PredictionMarketSection", () => {
     renderSection(FULL_TIME_RESULT);
 
     expect(screen.getByText("Good reliability")).toBeVisible();
-    expect(screen.queryByText(/hit rate/)).not.toBeInTheDocument();
-    expect(screen.queryByText(HIT_RATE_SENTENCE)).not.toBeInTheDocument();
+    expect(screen.queryByText(/hit rate/i)).not.toBeInTheDocument();
   });
 
   /**
@@ -118,7 +116,7 @@ describe("PredictionMarketSection", () => {
     fireEvent.focus(chip);
 
     await waitFor(() => {
-      expect(screen.getAllByText(HIT_RATE_SENTENCE)[0]).toBeInTheDocument();
+      expect(screen.getAllByText(HIT_RATE_LABEL)[0]).toBeInTheDocument();
     });
 
     expect(chip).toHaveAttribute("aria-describedby");
