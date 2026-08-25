@@ -5,11 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { UserRound } from "lucide-react";
 
-import {
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from "@/components/ui/sidebar";
+import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 
 const ACCOUNT_PATH = "/account";
 
@@ -29,15 +25,10 @@ const ACCOUNT_LABEL = "Account";
  * It returns a menu item rather than its own menu, so the footer holds one list
  * and both footer entries share its spacing and its geometry.
  *
- * Like the navigation above it, choosing it dismisses the mobile drawer, which
- * would otherwise cover the page it just navigated to.
- *
  * @returns The account entry.
  */
 export function SidebarAccountLink() {
   const pathname = usePathname();
-
-  const { setOpenMobile } = useSidebar();
 
   return (
     <SidebarMenuItem>
@@ -47,7 +38,7 @@ export function SidebarAccountLink() {
         tooltip={ACCOUNT_LABEL}
         variant="outline"
       >
-        <Link href={ACCOUNT_PATH} onClick={() => setOpenMobile(false)}>
+        <Link href={ACCOUNT_PATH}>
           <UserRound />
           <span>{ACCOUNT_LABEL}</span>
         </Link>

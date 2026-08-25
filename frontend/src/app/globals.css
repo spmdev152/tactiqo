@@ -298,6 +298,17 @@
     color, background-color, border-color, box-shadow, transform, opacity;
 }
 
+/* `SidebarNavigationDismissal` sets this attribute for the one frame in which
+   it closes the drawer after a navigation has landed. Radix keeps an element
+   mounted only while an exit animation is running, so removing the animation
+   is what makes the drawer gone by the time the new page is painted rather
+   than sliding away over it. A drawer dismissed by hand still animates, which
+   is why this is scoped to the attribute rather than applied outright. */
+body[data-sidebar-dismissing] [data-mobile="true"],
+body[data-sidebar-dismissing] [data-slot="sheet-overlay"] {
+  animation: none !important;
+}
+
 @layer base {
   @media (prefers-reduced-motion: reduce) {
     *,

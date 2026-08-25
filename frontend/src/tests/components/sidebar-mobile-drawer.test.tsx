@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarNavigationDismissal } from "@/components/sidebar-navigation-dismissal";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -34,19 +35,33 @@ function installDrawerEnvironment(): void {
 }
 
 /**
- * Renders the shell on a phone and opens its drawer.
+ * The shell as a phone renders it, with the dismissal effect mounted.
+ *
+ * @returns The shell tree.
  */
-function renderOpenDrawer(): void {
-  render(
+function shell() {
+  return (
     <TooltipProvider>
       <SidebarProvider>
+        <SidebarNavigationDismissal />
         <SidebarTrigger />
         <AppSidebar />
       </SidebarProvider>
-    </TooltipProvider>,
+    </TooltipProvider>
   );
+}
+
+/**
+ * Renders the shell on a phone and opens its drawer.
+ *
+ * @returns The render result, so a test can land a navigation on it.
+ */
+function renderOpenDrawer() {
+  const rendered = render(shell());
 
   fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
+
+  return rendered;
 }
 
 describe("AppSidebar on a phone", () => {
@@ -59,46 +74,54 @@ describe("AppSidebar on a phone", () => {
 
   /**
    * GIVEN the sidebar opened as a drawer on a phone
-   * WHEN a navigation entry is chosen
-   * THEN the drawer dismisses itself instead of covering the page it opened
+   * WHEN a navigation entry is chosen but the route has not changed yet
+   * THEN the drawer stays open, so nothing animates while the request is in flight
    */
-  it("dismisses the drawer when a section is chosen", async () => {
+  it("keeps the drawer open until the navigation lands", async () => {
     renderOpenDrawer();
 
     expect(await screen.findByRole("dialog")).toBeVisible();
 
     fireEvent.click(screen.getByRole("link", { name: "Fixtures" }));
 
+    expect(screen.getByRole("dialog")).toBeVisible();
+  });
+
+  /**
+   * GIVEN a drawer left open by a navigation started from it
+   * WHEN the new route lands
+   * THEN the drawer is dismissed
+   */
+  it("dismisses the drawer once the route has changed", async () => {
+    const { rerender } = renderOpenDrawer();
+
+    expect(await screen.findByRole("dialog")).toBeVisible();
+
+    usePathname.mockReturnValue("/fixtures");
+
+    rerender(shell());
+
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   /**
-   * GIVEN the sidebar opened as a drawer on a phone
-   * WHEN the account entry is chosen
-   * THEN the drawer dismisses itself as well
+   * GIVEN a drawer dismissed because a navigation landed
+   * WHEN the document is inspected afterwards
+   * THEN the marker that suppressed the exit animation has been cleared
    */
-  it("dismisses the drawer when the account entry is chosen", async () => {
-    renderOpenDrawer();
+  it("leaves no dismissal marker behind", async () => {
+    const { rerender } = renderOpenDrawer();
 
     expect(await screen.findByRole("dialog")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("link", { name: "Account" }));
+    usePathname.mockReturnValue("/account");
+
+    rerender(shell());
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  });
 
-  /**
-   * GIVEN the sidebar opened as a drawer on a phone
-   * WHEN the brand is used to return to the landing route
-   * THEN the drawer dismisses itself, as every other link in it does
-   */
-  it("dismisses the drawer when the brand is used", async () => {
-    renderOpenDrawer();
-
-    expect(await screen.findByRole("dialog")).toBeVisible();
-
-    fireEvent.click(screen.getByRole("link", { name: "tactiqo" }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.body).not.toHaveAttribute("data-sidebar-dismissing"),
+    );
   });
 });

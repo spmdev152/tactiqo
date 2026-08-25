@@ -1,18 +1,14 @@
-"use client";
-
 import Link from "next/link";
 
 import { TactiqoWordmark } from "@/components/tactiqo-wordmark";
-import { useSidebar } from "@/components/ui/sidebar";
 
 /**
  * Renders the brand of the sidebar, linking to the landing route.
  *
  * @remarks
- * A client leaf for one reason: it navigates, and every navigation started from
- * the sidebar has to dismiss the mobile drawer, which otherwise covers the page
- * it just went to. The section entries and the account entry already did; the
- * brand was the one link that did not.
+ * A Server Component: it navigates and nothing else. The mobile drawer is
+ * dismissed by `SidebarNavigationDismissal` once the navigation has landed,
+ * rather than by every link that starts one.
  *
  * The brand mark and the wordmark swap places rather than sitting side by side,
  * since a mark repeating the initial of the word next to it says nothing twice,
@@ -28,13 +24,10 @@ import { useSidebar } from "@/components/ui/sidebar";
  * @returns The brand link.
  */
 export function SidebarBrand() {
-  const { setOpenMobile } = useSidebar();
-
   return (
     <Link
       className="flex items-center gap-2 rounded-md px-2 py-1.5 outline-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 focus-visible:ring-3 focus-visible:ring-sidebar-ring/50"
       href="/"
-      onClick={() => setOpenMobile(false)}
     >
       <span
         aria-hidden
