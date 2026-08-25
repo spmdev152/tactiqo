@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 
+from apps.fixtures.domain.enums import FixtureStatus
 from integrations.sportmonks.fixtures import ProviderFixture, ProviderLeague, ProviderTeam
 
 DAY = date(2026, 8, 29)
@@ -78,9 +79,13 @@ def kickoff(hour: int, minute: int = 0, day: date = DAY) -> datetime:
 def provider_fixture(
     provider_id: int,
     kickoff_at: datetime,
+    *,
     league: ProviderLeague = PREMIER_LEAGUE,
     home_team: ProviderTeam = LIVERPOOL,
     away_team: ProviderTeam = NOTTINGHAM_FOREST,
+    status: FixtureStatus = FixtureStatus.SCHEDULED,
+    home_goals: int | None = None,
+    away_goals: int | None = None,
 ) -> ProviderFixture:
     """
     Build a provider fixture without contacting the provider.
@@ -97,6 +102,12 @@ def provider_fixture(
         Club playing at home.
     away_team : ProviderTeam
         Club playing away.
+    status : FixtureStatus
+        Lifecycle stage the boundary read the match at.
+    home_goals : int or None
+        Goals the home club has scored, ``None`` for a match with no score.
+    away_goals : int or None
+        Goals the away club has scored, ``None`` for a match with no score.
 
     Returns
     -------
@@ -110,4 +121,7 @@ def provider_fixture(
         league=league,
         home_team=home_team,
         away_team=away_team,
+        status=status,
+        home_goals=home_goals,
+        away_goals=away_goals,
     )

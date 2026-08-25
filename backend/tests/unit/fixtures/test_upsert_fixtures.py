@@ -5,6 +5,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from apps.fixtures.domain.enums import FixtureStatus
 from apps.fixtures.infrastructure.repositories import upsert_fixtures
 from apps.fixtures.models import Fixture, League, Team
 from tests.unit.fixtures.conftest import (
@@ -124,6 +125,41 @@ def test_upsert_fixtures_moves_a_postponed_fixture_instead_of_duplicating_it() -
 
     assert stored.pk == original_key
     assert stored.kickoff_at == postponed_kickoff
+
+
+@pytest.mark.django_db
+def test_upsert_fixtures_gives_a_finished_fixture_the_result_it_was_inserted_without() -> None:
+    """
+    GIVEN a fixture stored while it was still scheduled and carried no score
+    WHEN the same fixture is stored again as finished and carrying one
+    THEN the row that was inserted moved to the result rather than keeping none
+    """
+
+    scheduled = provider_fixture(1, kickoff(11, 30))
+
+    upsert_fixtures([scheduled], SYNCHRONIZED_AT)
+
+    inserted = Fixture.objects.get()
+
+    assert (inserted.status, inserted.home_goals, inserted.away_goals) == (
+        FixtureStatus.SCHEDULED,
+        None,
+        None,
+    )
+
+    finished = replace(scheduled, status=FixtureStatus.FINISHED, home_goals=2, away_goals=0)
+
+    upsert_fixtures([finished], LATER_SYNCHRONIZED_AT)
+
+    stored = Fixture.objects.get()
+
+    assert stored.pk == inserted.pk
+
+    assert (stored.status, stored.home_goals, stored.away_goals) == (
+        FixtureStatus.FINISHED,
+        2,
+        0,
+    )
 
 
 @pytest.mark.django_db

@@ -15,6 +15,9 @@ const LEAGUE_PAYLOAD = {
 const FIXTURE_PAYLOAD = {
   id: 12,
   kickoff_at: "2026-08-29T11:30:00Z",
+  status: "scheduled",
+  home_goals: null,
+  away_goals: null,
   league: LEAGUE_PAYLOAD,
   home_team: {
     id: 3,
@@ -34,7 +37,7 @@ describe("toFixtures", () => {
   /**
    * GIVEN a fixtures payload in the published wire shape
    * WHEN it is normalized for the product
-   * THEN both sides, the competition and the kick-off instant are mapped
+   * THEN both sides, the competition, the kick-off and the state are mapped
    */
   it("normalizes a fixtures payload", () => {
     expect(toFixtures([FIXTURE_PAYLOAD])).toEqual({
@@ -43,6 +46,8 @@ describe("toFixtures", () => {
         {
           id: 12,
           kickoffAt: new Date("2026-08-29T11:30:00Z"),
+          status: "scheduled",
+          score: null,
           league: expect.objectContaining({ id: 1, name: "Premier League" }),
           homeTeam: {
             id: 3,
@@ -131,5 +136,58 @@ describe("toFixtures", () => {
    */
   it("separates an empty day from a failure", () => {
     expect(toFixtures([])).toEqual({ loaded: true, fixtures: [] });
+  });
+
+  /**
+   * GIVEN a played fixture carrying both goal counts
+   * WHEN it is normalized for the product
+   * THEN the two counts become one score
+   */
+  it("pairs the goal counts of a played fixture", () => {
+    const result = toFixtures([
+      {
+        ...FIXTURE_PAYLOAD,
+        status: "finished",
+        home_goals: 2,
+        away_goals: 0,
+      },
+    ]);
+
+    expect(result).toEqual({
+      loaded: true,
+      fixtures: [
+        expect.objectContaining({
+          status: "finished",
+          score: { home: 2, away: 0 },
+        }),
+      ],
+    });
+  });
+
+  /**
+   * GIVEN a fixture carrying one goal count without the other
+   * WHEN it is normalized for the product
+   * THEN it carries no score, rather than a zero read as a real result
+   */
+  it("refuses a half-written score", () => {
+    const result = toFixtures([
+      { ...FIXTURE_PAYLOAD, status: "finished", home_goals: 2 },
+    ]);
+
+    expect(result).toEqual({
+      loaded: true,
+      fixtures: [expect.objectContaining({ score: null })],
+    });
+  });
+
+  /**
+   * GIVEN a state the platform does not publish
+   * WHEN it is normalized for the product
+   * THEN the payload is refused rather than carried as an unknown state
+   */
+  it("refuses a state outside the published vocabulary", () => {
+    expect(
+      toFixtures([{ ...FIXTURE_PAYLOAD, status: "INPLAY_1ST_HALF" }]).loaded,
+    ).toBe(false);
   });
 });

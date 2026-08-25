@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
+from apps.fixtures.domain.enums import FixtureStatus
 from integrations.sportmonks.client import ProviderPayload, SportmonksClient
 from integrations.sportmonks.exceptions import SportmonksError
 
@@ -15,6 +16,36 @@ KICKOFF_FORMAT = "%Y-%m-%d %H:%M:%S"
 HOME_LOCATION = "home"
 
 AWAY_LOCATION = "away"
+
+CURRENT_SCORE = "CURRENT"
+
+PROVIDER_STATES: dict[str, FixtureStatus] = {
+    "NS": FixtureStatus.SCHEDULED,
+    "TBA": FixtureStatus.SCHEDULED,
+    "PENDING": FixtureStatus.SCHEDULED,
+    "AWAITING_UPDATES": FixtureStatus.SCHEDULED,
+    "INPLAY_1ST_HALF": FixtureStatus.LIVE,
+    "INPLAY_2ND_HALF": FixtureStatus.LIVE,
+    "INPLAY_ET": FixtureStatus.LIVE,
+    "INPLAY_ET_2ND_HALF": FixtureStatus.LIVE,
+    "INPLAY_PENALTIES": FixtureStatus.LIVE,
+    "HT": FixtureStatus.LIVE,
+    "BREAK": FixtureStatus.LIVE,
+    "EXTRA_TIME_BREAK": FixtureStatus.LIVE,
+    "PEN_BREAK": FixtureStatus.LIVE,
+    "INTERRUPTED": FixtureStatus.LIVE,
+    "SUSPENDED": FixtureStatus.LIVE,
+    "FT": FixtureStatus.FINISHED,
+    "AET": FixtureStatus.FINISHED,
+    "FT_PEN": FixtureStatus.FINISHED,
+    "WO": FixtureStatus.FINISHED,
+    "AWARDED": FixtureStatus.FINISHED,
+    "POSTPONED": FixtureStatus.POSTPONED,
+    "DELAYED": FixtureStatus.POSTPONED,
+    "CANCELLED": FixtureStatus.CANCELLED,
+    "ABANDONED": FixtureStatus.CANCELLED,
+    "DELETED": FixtureStatus.CANCELLED,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +103,7 @@ class ProviderLeague:
 @dataclass(frozen=True, slots=True)
 class ProviderFixture:
     """
-    A scheduled match as the provider describes it.
+    A match as the provider describes it, played or still to be played.
 
     Attributes
     ----------
@@ -86,6 +117,14 @@ class ProviderFixture:
         Side playing at home.
     away_team : ProviderTeam
         Side playing away.
+    status : FixtureStatus
+        Lifecycle stage the provider state maps onto, read as scheduled when it
+        publishes a state this boundary does not know.
+    home_goals : int or None
+        Goals the home side has scored, ``None`` when the provider publishes no
+        readable current score for both sides.
+    away_goals : int or None
+        Goals the away side has scored, ``None`` under the same condition.
     """
 
     provider_id: int
@@ -93,6 +132,9 @@ class ProviderFixture:
     league: ProviderLeague
     home_team: ProviderTeam
     away_team: ProviderTeam
+    status: FixtureStatus
+    home_goals: int | None
+    away_goals: int | None
 
 
 def fetch_fixtures_between(
@@ -139,7 +181,7 @@ def fetch_fixtures_between(
 
     params = {
         "filters": f"fixtureLeagues:{_joined(league_ids)}",
-        "include": "participants;league;state",
+        "include": "participants;league;state;scores",
         "per_page": PAGE_SIZE,
     }
 
@@ -265,13 +307,150 @@ def _fixture_of(
 
     home_team, away_team = sides
 
+    home_goals, away_goals = _goals_of(entry.get("scores"), provider_id)
+
     return ProviderFixture(
         provider_id=provider_id,
         kickoff_at=kickoff_at,
         league=league,
         home_team=home_team,
         away_team=away_team,
+        status=_status_of(entry.get("state"), provider_id),
+        home_goals=home_goals,
+        away_goals=away_goals,
     )
+
+
+def _status_of(payload: object, provider_id: int) -> FixtureStatus:
+    """
+    Map the state a fixture entry reports onto the platform's vocabulary.
+
+    The provider publishes twenty-five states and the mapping is an explicit
+    lookup rather than a test on the shape of a code, because the shape carries
+    no meaning: ``FT`` and ``FT_PEN`` are both finished while
+    ``INPLAY_PENALTIES`` is not, and a state added later must be reported rather
+    than guessed at.
+
+    Parameters
+    ----------
+    payload : object
+        Value the ``state`` include carried, documented as an object whose
+        ``state`` field names the code.
+    provider_id : int
+        Identifier of the fixture, named in the warning of an unknown state.
+
+    Returns
+    -------
+    FixtureStatus
+        Stage the state maps onto, or ``FixtureStatus.SCHEDULED`` when the
+        provider names a state this boundary does not know.
+    """
+
+    code = _text(payload.get("state")) if isinstance(payload, dict) else ""
+
+    status = PROVIDER_STATES.get(code)
+
+    if status is None:
+        logger.warning(
+            "Reading Sportmonks fixture %d as scheduled: %r is not a state this boundary maps.",
+            provider_id,
+            code,
+        )
+
+        return FixtureStatus.SCHEDULED
+
+    return status
+
+
+def _goals_of(payload: object, provider_id: int) -> tuple[int | None, int | None]:
+    """
+    Return the current score a fixture entry reports, for both sides or neither.
+
+    The include carries one entry per period, so only the two the provider
+    describes as ``"CURRENT"`` state the score of the match; the half-time and
+    second-half entries would otherwise overwrite it. A score naming one side
+    alone is discarded rather than half-stored, and the fixture itself survives:
+    a match with an unreadable score is still a match worth listing.
+
+    Parameters
+    ----------
+    payload : object
+        Value the ``scores`` include carried, documented as a list of period
+        entries and empty for a match that has not produced a score.
+    provider_id : int
+        Identifier of the fixture, named in the warning of a half-written score.
+
+    Returns
+    -------
+    tuple of int or None
+        Home goals then away goals, or ``None`` twice when the entries do not
+        state a readable count for both sides.
+    """
+
+    if not isinstance(payload, list):
+        return None, None
+
+    by_location: dict[str, int] = {}
+
+    for entry in payload:
+        side = _current_side_of(entry) if isinstance(entry, dict) else None
+
+        if side is None:
+            continue
+
+        location, goals = side
+
+        by_location[location] = goals
+
+    if not by_location:
+        return None, None
+
+    if by_location.keys() != {HOME_LOCATION, AWAY_LOCATION}:
+        logger.warning(
+            "Ignoring the score of Sportmonks fixture %d: its current entries name %r rather "
+            "than both sides.",
+            provider_id,
+            sorted(by_location),
+        )
+
+        return None, None
+
+    return by_location[HOME_LOCATION], by_location[AWAY_LOCATION]
+
+
+def _current_side_of(entry: ProviderPayload) -> tuple[str, int] | None:
+    """
+    Normalize one score entry into the side it belongs to and its goal count.
+
+    Parameters
+    ----------
+    entry : ProviderPayload
+        One entry of the ``scores`` include.
+
+    Returns
+    -------
+    tuple of str and int or None
+        Location, either ``"home"`` or ``"away"``, and the goals scored there,
+        or ``None`` when the entry describes another period, names no side, or
+        carries no readable count.
+    """
+
+    if _text(entry.get("description")) != CURRENT_SCORE:
+        return None
+
+    score = entry.get("score")
+
+    if not isinstance(score, dict):
+        return None
+
+    goals = _goal_count(score.get("goals"))
+
+    location = _text(score.get("participant"))
+
+    if goals is None or location not in (HOME_LOCATION, AWAY_LOCATION):
+        return None
+
+    return location, goals
 
 
 def _league_of(entry: ProviderPayload) -> ProviderLeague | None:
@@ -436,6 +615,29 @@ def _kickoff_of(value: object) -> datetime | None:
         return None
 
     return naive.replace(tzinfo=UTC)
+
+
+def _goal_count(value: object) -> int | None:
+    """
+    Return a goal count as a non-negative integer.
+
+    Parameters
+    ----------
+    value : object
+        Value the ``goals`` field of a score carried, documented as a number and
+        published as ``null`` while a match has produced no score.
+
+    Returns
+    -------
+    int or None
+        Goals scored, or ``None`` when the value is not a count, which includes
+        the boolean and negative cases the column would refuse anyway.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+
+    return value
 
 
 def _identifier(value: object) -> int | None:

@@ -17,6 +17,8 @@ const PREMIER_LEAGUE: League = {
 const FIXTURE: Fixture = {
   id: 12,
   kickoffAt: new Date("2026-08-29T11:30:00Z"),
+  status: "scheduled",
+  score: null,
   league: PREMIER_LEAGUE,
   homeTeam: { id: 3, name: "Liverpool", shortCode: "LIV", crestUrl: "" },
   awayTeam: {

@@ -2,6 +2,8 @@ from datetime import datetime
 
 from ninja import Schema
 
+from apps.fixtures.domain.enums import FixtureStatus
+
 
 class LeagueResponse(Schema):
     """
@@ -57,7 +59,7 @@ class TeamResponse(Schema):
 
 class FixtureResponse(Schema):
     """
-    Public projection of a scheduled match.
+    Public projection of a match, played or still to be played.
 
     Attributes
     ----------
@@ -66,6 +68,16 @@ class FixtureResponse(Schema):
         absent.
     kickoff_at : datetime
         Instant the match starts, serialized as an ISO 8601 UTC timestamp.
+    status : FixtureStatus
+        Lifecycle stage of the match, serialized as the value of the member.
+        The closed vocabulary is the platform's own: the provider's twenty-five
+        states never reach this contract.
+    home_goals : int or None
+        Goals the home club has scored, ``null`` while the match has produced no
+        score. A database constraint pairs it with ``away_goals``, so a reader
+        never has to render one half of a score.
+    away_goals : int or None
+        Goals the away club has scored, ``null`` under the same condition.
     league : LeagueResponse
         Competition the match belongs to, embedded so a listing needs no second
         request to render a badge.
@@ -77,6 +89,9 @@ class FixtureResponse(Schema):
 
     id: int
     kickoff_at: datetime
+    status: FixtureStatus
+    home_goals: int | None
+    away_goals: int | None
     league: LeagueResponse
     home_team: TeamResponse
     away_team: TeamResponse

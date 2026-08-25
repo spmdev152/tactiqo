@@ -10,7 +10,16 @@ LEAGUE_UPDATE_FIELDS = ["name", "short_code", "logo_url", "country_name", "count
 
 TEAM_UPDATE_FIELDS = ["name", "short_code", "crest_url"]
 
-FIXTURE_UPDATE_FIELDS = ["league", "home_team", "away_team", "kickoff_at", "synchronized_at"]
+FIXTURE_UPDATE_FIELDS = [
+    "league",
+    "home_team",
+    "away_team",
+    "kickoff_at",
+    "status",
+    "home_goals",
+    "away_goals",
+    "synchronized_at",
+]
 
 
 def _upsert_leagues(provider_leagues: dict[int, ProviderLeague]) -> dict[int, League]:
@@ -96,11 +105,14 @@ def upsert_fixtures(provider_fixtures: Sequence[ProviderFixture], synchronized_a
     The provider identifier is the natural key of all three tables, so running
     the same window twice leaves the rows as they were apart from
     ``synchronized_at``, and a postponed match arriving with a later kick-off
-    moves its row rather than adding one. Competitions and clubs are resolved
-    once per call instead of once per fixture, because a fortnight of five
-    leagues is on the order of eight hundred fixtures sharing a few dozen of
-    them. The whole write is one transaction, so a provider failure part-way
-    through a paginated fetch cannot leave half a window behind.
+    moves its row rather than adding one. The window a fixture is played in is
+    read repeatedly, so the status and the score are updated on conflict like
+    everything else: a match inserted as scheduled gains its result on the run
+    after it finishes. Competitions and clubs are resolved once per call instead
+    of once per fixture, because a fortnight of five leagues is on the order of
+    eight hundred fixtures sharing a few dozen of them. The whole write is one
+    transaction, so a provider failure part-way through a paginated fetch cannot
+    leave half a window behind.
 
     Parameters
     ----------
@@ -148,6 +160,9 @@ def upsert_fixtures(provider_fixtures: Sequence[ProviderFixture], synchronized_a
                     home_team=teams[provider_fixture.home_team.provider_id],
                     away_team=teams[provider_fixture.away_team.provider_id],
                     kickoff_at=provider_fixture.kickoff_at,
+                    status=provider_fixture.status,
+                    home_goals=provider_fixture.home_goals,
+                    away_goals=provider_fixture.away_goals,
                     synchronized_at=synchronized_at,
                 )
                 for provider_id, provider_fixture in unique_fixtures.items()

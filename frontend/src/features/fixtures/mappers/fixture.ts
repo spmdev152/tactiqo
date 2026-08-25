@@ -5,6 +5,7 @@ import {
 } from "@/features/fixtures/schemas/fixtures";
 import type {
   Fixture,
+  FixtureScore,
   FixturesResult,
   FixtureTeam,
 } from "@/features/fixtures/types/fixture";
@@ -25,6 +26,30 @@ function toFixtureTeam(payload: FixtureTeamPayload): FixtureTeam {
     shortCode: payload.short_code,
     crestUrl: payload.crest_url,
   };
+}
+
+/**
+ * Pairs two independently nullable goal counts into one score.
+ *
+ * @remarks
+ * The API promises the two move together, and this is where that promise stops
+ * being load-bearing. One count without the other describes no match anybody
+ * can read, so it yields no score rather than a zero the visitor would take for
+ * a real result.
+ *
+ * @param home - Goals the home side scored, as the transport carries them.
+ * @param away - Goals the away side scored, as the transport carries them.
+ * @returns The score, or `null` when the platform has no complete one.
+ */
+function toFixtureScore(
+  home: number | null,
+  away: number | null,
+): FixtureScore | null {
+  if (home === null || away === null) {
+    return null;
+  }
+
+  return { home, away };
 }
 
 /**
@@ -52,6 +77,8 @@ export function toFixtures(payload: unknown): FixturesResult {
   const fixtures: Fixture[] = decoded.data.map((fixture) => ({
     id: fixture.id,
     kickoffAt: new Date(fixture.kickoff_at),
+    status: fixture.status,
+    score: toFixtureScore(fixture.home_goals, fixture.away_goals),
     league: toLeague(fixture.league),
     homeTeam: toFixtureTeam(fixture.home_team),
     awayTeam: toFixtureTeam(fixture.away_team),

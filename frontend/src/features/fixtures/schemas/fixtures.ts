@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { FIXTURE_STATUSES } from "@/features/fixtures/domain/fixture-status";
 import { leaguePayloadSchema } from "@/features/fixtures/schemas/leagues";
 
 /**
@@ -21,10 +22,18 @@ export const fixtureTeamPayloadSchema = z.object({
  * absolute moment. A value with no offset would be read differently by the
  * server and the browser, and the mismatch would surface as a kick-off time an
  * hour out rather than as an error.
+ *
+ * The two goal counts are independently nullable here even though the API
+ * promises they move together, because a schema states what the transport may
+ * carry and the mapper is where the pair is enforced. Validating the pair here
+ * would reject the whole day's list over one malformed match.
  */
 export const fixturePayloadSchema = z.object({
   id: z.number().int().positive(),
   kickoff_at: z.iso.datetime({ offset: true }),
+  status: z.enum(FIXTURE_STATUSES),
+  home_goals: z.number().int().min(0).nullable(),
+  away_goals: z.number().int().min(0).nullable(),
   league: leaguePayloadSchema,
   home_team: fixtureTeamPayloadSchema,
   away_team: fixtureTeamPayloadSchema,

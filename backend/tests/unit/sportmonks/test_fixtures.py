@@ -4,10 +4,13 @@ from datetime import UTC, date, datetime
 import pytest
 from django.test import override_settings
 
+from apps.fixtures.domain.enums import FixtureStatus
 from integrations.sportmonks.client import ProviderPayload, QueryParameters, SportmonksClient
 from integrations.sportmonks.exceptions import SportmonksError
 from integrations.sportmonks.fixtures import (
+    CURRENT_SCORE,
     PAGE_SIZE,
+    PROVIDER_STATES,
     ProviderFixture,
     ProviderLeague,
     ProviderTeam,
@@ -41,6 +44,36 @@ WINDOW_PATH = f"/fixtures/between/{WINDOW_START.isoformat()}/{WINDOW_END.isoform
 KICKOFF_STAMP = "2026-08-29 11:30:00"
 
 KICKOFF_INSTANT = datetime(2026, 8, 29, 11, 30, tzinfo=UTC)
+
+SCHEDULED_STATE = "NS"
+
+FINISHED_STATE = "FT"
+
+UNMAPPED_STATE = "VAR_REVIEW"
+
+STATES_BY_STATUS: dict[FixtureStatus, tuple[str, ...]] = {
+    FixtureStatus.SCHEDULED: ("NS", "TBA", "PENDING", "AWAITING_UPDATES"),
+    FixtureStatus.LIVE: (
+        "INPLAY_1ST_HALF",
+        "INPLAY_2ND_HALF",
+        "INPLAY_ET",
+        "INPLAY_ET_2ND_HALF",
+        "INPLAY_PENALTIES",
+        "HT",
+        "BREAK",
+        "EXTRA_TIME_BREAK",
+        "PEN_BREAK",
+        "INTERRUPTED",
+        "SUSPENDED",
+    ),
+    FixtureStatus.FINISHED: ("FT", "AET", "FT_PEN", "WO", "AWARDED"),
+    FixtureStatus.POSTPONED: ("POSTPONED", "DELAYED"),
+    FixtureStatus.CANCELLED: ("CANCELLED", "ABANDONED", "DELETED"),
+}
+
+PUBLISHED_STATES = [
+    (state, status) for status, states in STATES_BY_STATUS.items() for state in states
+]
 
 PREMIER_LEAGUE = ProviderLeague(
     provider_id=PREMIER_LEAGUE_ID,
@@ -115,12 +148,42 @@ def participant(team: ProviderTeam, location: str) -> ProviderPayload:
     }
 
 
+def score_entry(
+    goals: int | None, location: str, description: str = CURRENT_SCORE
+) -> ProviderPayload:
+    """
+    Build one entry of the scores include of a fixture.
+
+    Parameters
+    ----------
+    goals : int or None
+        Goals the entry reports, ``None`` as the provider writes an unfilled
+        count.
+    location : str
+        Side the goals belong to, either ``"home"`` or ``"away"``.
+    description : str, optional
+        Period the entry describes, defaulting to the current score.
+
+    Returns
+    -------
+    ProviderPayload
+        Score entry trimmed to the fields the boundary reads.
+    """
+
+    return {
+        "description": description,
+        "score": {"goals": goals, "participant": location},
+    }
+
+
 def fixture_payload(
     *,
     provider_id: int = FIXTURE_ID,
     league_id: int = PREMIER_LEAGUE_ID,
     starting_at: str = KICKOFF_STAMP,
     participants: object = None,
+    state: str = SCHEDULED_STATE,
+    scores: object = None,
 ) -> ProviderPayload:
     """
     Build a fixtures entry, defaulting to a well-formed one.
@@ -137,6 +200,12 @@ def fixture_payload(
         Value of the participants include, or ``None`` to name Liverpool away
         and Nottingham Forest at home. That order is deliberate: it proves the
         location metadata rather than the position decides the sides.
+    state : str, optional
+        Provider state code the fixture is reported under, defaulting to the
+        not-started one.
+    scores : object, optional
+        Value of the scores include, or ``None`` for the empty list a match that
+        has produced no score is reported with.
 
     Returns
     -------
@@ -147,13 +216,17 @@ def fixture_payload(
     if participants is None:
         participants = [participant(LIVERPOOL, "away"), participant(FOREST, "home")]
 
+    if scores is None:
+        scores = []
+
     return {
         "id": provider_id,
         "league_id": league_id,
         "starting_at": starting_at,
         "starting_at_timestamp": 1787052600,
-        "state": {"id": 1, "state": "NS"},
+        "state": {"id": 1, "state": state},
         "participants": participants,
+        "scores": scores,
     }
 
 
@@ -262,7 +335,7 @@ def test_a_well_formed_page_normalizes_into_a_provider_fixture(provider: Stubbed
     """
     GIVEN a provider page carrying one well-formed fixture
     WHEN the window is read
-    THEN the fixture carries a UTC kick-off and the sides the metadata names
+    THEN the fixture carries a UTC kick-off, the metadata sides, and no score
     """
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[fixture_payload()]])
@@ -274,8 +347,142 @@ def test_a_well_formed_page_normalizes_into_a_provider_fixture(provider: Stubbed
             league=PREMIER_LEAGUE,
             home_team=FOREST,
             away_team=LIVERPOOL,
+            status=FixtureStatus.SCHEDULED,
+            home_goals=None,
+            away_goals=None,
         )
     ]
+
+
+@pytest.mark.parametrize(("state", "expected_status"), PUBLISHED_STATES)
+def test_a_published_state_maps_onto_the_platform_vocabulary(
+    provider: StubbedProvider, state: str, expected_status: FixtureStatus
+) -> None:
+    """
+    GIVEN a fixture reported under one of the states the provider publishes
+    WHEN the window is read
+    THEN the fixture carries the platform stage that state stands for
+    """
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[fixture_payload(state=state)]])
+
+    assert read_window()[0].status == expected_status
+
+
+def test_the_boundary_maps_exactly_the_states_the_provider_publishes() -> None:
+    """
+    GIVEN the twenty-five states the subscription was observed to publish
+    WHEN the mapping the boundary applies is compared against them
+    THEN it names every one of them and invents none
+    """
+
+    assert sorted(PROVIDER_STATES) == sorted(state for state, _ in PUBLISHED_STATES)
+
+
+def test_a_state_the_boundary_does_not_map_is_read_as_scheduled(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a fixture reported under a state the provider added after this mapping
+    WHEN the window is read
+    THEN the fixture is kept and read as scheduled rather than dropped
+    """
+
+    provider.serve(
+        leagues=[[league_payload()]],
+        fixtures=[[fixture_payload(state=UNMAPPED_STATE)]],
+    )
+
+    assert read_window()[0].status == FixtureStatus.SCHEDULED
+
+
+def test_a_played_fixture_carries_the_current_score(provider: StubbedProvider) -> None:
+    """
+    GIVEN a fixture the provider reports as finished with a current score
+    WHEN the window is read
+    THEN the goals are attributed to the sides the score names
+    """
+
+    played = fixture_payload(
+        state=FINISHED_STATE,
+        scores=[score_entry(2, "home"), score_entry(0, "away")],
+    )
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[played]])
+
+    fixture = read_window()[0]
+
+    assert (fixture.status, fixture.home_goals, fixture.away_goals) == (
+        FixtureStatus.FINISHED,
+        2,
+        0,
+    )
+
+
+def test_only_the_current_entries_state_the_score(provider: StubbedProvider) -> None:
+    """
+    GIVEN a fixture whose scores include the halves as well as the current score
+    WHEN the window is read
+    THEN the current entries alone are read and the halves do not overwrite them
+    """
+
+    played = fixture_payload(
+        state=FINISHED_STATE,
+        scores=[
+            score_entry(1, "home", description="1ST_HALF"),
+            score_entry(0, "away", description="1ST_HALF"),
+            score_entry(3, "home"),
+            score_entry(1, "away"),
+            score_entry(2, "home", description="2ND_HALF"),
+            score_entry(1, "away", description="2ND_HALF"),
+        ],
+    )
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[played]])
+
+    fixture = read_window()[0]
+
+    assert (fixture.home_goals, fixture.away_goals) == (3, 1)
+
+
+def test_a_score_naming_one_side_alone_is_ignored_and_the_fixture_survives(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a fixture whose current score names the home side and no away side
+    WHEN the window is read
+    THEN the fixture is returned carrying neither half of that score
+    """
+
+    half_written = fixture_payload(state=FINISHED_STATE, scores=[score_entry(2, "home")])
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[half_written]])
+
+    fixture = read_window()[0]
+
+    assert (fixture.provider_id, fixture.home_goals, fixture.away_goals) == (
+        FIXTURE_ID,
+        None,
+        None,
+    )
+
+
+def test_a_score_the_provider_has_not_filled_in_leaves_the_fixture_without_one(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a fixture whose current entries carry no goal count on either side
+    WHEN the window is read
+    THEN the fixture is returned with no score rather than a guessed nil-nil
+    """
+
+    unfilled = fixture_payload(scores=[score_entry(None, "home"), score_entry(None, "away")])
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[unfilled]])
+
+    fixture = read_window()[0]
+
+    assert (fixture.home_goals, fixture.away_goals) == (None, None)
 
 
 def test_a_fixture_with_broken_participants_is_skipped_and_the_rest_survive(
@@ -411,7 +618,7 @@ def test_the_window_and_the_competitions_are_stated_to_the_provider(
             WINDOW_PATH,
             {
                 "filters": f"fixtureLeagues:{PREMIER_LEAGUE_ID},{BUNDESLIGA_ID}",
-                "include": "participants;league;state",
+                "include": "participants;league;state;scores",
                 "per_page": PAGE_SIZE,
             },
         ),

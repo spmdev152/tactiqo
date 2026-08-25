@@ -48,7 +48,7 @@ export function FixtureListSkeleton() {
                 <div className="flex min-w-0 flex-1 items-center gap-2 @lg:gap-3">
                   <Skeleton className="h-5 flex-1" />
 
-                  <Skeleton className="h-3 w-5 shrink-0" />
+                  <Skeleton className="h-3 w-11 shrink-0" />
 
                   <Skeleton className="h-5 flex-1" />
                 </div>

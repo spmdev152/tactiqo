@@ -77,8 +77,12 @@ class FixtureAdmin(admin.ModelAdmin):
     ----------
     list_display : tuple of str
         Columns of the change list.
-    list_filter : tuple of str
-        Filters offered beside the change list.
+    list_filter : tuple of str or tuple of str and type
+        Filters offered beside the change list. The score is filtered on the
+        emptiness of ``home_goals`` alone, which is exact rather than a
+        shortcut: the table constraint makes the two goal columns null together,
+        so one of them answers whether a row carries a result at all, and that
+        is the question an operator reviewing a synchronization run asks.
     search_fields : tuple of str
         Fields the change list search box queries, reaching the two clubs and
         the competition through their relations so an operator can look a match
@@ -101,8 +105,19 @@ class FixtureAdmin(admin.ModelAdmin):
         Fields the synchronization task owns, shown but not editable.
     """
 
-    list_display = ("kickoff_at", "league", "home_team", "away_team", "synchronized_at")
-    list_filter = ("league", "kickoff_at")
+    list_display = (
+        "kickoff_at",
+        "league",
+        "home_team",
+        "away_team",
+        "status",
+        "home_goals",
+        "away_goals",
+        "synchronized_at",
+    )
+
+    list_filter = ("league", "status", ("home_goals", admin.EmptyFieldListFilter), "kickoff_at")
+
     search_fields = ("home_team__name", "away_team__name", "league__name")
     date_hierarchy = "kickoff_at"
     ordering = ("kickoff_at",)

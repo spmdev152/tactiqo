@@ -39,6 +39,8 @@ function buildFixture(overrides: Partial<Fixture> = {}): Fixture {
   return {
     id: 12,
     kickoffAt: new Date("2026-08-29T11:30:00Z"),
+    status: "scheduled",
+    score: null,
     league: PREMIER_LEAGUE,
     homeTeam: LIVERPOOL,
     awayTeam: NOTTINGHAM_FOREST,
@@ -154,5 +156,73 @@ describe("FixtureRow", () => {
 
     expect(screen.queryByText("Premier League")).not.toBeInTheDocument();
     expect(screen.queryByText("UK PL")).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a finished fixture carrying a score
+   * WHEN the row is rendered
+   * THEN the result replaces the marker between the two sides
+   */
+  it("states the result of a finished fixture", () => {
+    render(
+      <FixtureRow
+        fixture={buildFixture({
+          status: "finished",
+          score: { home: 2, away: 0 },
+        })}
+      />,
+    );
+
+    expect(screen.getByText("2 - 0")).toBeInTheDocument();
+    expect(screen.queryByText("vs")).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a fixture under way, whose score the platform reads hours behind
+   * WHEN the row is rendered
+   * THEN no score is shown, rather than one already out of date
+   */
+  it("withholds the score of a fixture still being played", () => {
+    render(
+      <FixtureRow
+        fixture={buildFixture({ status: "live", score: { home: 1, away: 0 } })}
+      />,
+    );
+
+    expect(screen.queryByText("1 - 0")).not.toBeInTheDocument();
+    expect(screen.getByText("vs")).toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a finished fixture the platform has no score for
+   * WHEN the row is rendered
+   * THEN the marker stands, so the row never invents a nil-nil
+   */
+  it("keeps the marker when a finished fixture has no score", () => {
+    render(<FixtureRow fixture={buildFixture({ status: "finished" })} />);
+
+    expect(screen.getByText("vs")).toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a day holding both a played fixture and one still to come
+   * WHEN their rows are rendered
+   * THEN the marker column has the same floor on both, so the centre lines up
+   */
+  it("gives the marker the same width played or not", () => {
+    render(
+      <>
+        <FixtureRow fixture={buildFixture()} />
+        <FixtureRow
+          fixture={buildFixture({
+            status: "finished",
+            score: { home: 2, away: 0 },
+          })}
+        />
+      </>,
+    );
+
+    expect(screen.getByText("vs")).toHaveClass("min-w-11");
+    expect(screen.getByText("2 - 0")).toHaveClass("min-w-11");
   });
 });

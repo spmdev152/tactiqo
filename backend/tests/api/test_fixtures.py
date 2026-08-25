@@ -4,6 +4,7 @@ from typing import cast
 
 import pytest
 
+from apps.fixtures.domain.enums import FixtureStatus
 from apps.fixtures.models import Fixture, League, Team
 from tests.conftest import ApiGet, ApiPost, UserFactory
 
@@ -149,7 +150,15 @@ def store_team(sportmonks_id: int, name: str, short_code: str) -> Team:
 
 
 def store_fixture(
-    sportmonks_id: int, league: League, home_team: Team, away_team: Team, kickoff_at: datetime
+    sportmonks_id: int,
+    league: League,
+    home_team: Team,
+    away_team: Team,
+    kickoff_at: datetime,
+    *,
+    status: FixtureStatus = FixtureStatus.SCHEDULED,
+    home_goals: int | None = None,
+    away_goals: int | None = None,
 ) -> Fixture:
     """
     Persist a fixture.
@@ -166,6 +175,12 @@ def store_fixture(
         Club playing away.
     kickoff_at : datetime
         Timezone-aware UTC instant the match starts.
+    status : FixtureStatus
+        Lifecycle stage of the match.
+    home_goals : int or None
+        Goals the home club has scored, ``None`` for a match with no score.
+    away_goals : int or None
+        Goals the away club has scored, ``None`` for a match with no score.
 
     Returns
     -------
@@ -179,6 +194,9 @@ def store_fixture(
         home_team=home_team,
         away_team=away_team,
         kickoff_at=kickoff_at,
+        status=status,
+        home_goals=home_goals,
+        away_goals=away_goals,
         synchronized_at=SYNCHRONIZED_AT,
     )
 
@@ -278,7 +296,7 @@ def test_fixtures_returns_the_day_in_the_contracted_shape(
     """
     GIVEN one stored fixture of the requested day
     WHEN that day is requested
-    THEN the fixture comes back with its competition and both clubs embedded
+    THEN it comes back scheduled, without a score, and with its clubs embedded
     """
 
     premier_league = store_premier_league()
@@ -304,6 +322,9 @@ def test_fixtures_returns_the_day_in_the_contracted_shape(
         {
             "id": fixture.pk,
             "kickoff_at": "2026-08-29T11:30:00Z",
+            "status": "scheduled",
+            "home_goals": None,
+            "away_goals": None,
             "league": {
                 "id": premier_league.pk,
                 "name": "Premier League",
@@ -326,6 +347,43 @@ def test_fixtures_returns_the_day_in_the_contracted_shape(
             },
         }
     ]
+
+
+@pytest.mark.django_db
+def test_fixtures_returns_the_result_of_a_played_fixture(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN a stored fixture that has been played to a two-nil home win
+    WHEN its day is requested
+    THEN it comes back finished and carrying both halves of the score
+    """
+
+    premier_league = store_premier_league()
+
+    liverpool = store_team(8, "Liverpool", "LIV")
+    nottingham_forest = store_team(63, "Nottingham Forest", "NFO")
+
+    store_fixture(
+        1,
+        premier_league,
+        liverpool,
+        nottingham_forest,
+        datetime(2026, 8, 29, 11, 30, tzinfo=UTC),
+        status=FixtureStatus.FINISHED,
+        home_goals=2,
+        away_goals=0,
+    )
+
+    token = bearer_token(api_post, user, user_password)
+
+    response = api_get(f"{FIXTURES_URL}?date={DAY}", token=token)
+
+    assert response.status_code == HTTPStatus.OK
+
+    played = json_list(response.json())[0]
+
+    assert (played["status"], played["home_goals"], played["away_goals"]) == ("finished", 2, 0)
 
 
 @pytest.mark.django_db

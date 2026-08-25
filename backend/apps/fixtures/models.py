@@ -2,6 +2,8 @@ from typing import ClassVar
 
 from django.db import models
 
+from apps.fixtures.domain.enums import FixtureStatus
+
 
 class League(models.Model):
     """
@@ -160,6 +162,15 @@ class Fixture(models.Model):
         Instant the match starts, stored in UTC. Indexed on its own and
         together with the league, which are exactly the two filters the public
         fixture listing issues.
+    status : str
+        Lifecycle stage of the match in the platform's own vocabulary, one of
+        ``FixtureStatus``. Deliberately unindexed: nothing filters on it yet.
+    home_goals : int or None
+        Goals the home club has scored, ``None`` until the match produces a
+        score. A check constraint pairs it with ``away_goals``.
+    away_goals : int or None
+        Goals the away club has scored, ``None`` until the match produces a
+        score.
     synchronized_at : datetime
         Instant the last synchronization wrote this row, which is the freshness
         a reader of provider-sourced data needs.
@@ -178,11 +189,19 @@ class Fixture(models.Model):
     away_team = models.ForeignKey(Team, on_delete=models.PROTECT, related_name="away_fixtures")
 
     kickoff_at = models.DateTimeField()
+
+    status = models.CharField(
+        max_length=16, choices=FixtureStatus.choices, default=FixtureStatus.SCHEDULED
+    )
+
+    home_goals = models.PositiveSmallIntegerField(null=True, blank=True)
+    away_goals = models.PositiveSmallIntegerField(null=True, blank=True)
+
     synchronized_at = models.DateTimeField()
 
     class Meta:
         """
-        Admin labels, default ordering, and read indexes of the fixture table.
+        Admin labels, ordering, read indexes, and invariants of the fixtures.
 
         Attributes
         ----------
@@ -196,6 +215,11 @@ class Fixture(models.Model):
         indexes : list of Index
             Indexes serving the day filter and the day-within-a-league filter
             of the public fixture listing.
+        constraints : list of BaseConstraint
+            Invariant that a score is a pair, so no row can carry the goals of
+            one club alone. It is enforced here rather than in the boundary that
+            writes it or the template that reads it, because a half-written
+            score is unrenderable and every future writer inherits the rule.
         """
 
         verbose_name = "fixture"
@@ -205,6 +229,14 @@ class Fixture(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["kickoff_at"], name="fixture_kickoff_at_idx"),
             models.Index(fields=["league", "kickoff_at"], name="fixture_league_kickoff_idx"),
+        ]
+
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=models.Q(home_goals__isnull=True, away_goals__isnull=True)
+                | models.Q(home_goals__isnull=False, away_goals__isnull=False),
+                name="fixture_goals_pair_check",
+            ),
         ]
 
     def __str__(self) -> str:

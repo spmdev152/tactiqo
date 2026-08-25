@@ -1,3 +1,4 @@
+import type { FixtureStatus } from "@/features/fixtures/domain/fixture-status";
 import type { League } from "@/features/fixtures/types/league";
 
 /**
@@ -18,7 +19,23 @@ export interface FixtureTeam {
 }
 
 /**
- * A scheduled match, in product terms.
+ * Goals both sides scored.
+ *
+ * @remarks
+ * A pair rather than two nullable numbers on the fixture, so a half-written
+ * score cannot be represented at all. The API carries the two counts
+ * separately and the mapper is what turns them into this.
+ */
+export interface FixtureScore {
+  /** Goals the home side scored. */
+  readonly home: number;
+
+  /** Goals the away side scored. */
+  readonly away: number;
+}
+
+/**
+ * A match, in product terms.
  */
 export interface Fixture {
   /** Internal fixture identifier. */
@@ -26,6 +43,12 @@ export interface Fixture {
 
   /** Instant the match kicks off, always an absolute point in time. */
   readonly kickoffAt: Date;
+
+  /** State the match is in. */
+  readonly status: FixtureStatus;
+
+  /** Goals scored, `null` while the platform has no score for the match. */
+  readonly score: FixtureScore | null;
 
   /** Competition the match belongs to. */
   readonly league: League;

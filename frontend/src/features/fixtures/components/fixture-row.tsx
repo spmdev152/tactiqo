@@ -99,7 +99,8 @@ export interface FixtureRowProps {
 }
 
 /**
- * Renders one match: both sides and the kick-off time.
+ * Renders one match: both sides, the kick-off time and the result once there is
+ * one.
  *
  * @remarks
  * The kick-off is formatted in UTC on the server. The visitor's timezone is not
@@ -122,6 +123,17 @@ export interface FixtureRowProps {
  * evenly, so the marker between them lands on the same pixel column in every
  * row of the list.
  *
+ * That marker carries the result of a match that has been played and `vs`
+ * otherwise, which is why it has a floor on its width: a group holding both
+ * kinds would otherwise put its centre column in two places. The floor fits a
+ * single-digit score, and a freak double-digit one widens its own row rather
+ * than being clipped.
+ *
+ * A score shows only for a finished match, even though a match under way can
+ * carry one. The platform synchronizes every few hours, so a score read mid-match
+ * is stale by the time anybody sees it, and a stale score presented as a result
+ * is worse than no score at all.
+ *
  * The competition is no longer named on the row. The heading above the group
  * says it once for every match under it, and repeating it cost the widest
  * column in the row for a fact that no longer varies within a group.
@@ -129,6 +141,8 @@ export interface FixtureRowProps {
  * @returns The match row.
  */
 export function FixtureRow({ fixture }: FixtureRowProps) {
+  const result = fixture.status === "finished" ? fixture.score : null;
+
   return (
     <li className="flex items-center gap-3 px-4 py-3 @lg:gap-4">
       <time
@@ -144,8 +158,15 @@ export function FixtureRow({ fixture }: FixtureRowProps) {
           <TeamCrest team={fixture.homeTeam} />
         </div>
 
-        <span className="shrink-0 font-mono text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase">
-          vs
+        <span
+          className={cn(
+            "min-w-11 shrink-0 text-center font-mono",
+            result === null
+              ? "text-[0.7rem] tracking-[0.12em] text-muted-foreground uppercase"
+              : "text-sm font-medium tabular-nums",
+          )}
+        >
+          {result === null ? "vs" : `${result.home} - ${result.away}`}
         </span>
 
         <div className="flex min-w-0 flex-1 items-center gap-2">

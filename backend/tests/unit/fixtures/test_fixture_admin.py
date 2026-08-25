@@ -10,6 +10,7 @@ from pytest_django.fixtures import DjangoAssertNumQueries
 
 from apps.accounts.models import User
 from apps.fixtures.admin import FixtureAdmin
+from apps.fixtures.domain.enums import FixtureStatus
 from apps.fixtures.infrastructure.repositories import upsert_fixtures
 from apps.fixtures.models import Fixture, League, Team
 from tests.conftest import UserFactory
@@ -45,6 +46,17 @@ LATER_WINDOW = [
     )
     for provider_id in range(3, 13)
 ]
+
+PLAYED_FIXTURE = provider_fixture(
+    13,
+    kickoff(20),
+    league=LA_LIGA,
+    home_team=BARCELONA,
+    away_team=SEVILLA,
+    status=FixtureStatus.FINISHED,
+    home_goals=2,
+    away_goals=0,
+)
 
 
 def change_list_rows(fixture_admin: FixtureAdmin, request: HttpRequest) -> list[str]:
@@ -202,6 +214,30 @@ def test_the_fixture_change_list_renders_a_stored_fixture(operator_client: Clien
     assert PREMIER_LEAGUE.name in change_list.text
     assert LIVERPOOL.name in change_list.text
     assert NOTTINGHAM_FOREST.name in change_list.text
+
+
+@pytest.mark.django_db
+def test_the_fixture_change_list_narrows_to_the_fixtures_carrying_a_result(
+    operator_client: Client,
+) -> None:
+    """
+    GIVEN one stored fixture played to a result beside one still scheduled
+    WHEN the change list is filtered on the finished stage and on a score
+    THEN only the played fixture is listed by either filter
+    """
+
+    upsert_fixtures([provider_fixture(1, kickoff(11, 30)), PLAYED_FIXTURE], SYNCHRONIZED_AT)
+
+    scheduled = Fixture.objects.get(sportmonks_id=1)
+    played = Fixture.objects.get(sportmonks_id=PLAYED_FIXTURE.provider_id)
+
+    by_status = operator_client.get(f"{FIXTURE_CHANGE_LIST_URL}?status__exact=finished")
+    with_a_score = operator_client.get(f"{FIXTURE_CHANGE_LIST_URL}?home_goals__isempty=0")
+
+    for change_list in (by_status, with_a_score):
+        assert change_list.status_code == HTTPStatus.OK
+        assert f"{FIXTURE_CHANGE_LIST_URL}{played.pk}/change/" in change_list.text
+        assert f"{FIXTURE_CHANGE_LIST_URL}{scheduled.pk}/change/" not in change_list.text
 
 
 @pytest.mark.django_db
