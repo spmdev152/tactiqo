@@ -15,6 +15,7 @@ LEAGUE_UPDATE_FIELDS = ["name", "short_code", "logo_url", "country_name", "count
 TEAM_UPDATE_FIELDS = ["name", "short_code", "crest_url"]
 
 FIXTURE_UPDATE_FIELDS = [
+    "season_sportmonks_id",
     "league",
     "home_team",
     "away_team",
@@ -238,6 +239,7 @@ def upsert_fixtures(
             [
                 Fixture(
                     sportmonks_id=provider_fixture.provider_id,
+                    season_sportmonks_id=provider_fixture.season_provider_id,
                     league=leagues[provider_fixture.league.provider_id],
                     home_team=teams[provider_fixture.home_team.provider_id],
                     away_team=teams[provider_fixture.away_team.provider_id],

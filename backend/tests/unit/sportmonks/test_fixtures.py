@@ -50,6 +50,10 @@ FOREST_ID = 63
 
 FIXTURE_ID = 19427455
 
+SEASON_ID = 25583
+
+UNREADABLE_SEASON_ID = "later"
+
 WINDOW_START = date(2026, 8, 29)
 
 WINDOW_END = date(2026, 9, 5)
@@ -226,6 +230,7 @@ def fixture_payload(
     *,
     provider_id: int = FIXTURE_ID,
     league_id: int = PREMIER_LEAGUE_ID,
+    season_id: object = SEASON_ID,
     starting_at: str = KICKOFF_STAMP,
     participants: object = None,
     state: str = SCHEDULED_STATE,
@@ -240,6 +245,9 @@ def fixture_payload(
         Provider fixture identifier.
     league_id : int, optional
         Competition the fixture is reported under.
+    season_id : object, optional
+        Season the fixture is reported under, as the provider states it at the
+        top level of the entry rather than inside an include.
     starting_at : str, optional
         Kick-off stamp as the provider writes it.
     participants : object, optional
@@ -268,6 +276,7 @@ def fixture_payload(
     return {
         "id": provider_id,
         "league_id": league_id,
+        "season_id": season_id,
         "starting_at": starting_at,
         "starting_at_timestamp": 1787052600,
         "state": {"id": 1, "state": state},
@@ -394,7 +403,7 @@ def test_a_well_formed_page_normalizes_into_a_provider_fixture(provider: Stubbed
     """
     GIVEN a provider page carrying one well-formed fixture
     WHEN the window is read
-    THEN the fixture carries a UTC kick-off, the metadata sides, and no score
+    THEN the fixture carries a UTC kick-off, its season, the metadata sides, and no score
     """
 
     provider.serve(leagues=[[league_payload()]], fixtures=[[fixture_payload()]])
@@ -402,6 +411,7 @@ def test_a_well_formed_page_normalizes_into_a_provider_fixture(provider: Stubbed
     assert read_fixtures() == [
         ProviderFixture(
             provider_id=FIXTURE_ID,
+            season_provider_id=SEASON_ID,
             kickoff_at=KICKOFF_INSTANT,
             league=PREMIER_LEAGUE,
             home_team=FOREST,
@@ -760,6 +770,66 @@ def test_a_fixture_the_provider_has_not_scheduled_is_reported_as_routine(
 
     assert read_fixtures() == []
     assert "not scheduled yet" in caplog.text
+
+
+def test_the_season_a_fixture_is_played_in_reaches_the_normalized_fixture(
+    provider: StubbedProvider,
+) -> None:
+    """
+    GIVEN a page carrying a fixture the provider reports under a season of its own
+    WHEN the window is read
+    THEN that season is the one the normalized fixture carries
+    """
+
+    provider.serve(
+        leagues=[[league_payload()]],
+        fixtures=[[fixture_payload(season_id=SEASON_ID + 1)]],
+    )
+
+    assert [fixture.season_provider_id for fixture in read_fixtures()] == [SEASON_ID + 1]
+
+
+def test_a_fixture_stating_no_season_is_kept_without_one(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a page carrying a fixture the provider publishes without a season at all
+    WHEN the window is read
+    THEN the fixture is returned seasonless at debug level, because only its form read suffers
+    """
+
+    caplog.set_level(logging.DEBUG, logger=FIXTURES_LOGGER)
+
+    seasonless = fixture_payload()
+
+    del seasonless["season_id"]
+
+    provider.serve(leagues=[[league_payload()]], fixtures=[[seasonless]])
+
+    assert [fixture.season_provider_id for fixture in read_fixtures()] == [None]
+    assert "states no season" in caplog.text
+
+
+def test_an_unreadable_season_is_reported_and_the_fixture_survives(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    GIVEN a page carrying a fixture whose season is present but denotes no identifier
+    WHEN the window is read
+    THEN the fixture is returned seasonless with a warning rather than dropped
+    """
+
+    caplog.set_level(logging.WARNING, logger=FIXTURES_LOGGER)
+
+    provider.serve(
+        leagues=[[league_payload()]],
+        fixtures=[[fixture_payload(season_id=UNREADABLE_SEASON_ID)]],
+    )
+
+    assert [(fixture.provider_id, fixture.season_provider_id) for fixture in read_fixtures()] == [
+        (FIXTURE_ID, None)
+    ]
+    assert "not a readable season identifier" in caplog.text
 
 
 def test_every_page_of_the_window_contributes_its_fixtures(provider: StubbedProvider) -> None:

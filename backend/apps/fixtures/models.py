@@ -150,6 +150,12 @@ class Fixture(models.Model):
         postponed match keeps its identifier and arrives with a later
         ``kickoff_at``, so the uniqueness is what makes the row move instead of
         the table gaining a duplicate.
+    season_sportmonks_id : int
+        Provider identifier of the season the match belongs to. It is the only
+        provider identifier besides the fixture's own that is stored, because a
+        form sample scoped to a season has to know where the season ends and the
+        provider states the boundary nowhere else in this payload. It never
+        reaches the API or the interface.
     league : League
         Competition the match belongs to. Protected on delete because a league
         is reference data a synchronization may replace but must never silently
@@ -159,9 +165,10 @@ class Fixture(models.Model):
     away_team : Team
         Club playing away.
     kickoff_at : datetime
-        Instant the match starts, stored in UTC. Indexed on its own and
-        together with the league, which are exactly the two filters the public
-        fixture listing issues.
+        Instant the match starts, stored in UTC. Indexed on its own, together
+        with the league, and together with each of the two clubs, which are the
+        filters of the public fixture listing and of the backward-looking form
+        read.
     status : str
         Lifecycle stage of the match in the platform's own vocabulary, one of
         ``FixtureStatus``. Deliberately unindexed although the admin change list
@@ -185,6 +192,8 @@ class Fixture(models.Model):
     """
 
     sportmonks_id = models.BigIntegerField(unique=True)
+
+    season_sportmonks_id = models.BigIntegerField(null=True, blank=True)
 
     league = models.ForeignKey(League, on_delete=models.PROTECT, related_name="fixtures")
 
@@ -216,8 +225,12 @@ class Fixture(models.Model):
             Default ordering, earliest kick-off first, broken by primary key so
             two matches starting together list deterministically.
         indexes : list of Index
-            Indexes serving the day filter and the day-within-a-league filter
-            of the public fixture listing.
+            Indexes serving the day filter and the day-within-a-league filter of
+            the public fixture listing, and the two that serve the form read:
+            walking one club's matches backwards from a kick-off has to be an
+            index scan, and a club is the home side of half of them and the away
+            side of the other half, so it takes one index per side rather than
+            one composite.
         constraints : list of BaseConstraint
             Invariant that a score is a pair, so no row can carry the goals of
             one club alone. It is enforced here rather than in the boundary that
@@ -232,6 +245,8 @@ class Fixture(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["kickoff_at"], name="fixture_kickoff_at_idx"),
             models.Index(fields=["league", "kickoff_at"], name="fixture_league_kickoff_idx"),
+            models.Index(fields=["home_team", "kickoff_at"], name="fixture_home_kickoff_idx"),
+            models.Index(fields=["away_team", "kickoff_at"], name="fixture_away_kickoff_idx"),
         ]
 
         constraints: ClassVar[list[models.BaseConstraint]] = [

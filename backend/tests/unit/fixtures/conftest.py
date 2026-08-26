@@ -18,6 +18,8 @@ WINDOW_START = date(2026, 8, 23)
 
 WINDOW_END = date(2026, 9, 8)
 
+SEASON_ID = 25583
+
 PREMIER_LEAGUE = ProviderLeague(
     provider_id=8,
     name="Premier League",
@@ -91,6 +93,7 @@ def provider_fixture(
     provider_id: int,
     kickoff_at: datetime,
     *,
+    season_provider_id: int | None = SEASON_ID,
     league: ProviderLeague = PREMIER_LEAGUE,
     home_team: ProviderTeam = LIVERPOOL,
     away_team: ProviderTeam = NOTTINGHAM_FOREST,
@@ -107,6 +110,9 @@ def provider_fixture(
         Provider identifier of the match, which is its natural key.
     kickoff_at : datetime
         Timezone-aware UTC instant the match starts.
+    season_provider_id : int or None
+        Provider identifier of the season the match is played in, ``None`` for a
+        match the provider states no season for.
     league : ProviderLeague
         Competition the match belongs to.
     home_team : ProviderTeam
@@ -128,6 +134,7 @@ def provider_fixture(
 
     return ProviderFixture(
         provider_id=provider_id,
+        season_provider_id=season_provider_id,
         kickoff_at=kickoff_at,
         league=league,
         home_team=home_team,

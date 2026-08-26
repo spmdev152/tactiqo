@@ -127,6 +127,12 @@ class ProviderFixture:
     ----------
     provider_id : int
         Sportmonks fixture identifier.
+    season_provider_id : int or None
+        Sportmonks identifier of the season the fixture is played in, ``None``
+        when the provider states none this boundary can read. It is the only
+        identifier besides the fixture's own that leaves this boundary, because
+        a form sample scoped to a season has no other way to tell where the
+        season begins.
     kickoff_at : datetime
         Timezone-aware kick-off instant, always expressed in UTC.
     league : ProviderLeague
@@ -146,6 +152,7 @@ class ProviderFixture:
     """
 
     provider_id: int
+    season_provider_id: int | None
     kickoff_at: datetime
     league: ProviderLeague
     home_team: ProviderTeam
@@ -370,6 +377,7 @@ def _fixture_of(
 
     return ProviderFixture(
         provider_id=provider_id,
+        season_provider_id=_season_of(entry.get("season_id"), provider_id),
         kickoff_at=kickoff_at,
         league=league,
         home_team=home_team,
@@ -410,6 +418,52 @@ def _report_unusable_kickoff(value: object, provider_id: int) -> None:
         provider_id,
         value,
     )
+
+
+def _season_of(value: object, provider_id: int) -> int | None:
+    """
+    Return the season a fixture is played in, or report why it states none.
+
+    Unlike every other unusable field, this one never drops the fixture. The
+    listing needs the match whatever season it belongs to, and the only reader
+    an absent season degrades is a form sample scoped to one. The two failures
+    are still distinguished the way an unusable kick-off is: a fixture the
+    provider publishes without a season is routine and belongs at debug level,
+    while a season that is present and still unreadable is a contract this
+    boundary got wrong and warns.
+
+    Parameters
+    ----------
+    value : object
+        Value the ``season_id`` field carried.
+    provider_id : int
+        Identifier of the fixture the season was read from.
+
+    Returns
+    -------
+    int or None
+        Season identifier, or ``None`` when the fixture states none or states
+        one the column that stores it cannot hold.
+    """
+
+    if value is None:
+        logger.debug(
+            "Sportmonks fixture %d states no season, so its season-scoped form is unavailable.",
+            provider_id,
+        )
+
+        return None
+
+    season_provider_id = _identifier(value)
+
+    if season_provider_id is None:
+        logger.warning(
+            "Sportmonks fixture %d: %r is not a readable season identifier.",
+            provider_id,
+            value,
+        )
+
+    return season_provider_id
 
 
 def _status_of(payload: object, provider_id: int) -> FixtureStatus:

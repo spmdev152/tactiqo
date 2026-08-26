@@ -3,7 +3,13 @@ from django.db import IntegrityError
 
 from apps.fixtures.domain.enums import FixtureStatus
 from apps.fixtures.models import Fixture, League, Team
-from tests.unit.fixtures.conftest import SYNCHRONIZED_AT, kickoff, provider_fixture, store_window
+from tests.unit.fixtures.conftest import (
+    SEASON_ID,
+    SYNCHRONIZED_AT,
+    kickoff,
+    provider_fixture,
+    store_window,
+)
 
 
 def store_bare_fixture() -> Fixture:
@@ -67,3 +73,29 @@ def test_the_database_refuses_one_goal_column_without_the_other() -> None:
 
     with pytest.raises(IntegrityError, match="fixture_goals_pair_check"):
         stored.save(update_fields=["home_goals"])
+
+
+@pytest.mark.django_db
+def test_a_stored_fixture_keeps_the_season_the_provider_stated() -> None:
+    """
+    GIVEN a provider fixture the boundary read a season for
+    WHEN the window is stored and the row is read back
+    THEN the row carries that season, which is what scopes a form sample to it
+    """
+
+    store_window([provider_fixture(1, kickoff(11, 30), season_provider_id=SEASON_ID)])
+
+    assert Fixture.objects.get().season_sportmonks_id == SEASON_ID
+
+
+@pytest.mark.django_db
+def test_a_fixture_the_provider_stated_no_season_for_is_still_stored() -> None:
+    """
+    GIVEN a provider fixture the boundary could read no season for
+    WHEN the window is stored and the row is read back
+    THEN the row is stored with a null season rather than refused
+    """
+
+    store_window([provider_fixture(1, kickoff(11, 30), season_provider_id=None)])
+
+    assert Fixture.objects.get().season_sportmonks_id is None
