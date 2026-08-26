@@ -17,13 +17,16 @@ logger = logging.getLogger(__name__)
 
 SYNCHRONIZATION_LOCK_KEY = "statistics:synchronize-statistics"
 
-# Two seasons, which is more history than any form sample reads and roughly a
-# hundred provider requests at the chunk size above. The bound is not a
-# performance guard but a typo guard: ``days_back`` is the one argument an
-# operator types by hand, and a slipped digit would otherwise walk a decade of
-# calendar days one chunk at a time, spending the hourly budget of every entity
-# the read touches before anybody noticed.
-MAXIMUM_PAST_DAYS = 730
+# The bound is a typo guard rather than a performance one: ``days_back`` is the
+# one argument an operator types by hand, and a slipped digit would otherwise
+# walk a decade of calendar days one chunk at a time, spending the hourly budget
+# of every entity the read touches before anybody noticed. It is set above what
+# the subscription actually serves rather than below it, so the guard never
+# refuses a backfill the provider would have answered: reads were verified to
+# return complete windows from August 2024, the start of the 2024/2025 season,
+# and to be refused for every month before it, so three seasons of calendar days
+# plus a summer of headroom is the honest ceiling.
+MAXIMUM_PAST_DAYS = 1200
 
 
 def _release_lock(lease: str) -> None:
