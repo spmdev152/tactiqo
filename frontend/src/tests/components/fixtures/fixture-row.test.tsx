@@ -5,11 +5,15 @@ import { FixtureRow } from "@/features/fixtures/components/fixture-row";
 import type { Fixture, FixtureTeam } from "@/features/fixtures/types/fixture";
 import type { League } from "@/features/fixtures/types/league";
 
-const { loadFixturePredictionsAction } = vi.hoisted(() => ({
-  loadFixturePredictionsAction: vi.fn(),
-}));
+const { loadFixtureFormAction, loadFixturePredictionsAction } = vi.hoisted(
+  () => ({
+    loadFixtureFormAction: vi.fn(),
+    loadFixturePredictionsAction: vi.fn(),
+  }),
+);
 
 vi.mock("@/features/fixtures/server/actions", () => ({
+  loadFixtureFormAction,
   loadFixturePredictionsAction,
 }));
 
@@ -298,15 +302,14 @@ describe("FixtureRow", () => {
   /**
    * GIVEN a fixture the platform holds no prediction probabilities for
    * WHEN the row is rendered
-   * THEN it offers nothing to press, so no panel can be opened onto nothing
+   * THEN it still offers the toggle, because its form does not need a model
    */
-  it("offers no toggle for a fixture without predictions", () => {
+  it("offers the toggle on a fixture without predictions", () => {
     render(<FixtureRow fixture={buildFixture()} />);
 
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Prediction probabilities"),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /Match insights/ }),
+    ).toHaveAttribute("aria-expanded", "false");
   });
 
   /**
@@ -314,15 +317,29 @@ describe("FixtureRow", () => {
    * WHEN the row is rendered
    * THEN the whole row is one collapsed control naming the match it belongs to
    */
-  it("turns a fixture with predictions into one collapsed control", () => {
+  it("turns every row into one collapsed control", () => {
     render(<FixtureRow fixture={buildFixture({ hasPredictions: true })} />);
 
-    const toggle = screen.getByRole("button", {
-      name: /Prediction probabilities/,
-    });
+    const toggle = screen.getByRole("button", { name: /Match insights/ });
 
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle).toHaveAccessibleName(/Liverpool/);
     expect(toggle).toHaveAccessibleName(/11:30/);
+  });
+
+  /**
+   * GIVEN a day mixing fixtures with and without probabilities
+   * WHEN their rows are rendered
+   * THEN every one draws a real chevron rather than reserving an empty cell
+   */
+  it("draws a chevron on every row", () => {
+    const { container } = render(
+      <>
+        <FixtureRow fixture={buildFixture()} />
+        <FixtureRow fixture={buildFixture({ hasPredictions: true })} />
+      </>,
+    );
+
+    expect(container.querySelectorAll("svg")).toHaveLength(2);
   });
 });

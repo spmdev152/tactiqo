@@ -2,55 +2,96 @@
 
 import { useCallback, useId, useRef, useState, useTransition } from "react";
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FixtureFormPanel } from "@/features/fixtures/components/fixture-form-panel";
 import { FixturePredictionsPanel } from "@/features/fixtures/components/fixture-predictions-panel";
-import { loadFixturePredictionsAction } from "@/features/fixtures/server/actions";
+import {
+  loadFixtureFormAction,
+  loadFixturePredictionsAction,
+} from "@/features/fixtures/server/actions";
 import type { Fixture } from "@/features/fixtures/types/fixture";
+import type { FixtureFormResult } from "@/features/fixtures/types/form";
 import type { FixturePredictionsResult } from "@/features/fixtures/types/prediction";
 
-const TOGGLE_LABEL = "Prediction probabilities";
+const TOGGLE_LABEL = "Match insights";
 
-const UNREACHABLE_RESULT: FixturePredictionsResult = {
+const TAB_LIST_LABEL = "Match insights";
+
+const PROBABILITIES_TAB = "probabilities";
+
+const FORM_TAB = "form";
+
+const PROBABILITIES_LABEL = "Probabilities";
+
+const FORM_LABEL = "Form";
+
+const UNREACHABLE_REASON =
+  "The request did not complete. Check your connection and try again.";
+
+const UNREACHABLE_PREDICTIONS: FixturePredictionsResult = {
   loaded: false,
-  reason: "The request did not complete. Check your connection and try again.",
+  reason: UNREACHABLE_REASON,
+};
+
+const UNREACHABLE_FORM: FixtureFormResult = {
+  loaded: false,
+  reason: UNREACHABLE_REASON,
 };
 
 /**
- * Props of {@link FixtureDisclosure}.
+ * The one fact a lazily read answer has to expose for the guard to close.
  */
-export interface FixtureDisclosureProps {
-  /** Match whose probabilities the panel reads. */
-  readonly fixture: Fixture;
-
-  /** Row content, which becomes the label of the control that expands it. */
-  readonly children: React.ReactNode;
+interface LazyOutcome {
+  /** Whether the read produced an answer worth keeping. */
+  readonly loaded: boolean;
 }
 
 /**
- * Turns a fixture row into the control that opens its prediction panel.
+ * One tab's read: whether it has been asked for, is running, and what it said.
+ */
+interface LazyRead<TOutcome extends LazyOutcome> {
+  /** Whether a read is in flight. */
+  readonly pending: boolean;
+
+  /** Whether a read has been asked for at all. */
+  readonly asked: boolean;
+
+  /** The answer, or `null` while none has landed. */
+  readonly result: TOutcome | null;
+
+  /** Asks for the read, at most once while it keeps succeeding. */
+  readonly read: () => void;
+
+  /** Asks again after a failure, clearing the answer that failed. */
+  readonly retry: () => void;
+}
+
+/**
+ * Holds one tab's read: its guard, its pending flag and its answer.
  *
  * @remarks
- * The one client component in the list, and it is a client component for two
- * reasons and no others: it holds whether the panel is open, and it decides when
- * to ask for the probabilities. Everything it renders — the row above and the
- * panel below — stays server-renderable and is handed to it.
+ * Two tabs need this and they must not share any part of it, which is what makes
+ * a hook the right shape rather than an abstraction for its own sake. Sharing a
+ * pending flag would put a skeleton in the tab that had already answered;
+ * sharing the guard would let one tab's success suppress the other's request.
  *
- * The read happens on the first expansion and, when it worked, never again.
- * Reading every row's probabilities to render a collapsed toggle would be dozens
- * of authenticated round trips for data nobody looked at, and re-reading on
- * every expansion would charge the visitor a request for changing their mind
- * about a panel they have already seen. The guard is a ref rather than the
- * cached result, because while the first request is still in flight the result
- * is still `null` and a second click would fire a second request; a ref is set
- * in the same tick as the click, which is the only thing that closes that
- * window. Only an expansion reads; collapsing a row that failed would otherwise
- * spend a request on a panel the visitor is in the act of dismissing.
+ * The read happens on the first activation of its own tab and, when it worked,
+ * never again. Reading both tabs of every row to render a collapsed toggle would
+ * be dozens of authenticated round trips for data nobody looked at, and
+ * re-reading on every activation would charge the visitor a request for
+ * switching back to a tab they have already seen.
  *
- * A failed read reopens that guard, and this is the whole difference between a
- * panel that recovers and one that does not. An unavailable answer is worth
- * asking again — the connection blipped, the API was restarting — so the guard
- * is closed again only on the answer that is worth keeping. A visitor whose read
- * failed can therefore collapse and reopen the row, or press the panel's own
- * retry, instead of reloading the page.
+ * The guard is a ref rather than the cached result, because while the first
+ * request is still in flight the result is still `null` and a second activation
+ * would fire a second request; a ref is set in the same tick as the click, which
+ * is the only thing that closes that window.
+ *
+ * A failed read reopens the guard, and this is the whole difference between a
+ * tab that recovers and one that does not. An unavailable answer is worth asking
+ * again — the connection blipped, the API was restarting — so the guard closes
+ * only on the answer that is worth keeping. A visitor whose read failed can
+ * therefore collapse and reopen the row, switch away and back, or press the
+ * panel's own retry, instead of reloading the page.
  *
  * The rejection is caught rather than left to propagate. A Server Action can
  * reject for reasons that have nothing to do with the fixture — an offline
@@ -58,67 +99,22 @@ export interface FixtureDisclosureProps {
  * rejected transition thenable during render and rethrows it. With no
  * `error.tsx` above this route that replaces the entire page with a client
  * exception, so one unreachable row would take the whole day's list with it. The
- * substituted reason is a constant here and names nothing server-side, because
- * the throw carries no reason a visitor could use.
+ * substituted answer names nothing server-side, because the throw carries no
+ * reason a visitor could use.
  *
- * Whether the panel has anything to render is the panel's own decision, and it
- * is handed the one fact it cannot infer: whether a read was ever asked for. A
- * `null` result on its own conflates "nobody asked" with "the answer has not
- * landed", and the second of those is a placeholder while the first is nothing at
- * all. Passing it down also means there is no mount condition here to get wrong:
- * a collapsed row renders a panel that returns nothing, so a thirty-match day
- * puts no pulsing placeholder in the document, and once asked the subtree stays
- * mounted for as long as the row does — including while a request is in flight
- * that the visitor closed the panel on, which would otherwise unmount its own
- * placeholder mid-transition and vanish instead of sliding shut.
- *
- * The region grows from `grid-template-rows: 0fr` to `1fr` rather than from a
- * `max-height`. A height animation needs a number chosen in advance, and this
- * panel has no such number: eleven markets against an unavailable notice differ
- * by an order of magnitude, so any ceiling is either a clip or a pause at the
- * end of every open. A grid track sized in `fr` resolves against the content
- * itself, which is why the child carries `overflow-hidden` — that is what has a
- * measurable height to be clipped while the track is still smaller than it.
- *
- * The state is spelled `data-state="open"` and animated through the
- * `data-open:` variant `globals.css` registers, rather than through a variant of
- * its own. That variant exists because the registry primitives write Radix's
- * state that way, and reusing it means this transition is expressed the same way
- * as every other one in the application.
- *
- * No `prefers-reduced-motion` query is needed here. The base layer at the foot
- * of `globals.css` already clamps `transition-duration` to `0.01ms` on `*`,
- * `*::before` and `*::after` with `!important`, and grants an exemption to the
- * spinner alone, so both transitions this component declares are already
- * suppressed for a visitor who asked for that. Durations are left to the theme's
- * `--default-transition-duration` for the same reason a second timing constant
- * is not wanted.
- *
- * The collapsed region is `inert`. Clipping content to zero height leaves it
- * focusable and readable, so without this a keyboard visitor would tab into a
- * panel they never opened and a screen reader would find eleven markets under
- * every row. `inert` is also what makes the collapsed subtree consistent with
- * `aria-expanded`, which is a claim about the panel and would otherwise be
- * false.
- *
- * The control names itself from inside. A visually hidden label after the row
- * content composes into the accessible name rather than replacing it, which is
- * what an `aria-label` would have done: the button would then announce
- * "prediction probabilities" and withhold which match it belongs to. The
- * codebase's competition picker documents the same choice for the same reason.
- *
- * @returns The row as a disclosure, and its panel.
+ * @param load - Server Action that answers for one fixture.
+ * @param fixtureId - Fixture to read.
+ * @param unreachable - Answer to substitute when the action rejects outright.
+ * @returns The state of that tab's read, and the two ways to start it.
  */
-export function FixtureDisclosure({
-  fixture,
-  children,
-}: FixtureDisclosureProps) {
-  const panelId = useId();
-
-  const [isPending, startTransition] = useTransition();
-  const [open, setOpen] = useState(false);
+function useLazyRead<TOutcome extends LazyOutcome>(
+  load: (fixtureId: number) => Promise<TOutcome>,
+  fixtureId: number,
+  unreachable: TOutcome,
+): LazyRead<TOutcome> {
+  const [pending, startTransition] = useTransition();
   const [asked, setAsked] = useState(false);
-  const [result, setResult] = useState<FixturePredictionsResult | null>(null);
+  const [result, setResult] = useState<TOutcome | null>(null);
 
   const requested = useRef(false);
 
@@ -132,16 +128,144 @@ export function FixtureDisclosure({
 
     startTransition(async () => {
       try {
-        const answer = await loadFixturePredictionsAction(fixture.id);
+        const answer = await load(fixtureId);
 
         requested.current = answer.loaded;
         setResult(answer);
       } catch {
         requested.current = false;
-        setResult(UNREACHABLE_RESULT);
+        setResult(unreachable);
       }
     });
-  }, [fixture.id]);
+  }, [fixtureId, load, unreachable]);
+
+  const retry = useCallback(() => {
+    setResult(null);
+    read();
+  }, [read]);
+
+  return { pending, asked, result, read, retry };
+}
+
+/**
+ * Props of {@link FixtureDisclosure}.
+ */
+export interface FixtureDisclosureProps {
+  /** Match whose insights the panel reads. */
+  readonly fixture: Fixture;
+
+  /** Row content, which becomes the label of the control that expands it. */
+  readonly children: React.ReactNode;
+}
+
+/**
+ * Turns a fixture row into the control that opens its insights panel.
+ *
+ * @remarks
+ * The one client component in the list, and it is a client component for three
+ * reasons and no others: it holds whether the panel is open, which of its two
+ * tabs is showing, and when to ask for each tab's data. Everything it renders —
+ * the row above and both panels below — stays server-renderable and is handed to
+ * it.
+ *
+ * Every row offers the toggle. It used to be offered only where the platform
+ * held probabilities, which was correct while probabilities were the only thing
+ * behind it: a chevron pointing at an empty drawer is worse than no chevron. Form
+ * changes that, because form is drawn from matches already played and is
+ * therefore available for almost every fixture the list can show, including every
+ * fixture too far out for a model to have run on. `hasPredictions` still decides
+ * something, but it decides which tab opens first rather than whether anything
+ * opens at all, so a fixture with no probabilities opens on its form instead of
+ * on an apology.
+ *
+ * Each tab reads independently and only on its own first activation, which is
+ * what keeps opening a row to one request. The probabilities are a small
+ * prepared payload and the form is two sides of six windows of twenty-five
+ * figures, so a single read answering both would make the cheaper tab pay for
+ * the larger one and would let either failure take the other down.
+ *
+ * Neither panel is told which tab is showing, because Radix mounts only the
+ * active one. That is also why the answers are held here rather than inside the
+ * panels: switching away unmounts a panel, and state kept in it would restart
+ * the request on the way back.
+ *
+ * The tabs themselves are mounted on the first expansion and stay mounted
+ * afterwards. Mounting them with the row would put two more controls in the
+ * document for every match of a thirty-match day, for a panel nobody has opened;
+ * unmounting them on collapse would remove the content mid-transition, so the
+ * panel would vanish instead of sliding shut.
+ *
+ * The region grows from `grid-template-rows: 0fr` to `1fr` rather than from a
+ * `max-height`. A height animation needs a number chosen in advance, and this
+ * panel has no such number: five families of figures against an unavailable
+ * notice differ by an order of magnitude, so any ceiling is either a clip or a
+ * pause at the end of every open. A grid track sized in `fr` resolves against
+ * the content itself, which is why the child carries `overflow-hidden` — that is
+ * what has a measurable height to be clipped while the track is still smaller
+ * than it.
+ *
+ * The state is spelled `data-state="open"` and animated through the `data-open:`
+ * variant `globals.css` registers, rather than through a variant of its own.
+ * That variant exists because the registry primitives write Radix's state that
+ * way, and reusing it means this transition is expressed the same way as every
+ * other one in the application.
+ *
+ * No `prefers-reduced-motion` query is needed here. The base layer at the foot
+ * of `globals.css` already clamps `transition-duration` to `0.01ms` on `*`,
+ * `*::before` and `*::after` with `!important`, and grants an exemption to the
+ * spinner alone, so both transitions this component declares are already
+ * suppressed for a visitor who asked for that.
+ *
+ * The collapsed region is `inert`. Clipping content to zero height leaves it
+ * focusable and readable, so without this a keyboard visitor would tab into a
+ * tab list they never opened and a screen reader would find five families of
+ * figures under every row. `inert` is also what makes the collapsed subtree
+ * consistent with `aria-expanded`, which is a claim about the panel and would
+ * otherwise be false.
+ *
+ * The control names itself from inside. A visually hidden label after the row
+ * content composes into the accessible name rather than replacing it, which is
+ * what an `aria-label` would have done: the button would then announce "match
+ * insights" and withhold which match it belongs to.
+ *
+ * @returns The row as a disclosure, and its two panels.
+ */
+export function FixtureDisclosure({
+  fixture,
+  children,
+}: FixtureDisclosureProps) {
+  const panelId = useId();
+
+  const predictions = useLazyRead(
+    loadFixturePredictionsAction,
+    fixture.id,
+    UNREACHABLE_PREDICTIONS,
+  );
+
+  const form = useLazyRead(loadFixtureFormAction, fixture.id, UNREACHABLE_FORM);
+
+  const [open, setOpen] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+
+  const [tab, setTab] = useState(
+    fixture.hasPredictions ? PROBABILITIES_TAB : FORM_TAB,
+  );
+
+  const { read: readPredictions } = predictions;
+  const { read: readForm } = form;
+
+  const activate = useCallback(
+    (value: string) => {
+      if (value === FORM_TAB) {
+        readForm();
+
+        return;
+      }
+
+      readPredictions();
+    },
+    [readForm, readPredictions],
+  );
 
   const toggle = useCallback(() => {
     const expanding = !open;
@@ -149,19 +273,23 @@ export function FixtureDisclosure({
     setOpen(expanding);
 
     if (expanding) {
-      read();
+      setRevealed(true);
+      activate(tab);
     }
-  }, [open, read]);
+  }, [activate, open, tab]);
 
-  const retry = useCallback(() => {
-    setResult(null);
-    read();
-  }, [read]);
+  const select = useCallback(
+    (value: string) => {
+      setTab(value);
+      activate(value);
+    },
+    [activate],
+  );
 
   return (
     <>
       <button
-        aria-busy={isPending}
+        aria-busy={predictions.pending || form.pending}
         aria-controls={panelId}
         aria-expanded={open}
         className="group/fixture-row block w-full text-left outline-none hover:bg-muted/50 focus-visible:inset-ring-3 focus-visible:inset-ring-ring/50"
@@ -180,13 +308,40 @@ export function FixtureDisclosure({
         inert={!open}
       >
         <div className="overflow-hidden">
-          <FixturePredictionsPanel
-            onRetry={retry}
-            pending={isPending}
-            requested={asked}
-            result={result}
-            sides={{ home: fixture.homeTeam, away: fixture.awayTeam }}
-          />
+          {revealed && (
+            <Tabs className="gap-0" onValueChange={select} value={tab}>
+              <div className="bg-muted/30 px-4 pt-4">
+                <TabsList aria-label={TAB_LIST_LABEL}>
+                  <TabsTrigger value={PROBABILITIES_TAB}>
+                    {PROBABILITIES_LABEL}
+                  </TabsTrigger>
+
+                  <TabsTrigger value={FORM_TAB}>{FORM_LABEL}</TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value={PROBABILITIES_TAB}>
+                <FixturePredictionsPanel
+                  onRetry={predictions.retry}
+                  pending={predictions.pending}
+                  requested={predictions.asked}
+                  result={predictions.result}
+                  sides={{ home: fixture.homeTeam, away: fixture.awayTeam }}
+                />
+              </TabsContent>
+
+              <TabsContent value={FORM_TAB}>
+                <FixtureFormPanel
+                  away={fixture.awayTeam}
+                  home={fixture.homeTeam}
+                  onRetry={form.retry}
+                  pending={form.pending}
+                  requested={form.asked}
+                  result={form.result}
+                />
+              </TabsContent>
+            </Tabs>
+          )}
         </div>
       </div>
     </>

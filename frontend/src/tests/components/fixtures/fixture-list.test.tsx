@@ -7,6 +7,7 @@ import type { League } from "@/features/fixtures/types/league";
 
 // A row reaches the Server Action module through the disclosure it may render, and that module's import chain is server-only.
 vi.mock("@/features/fixtures/server/actions", () => ({
+  loadFixtureFormAction: vi.fn(),
   loadFixturePredictionsAction: vi.fn(),
 }));
 

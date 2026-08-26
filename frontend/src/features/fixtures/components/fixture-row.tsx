@@ -127,11 +127,9 @@ interface FixtureRowContentProps {
  *
  * @remarks
  * Built entirely from phrasing content, `span` and `time` rather than `div`,
- * because a fixture with predictions renders these cells inside the `button`
- * that opens its panel and a `button` may not contain a `div`. The layout is
- * unaffected — a `span` carrying `flex` is a flex container like any other — and
- * keeping one markup shape for both kinds of row is what stops the two drifting
- * apart.
+ * because every row renders these cells inside the `button` that opens its
+ * panel and a `button` may not contain a `div`. The layout is unaffected — a
+ * `span` carrying `flex` is a flex container like any other.
  *
  * The kick-off is formatted in UTC on the server. The visitor's timezone is not
  * knowable while rendering there, so the alternatives are to guess one, which is
@@ -174,17 +172,13 @@ interface FixtureRowContentProps {
  * says it once for every match under it, and repeating it cost the widest
  * column in the row for a fact that no longer varies within a group.
  *
- * The trailing cell is reserved whether or not this match has predictions. A
- * day mixes both kinds, so a chevron that took width only on some rows would
- * put the two sides of those rows on different columns from their neighbours;
- * an empty box of the chevron's own size costs nothing and keeps one grid down
- * the list. The chevron rotates from the state of the control it sits inside
- * rather than from a prop, which is what lets these cells stay
- * server-rendered: the class matches the `group/fixture-row` that
- * {@link FixtureDisclosure} declares on its button, and reads that button's own
- * `aria-expanded`. It animates `rotate` and not `transform`, because that is the
- * property Tailwind writes for `rotate-180` and a transition naming the other
- * one would leave the chevron snapping.
+ * The trailing chevron rotates from the state of the control it sits inside
+ * rather than from a prop, which is what lets these cells stay server-rendered:
+ * the class matches the `group/fixture-row` that {@link FixtureDisclosure}
+ * declares on its button, and reads that button's own `aria-expanded`. It
+ * animates `rotate` and not `transform`, because that is the property Tailwind
+ * writes for `rotate-180` and a transition naming the other one would leave the
+ * chevron snapping.
  *
  * @returns The cells of the match row.
  */
@@ -228,14 +222,10 @@ function FixtureRowContent({ fixture }: FixtureRowContentProps) {
         </span>
       </span>
 
-      {fixture.hasPredictions ? (
-        <ChevronDown
-          aria-hidden="true"
-          className="size-4 shrink-0 text-muted-foreground transition-[rotate] group-aria-expanded/fixture-row:rotate-180"
-        />
-      ) : (
-        <span aria-hidden="true" className="size-4 shrink-0" />
-      )}
+      <ChevronDown
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground transition-[rotate] group-aria-expanded/fixture-row:rotate-180"
+      />
     </span>
   );
 }
@@ -249,39 +239,37 @@ export interface FixtureRowProps {
 }
 
 /**
- * Renders one match, and its prediction panel where there is one to open.
+ * Renders one match, and the panel of insights behind it.
  *
  * @remarks
- * Two shapes for one row, and which one a fixture gets is decided by the data
- * rather than by the interaction. A match the platform holds no probabilities
- * for renders exactly as it did before predictions existed: no control, no
- * chevron pointing at an empty drawer, and nothing to press that would answer
- * "there is nothing here". Offering a toggle and then apologising for it is the
- * failure mode this branch exists to avoid, and the backend makes it cheap by
- * answering the listing with one `Exists` semi-join rather than a per-row read.
+ * One shape for every row. The row used to have two, offering the toggle only
+ * where the platform held probabilities, on the argument that a chevron pointing
+ * at an empty drawer is worse than no chevron. That argument was right while
+ * probabilities were the only thing behind the toggle and is wrong now: form is
+ * drawn from matches already played, so it exists for nearly every fixture the
+ * list can show — including every fixture too far out for a model to have run on,
+ * which is exactly the set the old branch removed the control from. What
+ * `hasPredictions` decides now is which tab opens first, and
+ * {@link FixtureDisclosure} owns that.
+ *
+ * Collapsing the two shapes also removes the reserved cell the trailing chevron
+ * used to need. Every row now draws a real one, so there is no longer a mix of
+ * rows with and without it to keep on the same grid.
  *
  * The `li` is the unit the list divides on, which is why the row and its panel
  * are nested inside one rather than being two siblings. `FixtureGroupSection`
- * separates its children with `divide-y`, so a panel of its own would be given
- * a rule above it and the list would read as separating a match from its own
- * predictions instead of one match from the next.
+ * separates its children with `divide-y`, so a panel of its own would be given a
+ * rule above it and the list would read as separating a match from its own
+ * insights instead of one match from the next.
  *
  * The `li` itself carries no layout. The cells own their spacing, so the row is
  * laid out identically whether it sits directly in the list item or inside the
  * button that expands it, and the skeleton has one shape to mirror rather than
  * two.
  *
- * @returns The match row, with its disclosure where it has predictions.
+ * @returns The match row and its disclosure.
  */
 export function FixtureRow({ fixture }: FixtureRowProps) {
-  if (!fixture.hasPredictions) {
-    return (
-      <li>
-        <FixtureRowContent fixture={fixture} />
-      </li>
-    );
-  }
-
   return (
     <li>
       <FixtureDisclosure fixture={fixture}>

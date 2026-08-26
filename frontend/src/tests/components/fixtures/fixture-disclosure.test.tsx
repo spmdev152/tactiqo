@@ -3,14 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FixtureDisclosure } from "@/features/fixtures/components/fixture-disclosure";
 import type { Fixture } from "@/features/fixtures/types/fixture";
+import type { FixtureFormResult } from "@/features/fixtures/types/form";
 import type { League } from "@/features/fixtures/types/league";
 import type { FixturePredictionsResult } from "@/features/fixtures/types/prediction";
 
-const { loadFixturePredictionsAction } = vi.hoisted(() => ({
-  loadFixturePredictionsAction: vi.fn(),
-}));
+const { loadFixtureFormAction, loadFixturePredictionsAction } = vi.hoisted(
+  () => ({
+    loadFixtureFormAction: vi.fn(),
+    loadFixturePredictionsAction: vi.fn(),
+  }),
+);
 
 vi.mock("@/features/fixtures/server/actions", () => ({
+  loadFixtureFormAction,
   loadFixturePredictionsAction,
 }));
 
@@ -64,10 +69,56 @@ const ONE_MARKET: FixturePredictionsResult = {
   },
 };
 
+const NO_FORM: FixtureFormResult = {
+  loaded: true,
+  form: {
+    fixtureId: 41,
+    synchronizedAt: null,
+    home: { teamId: 3, samples: [] },
+    away: { teamId: 4, samples: [] },
+    families: [],
+  },
+};
+
+const SOME_FORM: FixtureFormResult = {
+  loaded: true,
+  form: {
+    fixtureId: 41,
+    synchronizedAt: null,
+    home: {
+      teamId: 3,
+      samples: [
+        {
+          range: "last_6",
+          scope: "overall",
+          matchesCounted: 6,
+          metrics: [{ metric: "goals", value: 2, opposedValue: 1 }],
+        },
+      ],
+    },
+    away: {
+      teamId: 4,
+      samples: [
+        {
+          range: "last_6",
+          scope: "overall",
+          matchesCounted: 6,
+          metrics: [{ metric: "goals", value: 1, opposedValue: 2 }],
+        },
+      ],
+    },
+    families: [{ family: "result", metrics: ["goals"] }],
+  },
+};
+
 const UNPUBLISHED_MESSAGE = "Predictions are not published yet.";
 
 const UNAVAILABLE_MESSAGE =
   "Prediction probabilities are unavailable right now.";
+
+const FORM_UNAVAILABLE_MESSAGE = "Pre-match form is unavailable right now.";
+
+const FORM_EMPTY_MESSAGE = "Neither side has a completed match on record.";
 
 const LOADING_MESSAGE = "Reading prediction probabilities.";
 
@@ -76,21 +127,26 @@ const UNREACHABLE_REASON =
 
 const MARKET_HEADING = "Full-time result";
 
+const FAMILY_HEADING = "Result";
+
 const RETRY_LABEL = "Try again";
+
+const TOGGLE_NAME = /Match insights/;
 
 /**
  * Renders the disclosure around a stand-in for the row's own cells.
  *
+ * @param fixture - Match to render, defaulting to one holding probabilities.
  * @returns The control the tests press.
  */
-function renderDisclosure(): HTMLElement {
+function renderDisclosure(fixture: Fixture = FIXTURE): HTMLElement {
   render(
-    <FixtureDisclosure fixture={FIXTURE}>
+    <FixtureDisclosure fixture={fixture}>
       <span>Liverpool versus Nottingham Forest</span>
     </FixtureDisclosure>,
   );
 
-  return screen.getByRole("button", { name: /Prediction probabilities/ });
+  return screen.getByRole("button", { name: TOGGLE_NAME });
 }
 
 /**
@@ -116,10 +172,27 @@ function controlledRegion(toggle: HTMLElement): HTMLElement {
   return region;
 }
 
+/**
+ * Activates one of the panel's tabs the way a pointer does.
+ *
+ * @remarks
+ * The primitive selects on `mousedown` rather than on `click`, so that a drag
+ * beginning on a tab still switches to it. `fireEvent.click` dispatches only the
+ * click, which the primitive does not listen for, so a test written that way
+ * passes its assertion against the tab it was already on.
+ *
+ * @param name - Label of the tab to activate.
+ */
+function selectTab(name: string): void {
+  fireEvent.mouseDown(screen.getByRole("tab", { name }));
+}
+
 describe("FixtureDisclosure", () => {
   beforeEach(() => {
     loadFixturePredictionsAction.mockReset();
+    loadFixtureFormAction.mockReset();
     loadFixturePredictionsAction.mockResolvedValue(NO_MARKETS);
+    loadFixtureFormAction.mockResolvedValue(NO_FORM);
   });
 
   /**
@@ -133,26 +206,39 @@ describe("FixtureDisclosure", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(controlledRegion(toggle)).toHaveAttribute("inert");
     expect(loadFixturePredictionsAction).not.toHaveBeenCalled();
+    expect(loadFixtureFormAction).not.toHaveBeenCalled();
   });
 
   /**
    * GIVEN a panel nobody has opened, clipped to nothing rather than removed
    * WHEN the collapsed region is read
-   * THEN it holds no text at all, not even the panel's hidden loading line
+   * THEN it holds no text at all, not even the two tab labels
    */
   it("keeps the unopened panel out of the document entirely", () => {
     const toggle = renderDisclosure();
 
     expect(controlledRegion(toggle).textContent).toBe("");
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(screen.queryByText(LOADING_MESSAGE)).not.toBeInTheDocument();
   });
 
   /**
-   * GIVEN a collapsed panel
-   * WHEN the control is pressed
-   * THEN the panel opens, becomes reachable, and the fixture is read once
+   * GIVEN a fixture the platform holds no probabilities for
+   * WHEN the row is rendered
+   * THEN the toggle is offered anyway, because form does not depend on a model
    */
-  it("expands and reads the fixture's probabilities once", async () => {
+  it("offers the toggle on a fixture with no probabilities", () => {
+    const toggle = renderDisclosure({ ...FIXTURE, hasPredictions: false });
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  /**
+   * GIVEN a collapsed panel on a fixture holding probabilities
+   * WHEN the control is pressed
+   * THEN it opens on the probabilities tab and reads that tab alone, once
+   */
+  it("opens on the probabilities of a fixture that has them", async () => {
     const toggle = renderDisclosure();
 
     fireEvent.click(toggle);
@@ -163,7 +249,73 @@ describe("FixtureDisclosure", () => {
 
     expect(controlledRegion(toggle)).not.toHaveAttribute("inert");
 
+    expect(screen.getByRole("tab", { name: "Probabilities" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
     expect(loadFixturePredictionsAction).toHaveBeenCalledExactlyOnceWith(41);
+    expect(loadFixtureFormAction).not.toHaveBeenCalled();
+  });
+
+  /**
+   * GIVEN a fixture too far out for the provider's model to have run on
+   * WHEN its panel is opened
+   * THEN it opens on the form tab and never asks for probabilities it has none of
+   */
+  it("opens on the form of a fixture with no probabilities", async () => {
+    const toggle = renderDisclosure({ ...FIXTURE, hasPredictions: false });
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute("aria-expanded", "true"),
+    );
+
+    expect(await screen.findByText(FORM_EMPTY_MESSAGE)).toBeVisible();
+
+    expect(screen.getByRole("tab", { name: "Form" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    expect(loadFixtureFormAction).toHaveBeenCalledExactlyOnceWith(41);
+    expect(loadFixturePredictionsAction).not.toHaveBeenCalled();
+  });
+
+  /**
+   * GIVEN an open panel showing the probabilities it has already read
+   * WHEN the form tab is activated and the two tabs are switched between
+   * THEN each tab is read exactly once, on its own first activation
+   */
+  it("reads each tab once, on its first activation", async () => {
+    loadFixtureFormAction.mockResolvedValue(SOME_FORM);
+
+    const toggle = renderDisclosure();
+
+    fireEvent.click(toggle);
+
+    expect(await screen.findByText(UNPUBLISHED_MESSAGE)).toBeVisible();
+    expect(loadFixtureFormAction).not.toHaveBeenCalled();
+
+    selectTab("Form");
+
+    expect(
+      await screen.findByRole("heading", { level: 3, name: FAMILY_HEADING }),
+    ).toBeVisible();
+
+    selectTab("Probabilities");
+
+    expect(await screen.findByText(UNPUBLISHED_MESSAGE)).toBeVisible();
+
+    selectTab("Form");
+
+    expect(
+      await screen.findByRole("heading", { level: 3, name: FAMILY_HEADING }),
+    ).toBeVisible();
+
+    expect(loadFixturePredictionsAction).toHaveBeenCalledOnce();
+    expect(loadFixtureFormAction).toHaveBeenCalledOnce();
   });
 
   /**
@@ -256,6 +408,42 @@ describe("FixtureDisclosure", () => {
     expect(
       screen.getByText("The predictions service did not answer in time."),
     ).toBeVisible();
+  });
+
+  /**
+   * GIVEN a form read the platform could not answer
+   * WHEN the form tab is activated and its retry pressed
+   * THEN the reason is repeated, the retry re-reads, and the other tab is untouched
+   */
+  it("retries the form without disturbing the probabilities", async () => {
+    loadFixtureFormAction.mockResolvedValueOnce({
+      loaded: false,
+      reason: "The form service did not answer in time.",
+    });
+    loadFixtureFormAction.mockResolvedValue(SOME_FORM);
+
+    const toggle = renderDisclosure();
+
+    fireEvent.click(toggle);
+
+    expect(await screen.findByText(UNPUBLISHED_MESSAGE)).toBeVisible();
+
+    selectTab("Form");
+
+    expect(await screen.findByText(FORM_UNAVAILABLE_MESSAGE)).toBeVisible();
+
+    expect(
+      screen.getByText("The form service did not answer in time."),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: RETRY_LABEL }));
+
+    expect(
+      await screen.findByRole("heading", { level: 3, name: FAMILY_HEADING }),
+    ).toBeVisible();
+
+    expect(loadFixtureFormAction).toHaveBeenCalledTimes(2);
+    expect(loadFixturePredictionsAction).toHaveBeenCalledOnce();
   });
 
   /**
@@ -362,5 +550,43 @@ describe("FixtureDisclosure", () => {
     expect(
       screen.queryByRole("button", { name: RETRY_LABEL }),
     ).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN an open panel offering two tabs, one of them selected
+   * WHEN the tab list is read and the arrow key pressed on the selected tab
+   * THEN it exposes both tabs with their state and moves between them
+   */
+  it("exposes a keyboard-operable tab list", async () => {
+    loadFixtureFormAction.mockResolvedValue(SOME_FORM);
+
+    const toggle = renderDisclosure();
+
+    fireEvent.click(toggle);
+
+    expect(await screen.findByText(UNPUBLISHED_MESSAGE)).toBeVisible();
+
+    expect(
+      screen.getByRole("tablist", { name: "Match insights" }),
+    ).toBeInTheDocument();
+
+    expect(screen.getAllByRole("tab").map((one) => one.textContent)).toEqual([
+      "Probabilities",
+      "Form",
+    ]);
+
+    const probabilities = screen.getByRole("tab", { name: "Probabilities" });
+
+    probabilities.focus();
+    fireEvent.keyDown(probabilities, { key: "ArrowRight" });
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Form" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    );
+
+    expect(loadFixtureFormAction).toHaveBeenCalledOnce();
   });
 });

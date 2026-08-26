@@ -1,15 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadFixturePredictionsAction } from "@/features/fixtures/server/actions";
-import type { FixturePredictionsResult } from "@/features/fixtures/types/prediction";
-
-const { getFixturePredictions } = vi.hoisted(() => ({
-  getFixturePredictions: vi.fn(),
-}));
-
-vi.mock("@/features/fixtures/server/get-fixture-predictions", () => ({
-  getFixturePredictions,
-}));
+import { loadFixtureFormAction } from "@/features/fixtures/server/actions";
+import type { FixtureFormResult } from "@/features/fixtures/types/form";
 
 const { getFixtureForm } = vi.hoisted(() => ({
   getFixtureForm: vi.fn(),
@@ -19,11 +11,25 @@ vi.mock("@/features/fixtures/server/get-fixture-form", () => ({
   getFixtureForm,
 }));
 
+const { getFixturePredictions } = vi.hoisted(() => ({
+  getFixturePredictions: vi.fn(),
+}));
+
+vi.mock("@/features/fixtures/server/get-fixture-predictions", () => ({
+  getFixturePredictions,
+}));
+
 const FIXTURE_ID = 41;
 
-const READ_PREDICTIONS: FixturePredictionsResult = {
+const READ_FORM: FixtureFormResult = {
   loaded: true,
-  predictions: { fixtureId: FIXTURE_ID, synchronizedAt: null, markets: [] },
+  form: {
+    fixtureId: FIXTURE_ID,
+    synchronizedAt: null,
+    home: { teamId: 3, samples: [] },
+    away: { teamId: 4, samples: [] },
+    families: [],
+  },
 };
 
 const MALFORMED_PAYLOADS: readonly (readonly [string, unknown])[] = [
@@ -35,24 +41,22 @@ const MALFORMED_PAYLOADS: readonly (readonly [string, unknown])[] = [
   ["the identifier inside an object", { fixtureId: FIXTURE_ID }],
 ];
 
-describe("loadFixturePredictionsAction", () => {
+describe("loadFixtureFormAction", () => {
   beforeEach(() => {
-    getFixturePredictions.mockReset();
     getFixtureForm.mockReset();
-    getFixturePredictions.mockResolvedValue(READ_PREDICTIONS);
+    getFixturePredictions.mockReset();
+    getFixtureForm.mockResolvedValue(READ_FORM);
   });
 
   /**
-   * GIVEN a caller posting the identifier of a fixture it wants predictions for
+   * GIVEN a caller posting the identifier of a fixture it wants form for
    * WHEN the action runs
    * THEN the identifier reaches the reader once, as the number it validated
    */
   it("forwards a valid fixture identifier to the reader", async () => {
-    await expect(loadFixturePredictionsAction(FIXTURE_ID)).resolves.toBe(
-      READ_PREDICTIONS,
-    );
+    await expect(loadFixtureFormAction(FIXTURE_ID)).resolves.toBe(READ_FORM);
 
-    expect(getFixturePredictions).toHaveBeenCalledExactlyOnceWith(FIXTURE_ID);
+    expect(getFixtureForm).toHaveBeenCalledExactlyOnceWith(FIXTURE_ID);
   });
 
   /**
@@ -62,7 +66,7 @@ describe("loadFixturePredictionsAction", () => {
    */
   it("refuses a payload that is not a fixture identifier", async () => {
     for (const [label, payload] of MALFORMED_PAYLOADS) {
-      const result = await loadFixturePredictionsAction(payload);
+      const result = await loadFixtureFormAction(payload);
 
       expect(result, label).toEqual({
         loaded: false,
@@ -70,17 +74,17 @@ describe("loadFixturePredictionsAction", () => {
       });
     }
 
-    expect(getFixturePredictions).not.toHaveBeenCalled();
+    expect(getFixtureForm).not.toHaveBeenCalled();
   });
 
   /**
    * GIVEN two tabs whose reads are meant to be independent of each other
-   * WHEN the probabilities are asked for
-   * THEN the form reader is never called on their behalf
+   * WHEN the form is asked for
+   * THEN the predictions reader is never called on its behalf
    */
-  it("reads the probabilities without reading the form", async () => {
-    await loadFixturePredictionsAction(FIXTURE_ID);
+  it("reads the form without reading the probabilities", async () => {
+    await loadFixtureFormAction(FIXTURE_ID);
 
-    expect(getFixtureForm).not.toHaveBeenCalled();
+    expect(getFixturePredictions).not.toHaveBeenCalled();
   });
 });
