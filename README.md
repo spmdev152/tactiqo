@@ -190,6 +190,26 @@ docker compose --env-file .env.local exec worker uv run celery -A config call fi
 
 Kick-off times are stored and rendered in UTC, and the view leaves them unlabelled: the zone is carried only by the machine-readable `dateTime` each row emits. The visitor's timezone is not knowable during a server render, and every alternative either flashes the wrong time after hydration or mismatches outright; resolving it properly needs a stored preference and a product decision. The visible marker the view once carried was dropped when the rows were narrowed, because it cost a column in every row to repeat a fact that never varies.
 
+## Pre-match statistics
+
+Every completed match contributes two rows to `match_statistic`, one per team, holding the twenty-two provider metrics the product renders. `statistics-synchronize` runs `statistics.synchronize_statistics` every six hours at minute 20, after the fixture run at minute 5 whose parents it depends on, over a trailing window of five days. That window is deliberately backwards-only and its own constant rather than the fixture pair: a statistic exists only for a match already played, and five days is a full matchweek plus the midweek round either side of it, so a run missed overnight still catches every result it would have written.
+
+The result is not stored. Goals, and therefore the win, draw and loss shares, come from `Fixture.home_goals` and `Fixture.away_goals`, which are already synchronized and already guarded as a pair. The provider omits its own goals statistic when a side failed to score, so a table sourcing goals from the statistics would read every goalless performance as missing data rather than as nought. That omission is the general rule and not a defect: measured over the fifty fixtures of April 2026, thirty-five of the forty-six published types appear on every side of every match while `redcards` appears on 20 percent of sides and `penalties` on 18, because a count is left out at nought instead of being sent. The boundary therefore reads an absent optional count as nought and drops a record that lacks a type the provider always publishes.
+
+Completion rates are stored as their two halves rather than as the percentages the provider also publishes, because the accuracy over six matches is the completed passes of those six over their attempts, and the mean of six per-match percentages is a different and wrong number. Possession is the one percentage stored as published: it is already normalized to a single match, and its two sides sum to a hundred, which is also why no opposing figure is published for it.
+
+A run walks its range in chunks of thirty days and reads each chunk twice, once for the fixtures and once for their statistics. The chunk bound is not a preference: the client refuses a read it cannot finish in forty pages of fifty fixtures, so an unchunked backfill over two seasons would be truncated, and a truncated window is indistinguishable from a complete one. Five leagues produce on the order of two hundred fixtures a month, so a month-wide chunk stays an order of magnitude inside that ceiling.
+
+The trailing window keeps the table current but establishes no depth, and the ranges the panel offers reach back six matches or a whole season. `days_back` is the same task's only argument, so an operator fills that depth with the same code path beat runs, under the same lease and the same idempotent upsert:
+
+```bash
+docker compose --env-file .env.local exec worker uv run celery -A config call statistics.synchronize_statistics --args='[400]'
+```
+
+Four hundred days reaches the start of the previous season, which is as far back as the subscription serves. That is roughly 3,800 fixtures over about twenty-eight chunks, against a budget of 2000 calls per entity per hour, so the backfill fits inside a single hour. Re-running it is free: the upsert is keyed on the fixture and the team, and reconciliation is by stamp identity over exactly the fixtures the run resolved, so a match the provider stops publishing statistics for loses its rows while nothing else is touched.
+
+`GET /api/v1/fixtures/{id}/form` folds those rows into all six range-and-scope combinations per team in one read, so the panel's filters are a re-render rather than a request. The scope resolves per team: under Home / away the home side is measured on its home matches and the away side on its away matches, since any other reading would compare one team's home record against the other's whole record. Only matches that kicked off before the fixture being read are ever counted, and every sample states how many matches it found, which matters through August and September when a season-scoped sample rests on one or two.
+
 ## Quality gates
 
 The same commands run locally and in GitHub Actions. Each backend job installs only the dependency groups it needs, and CI sets `UV_NO_SYNC=1` so that `uv run` uses the environment as synced instead of silently re-adding the aggregate `dev` group.
