@@ -85,6 +85,25 @@ RATIO_COLUMNS: dict[FormMetric, tuple[str, str]] = {
     FormMetric.DRIBBLE_SUCCESS: ("successful_dribbles", "dribble_attempts"),
 }
 
+# Each stored column paired with the one it is only ever published beside, taken
+# from the rates above so the pairing is stated once. A rate's two columns are
+# folded into a sample together or not at all: a row carrying attempts and no
+# completions would otherwise stand its attempts against completions read as
+# nought, and the sample would publish a rate below anything the club achieved.
+# The rule only ever bites for the dribbles, because a pair the database requires
+# cannot arrive half measured, which is why no metric has to know which columns
+# are nullable.
+PAIRED_COLUMNS: dict[str, str] = {
+    column: companion
+    for numerator, denominator in RATIO_COLUMNS.values()
+    for column, companion in ((numerator, denominator), (denominator, numerator))
+}
+
+COMPANION_POSITIONS: tuple[int | None, ...] = tuple(
+    COLUMN_POSITIONS[PAIRED_COLUMNS[column]] if column in PAIRED_COLUMNS else None
+    for column in STATISTIC_COLUMNS
+)
+
 # The fixture columns a counted match is read through. The two goal columns are
 # never null in a loaded row, because the read filters a null score out.
 MATCH_COLUMNS: tuple[str, ...] = (
@@ -150,10 +169,16 @@ class FormSample:
     matches_counted : int
         Matches the sample is an average over, published so a reader can tell a
         thin sample from a full one. It is ``0`` for a club with no qualifying
-        history, and the metrics are then all ``0.0``.
+        history, and the metrics are then all ``0.0``. A match the provider
+        withheld a figure for still counts here: the match was played and
+        carried a result, and what is missing is one column of it.
     metrics : tuple of MetricValue
-        Every metric of ``METRIC_ORDER``, in that order, always complete so the
-        interface never has to decide what an absent metric means.
+        Metrics of ``METRIC_ORDER``, in that order, less any this sample cannot
+        state. A metric whose column no counted match measured is left out
+        rather than published as nought, so the interface draws it as
+        unpublished instead of as a figure no match has ever produced. A sample
+        that counted no match at all still publishes every metric, because
+        nothing there distinguishes one column from another.
     """
 
     range: FormRange
@@ -243,15 +268,17 @@ class SideStatistics:
 
     Attributes
     ----------
-    columns : tuple of int
+    columns : tuple of (int or None)
         Values of ``STATISTIC_COLUMNS``, in that order, addressed through
         ``COLUMN_POSITIONS`` so a metric names its column once, in the table
-        that maps metrics onto columns.
+        that maps metrics onto columns. A nullable column reads ``None`` for a
+        match the provider did not measure it in, which is not the same as
+        nought and is never folded in as one.
     synchronized_at : datetime
         Instant the row last agreed with the provider.
     """
 
-    columns: tuple[int, ...]
+    columns: tuple[int | None, ...]
     synchronized_at: datetime
 
 
@@ -275,9 +302,11 @@ def mean(total: int, counted: int) -> float:
     -------
     float
         Average rounded to two decimals, or ``0.0`` when nothing was counted. A
-        sample with nothing in it publishes zero rather than nothing, because
-        every metric of every sample is published and the interface draws a
-        figure it is handed instead of deciding what an absent one means.
+        sample with no statistic row at all publishes zero rather than nothing:
+        nothing there tells one column from another, so every metric of it is
+        drawn from a figure the interface is handed. A column the counted rows
+        do measure never reaches that branch, and one they leave unmeasured is
+        left out of the sample before this is called.
     """
 
     return round(total / counted, PUBLISHED_DECIMALS) if counted else 0.0
@@ -315,43 +344,71 @@ class SideTotals:
     Attributes
     ----------
     rows_counted : int
-        Statistic rows folded in. It is the divisor of every average, and it is
-        counted separately from the matches of the sample: a match whose
-        statistics have not been synchronized still counts as a match and still
-        carries a result, so dividing by the matches would dilute every average
-        by the rows that are missing.
+        Statistic rows folded in, counted separately from the matches of the
+        sample: a match whose statistics have not been synchronized still counts
+        as a match and still carries a result, so dividing by the matches would
+        dilute every average by the rows that are missing. It is also what tells
+        a sample holding no row at all from one whose rows do not carry a
+        figure, which are two different answers.
     columns : list of int
-        Sums of ``STATISTIC_COLUMNS``, in that order.
+        Sums of ``STATISTIC_COLUMNS``, in that order, each over the rows that
+        carry that column.
+    measured : list of int
+        How many folded rows carried a figure for each of ``STATISTIC_COLUMNS``,
+        in that order. It is the divisor of that column's average, which is
+        ``rows_counted`` one level finer: four columns are nullable because the
+        provider withholds figures nought cannot stand for, and a row carrying
+        no figure is not a row the average is over. For a column the database
+        requires it equals ``rows_counted``, so the distinction costs no metric
+        a branch and no module a second copy of which columns those are.
 
     Methods
     -------
     add(columns) -> None
         Fold one stored row into the totals.
-    total(column) -> int
-        Return the sum of one column.
+    unmeasured(column) -> bool
+        Say whether rows were folded in and none of them carries one column.
+    average(column) -> float or None
+        Return the average of one column over the rows that carry it.
+    rate(numerator, denominator) -> float or None
+        Return a completion rate over the rows carrying both of its columns.
     """
 
     rows_counted: int = 0
     columns: list[int] = field(default_factory=lambda: [0] * len(STATISTIC_COLUMNS))
+    measured: list[int] = field(default_factory=lambda: [0] * len(STATISTIC_COLUMNS))
 
-    def add(self, columns: tuple[int, ...]) -> None:
+    def add(self, columns: tuple[int | None, ...]) -> None:
         """
         Fold one stored row into the totals.
 
+        A figure the provider did not measure is left out of its column's sum
+        and out of that column's count of rows rather than folded in as nought,
+        which is the whole point of the column being nullable. A figure whose
+        companion is unmeasured is left out on the same terms, because the two
+        are only ever published as one rate.
+
         Parameters
         ----------
-        columns : tuple of int
-            Values of ``STATISTIC_COLUMNS``, in that order.
+        columns : tuple of (int or None)
+            Values of ``STATISTIC_COLUMNS``, in that order, ``None`` for a
+            figure the provider did not measure for this match.
         """
 
         self.rows_counted += 1
 
         for position, value in enumerate(columns):
-            self.columns[position] += value
+            companion = COMPANION_POSITIONS[position]
 
-    def total(self, column: str) -> int:
+            if value is None or (companion is not None and columns[companion] is None):
+                continue
+
+            self.columns[position] += value
+            self.measured[position] += 1
+
+    def unmeasured(self, column: str) -> bool:
         """
-        Return the sum of one column.
+        Say whether rows were folded in and none of them carries one column.
 
         Parameters
         ----------
@@ -360,11 +417,67 @@ class SideTotals:
 
         Returns
         -------
-        int
-            Sum of that column over the folded rows.
+        bool
+            ``True`` when the sample read statistics and the provider measured
+            this figure in none of them, which is the one case a metric is left
+            out of a sample instead of published. A sample holding no row at all
+            is not that case: it knows nothing about any of its columns, so
+            three of twenty-five metrics reading as withheld would say the
+            provider withheld them from a club that has simply not played.
         """
 
-        return self.columns[COLUMN_POSITIONS[column]]
+        return self.rows_counted > 0 and self.measured[COLUMN_POSITIONS[column]] == 0
+
+    def average(self, column: str) -> float | None:
+        """
+        Return the average of one column over the rows that carry it.
+
+        Parameters
+        ----------
+        column : str
+            Name of a column of ``STATISTIC_COLUMNS``.
+
+        Returns
+        -------
+        float or None
+            Average over the rows that carried the figure, never over the rows
+            or the matches that did not, and ``None`` when none of them did.
+        """
+
+        if self.unmeasured(column):
+            return None
+
+        position = COLUMN_POSITIONS[column]
+
+        return mean(self.columns[position], self.measured[position])
+
+    def rate(self, numerator: str, denominator: str) -> float | None:
+        """
+        Return a completion rate over the rows carrying both of its columns.
+
+        Parameters
+        ----------
+        numerator : str
+            Name of the column counting what the club completed.
+        denominator : str
+            Name of the column counting what it attempted.
+
+        Returns
+        -------
+        float or None
+            Summed completions over summed attempts, and ``None`` when no folded
+            row carries the pair. Either half answers that question, because
+            ``add`` folds the two in together, and the denominator is the half
+            the rate divides by.
+        """
+
+        if self.unmeasured(denominator):
+            return None
+
+        return percentage(
+            self.columns[COLUMN_POSITIONS[numerator]],
+            self.columns[COLUMN_POSITIONS[denominator]],
+        )
 
 
 @dataclass(slots=True)
@@ -458,15 +571,18 @@ class SampleTotals:
 
     def metrics(self) -> tuple[MetricValue, ...]:
         """
-        Return every metric of the sample, in the contracted order.
+        Return the metrics of the sample, in the contracted order.
 
         Returns
         -------
         tuple of MetricValue
-            Every metric of ``METRIC_ORDER``, in that order.
+            Every metric of ``METRIC_ORDER``, in that order, less the ones no
+            counted match measured.
         """
 
-        return tuple(metric_value(metric, self) for metric in METRIC_ORDER)
+        figures = (metric_value(metric, self) for metric in METRIC_ORDER)
+
+        return tuple(figure for figure in figures if figure is not None)
 
 
 def opposing_side(side: MatchSide) -> MatchSide:
@@ -488,15 +604,63 @@ def opposing_side(side: MatchSide) -> MatchSide:
     return MatchSide.AWAY if side == MatchSide.HOME else MatchSide.HOME
 
 
-def metric_value(metric: FormMetric, totals: SampleTotals) -> MetricValue:
+def column_value(metric: FormMetric, totals: SampleTotals) -> MetricValue | None:
     """
-    Compute one published figure of one sample.
+    Compute one figure of one sample from its stored columns, when there is one.
+
+    Parameters
+    ----------
+    metric : FormMetric
+        Metric to compute, named by ``RATIO_COLUMNS`` or by
+        ``AVERAGED_COLUMNS``. A member named by neither raises ``KeyError``,
+        which is unreachable while the tables partition the metrics no score
+        answers and is worth hearing about if they ever stop.
+    totals : SampleTotals
+        Accumulated sample the figure is taken from.
+
+    Returns
+    -------
+    MetricValue or None
+        Published figure, carrying what the opposition recorded for every metric
+        of ``OPPOSED_METRICS`` and ``None`` for the others, or ``None`` when no
+        statistic row of the counted matches carries the column it is taken
+        from. The metric is then left out of the sample, because a figure
+        averaged over nothing would state a reading no counted match produced.
+    """
+
+    if metric in RATIO_COLUMNS:
+        numerator, denominator = RATIO_COLUMNS[metric]
+
+        completed = totals.own.rate(numerator, denominator)
+
+        if completed is None:
+            return None
+
+        return MetricValue(metric=metric, value=completed, opposed_value=None)
+
+    column = AVERAGED_COLUMNS[metric]
+
+    recorded = totals.own.average(column)
+
+    if recorded is None:
+        return None
+
+    opposed = totals.opposition.average(column) if metric in OPPOSED_METRICS else None
+
+    return MetricValue(metric=metric, value=recorded, opposed_value=opposed)
+
+
+def metric_value(metric: FormMetric, totals: SampleTotals) -> MetricValue | None:
+    """
+    Compute one published figure of one sample, when the sample has one.
 
     Four metrics come from the fixture score and the rest from the stored
     columns, which is a difference in where the number lives rather than a
     special case: the provider omits its own goals statistic at nought, so a
     goalless performance carries no statistic row and a goals metric sourced
-    from the statistics would read every one of them as missing data.
+    from the statistics would read every one of them as missing data. It is also
+    what makes the four unconditional: a counted match always carries a score,
+    while a statistic row may carry no figure for a column at all.
 
     Parameters
     ----------
@@ -509,9 +673,10 @@ def metric_value(metric: FormMetric, totals: SampleTotals) -> MetricValue:
 
     Returns
     -------
-    MetricValue
-        Published figure, carrying what the opposition recorded for every metric
-        of ``OPPOSED_METRICS`` and ``None`` for the others.
+    MetricValue or None
+        Published figure, or ``None`` when the counted matches measured the
+        figure in none of their statistic rows, which leaves the metric out of
+        the sample.
     """
 
     match metric:
@@ -537,27 +702,8 @@ def metric_value(metric: FormMetric, totals: SampleTotals) -> MetricValue:
                 opposed_value=mean(totals.goals_against, totals.matches_counted),
             )
 
-        case _ if metric in RATIO_COLUMNS:
-            numerator, denominator = RATIO_COLUMNS[metric]
-
-            completed = percentage(totals.own.total(numerator), totals.own.total(denominator))
-
-            return MetricValue(metric=metric, value=completed, opposed_value=None)
-
         case _:
-            column = AVERAGED_COLUMNS[metric]
-
-            opposed = (
-                mean(totals.opposition.total(column), totals.opposition.rows_counted)
-                if metric in OPPOSED_METRICS
-                else None
-            )
-
-            return MetricValue(
-                metric=metric,
-                value=mean(totals.own.total(column), totals.own.rows_counted),
-                opposed_value=opposed,
-            )
+            return column_value(metric, totals)
 
 
 def counted_match(row: MatchRow, team_id: int) -> CountedMatch:

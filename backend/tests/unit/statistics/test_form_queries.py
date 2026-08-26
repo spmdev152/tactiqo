@@ -194,8 +194,8 @@ def seed(
 def performances(
     provider_id: int,
     *,
-    home: dict[str, int] | None = None,
-    away: dict[str, int] | None = None,
+    home: dict[str, int | None] | None = None,
+    away: dict[str, int | None] | None = None,
     home_team: ProviderTeam = LIVERPOOL,
     away_team: ProviderTeam = NOTTINGHAM_FOREST,
 ) -> ProviderFixtureStatistics:
@@ -210,10 +210,11 @@ def performances(
     ----------
     provider_id : int
         Provider identifier of the match the figures belong to.
-    home : dict of str to int or None
-        Figures to override for the home club, keyed by stored column.
-    away : dict of str to int or None
-        Figures to override for the away club.
+    home : dict of str to (int or None) or None
+        Figures to override for the home club, keyed by stored column, the
+        override being ``None`` for a figure the provider did not measure.
+    away : dict of str to (int or None) or None
+        Figures to override for the away club, on the same terms.
     home_team : ProviderTeam
         Club that played at home.
     away_team : ProviderTeam
@@ -298,6 +299,44 @@ def figure_of(sample: FormSample, metric: FormMetric) -> MetricValue:
     """
 
     return next(figure for figure in sample.metrics if figure.metric == metric)
+
+
+def published(sample: FormSample) -> tuple[FormMetric, ...]:
+    """
+    Return the metrics one sample published, in the order it published them.
+
+    Parameters
+    ----------
+    sample : FormSample
+        Sample to read.
+
+    Returns
+    -------
+    tuple of FormMetric
+        Metric of every figure the sample carries, which is the whole published
+        vocabulary less anything no counted match measured.
+    """
+
+    return tuple(figure.metric for figure in sample.metrics)
+
+
+def without(*metrics: FormMetric) -> tuple[FormMetric, ...]:
+    """
+    Return the published vocabulary less the metrics a sample cannot state.
+
+    Parameters
+    ----------
+    *metrics : FormMetric
+        Metrics no counted match of the sample measured.
+
+    Returns
+    -------
+    tuple of FormMetric
+        Every other metric of ``METRIC_ORDER``, in that order, which is what the
+        sample is expected to publish.
+    """
+
+    return tuple(metric for metric in METRIC_ORDER if metric not in metrics)
 
 
 def recent_share(team: TeamForm, scope: FormScope, metric: FormMetric) -> float:
@@ -640,6 +679,241 @@ def test_get_fixture_form_publishes_a_zero_rate_for_a_club_that_attempted_none()
     sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
 
     assert figure_of(sample, FormMetric.CROSS_ACCURACY).value == 0.0
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_publishes_a_figure_every_counted_match_measured() -> None:
+    """
+    GIVEN two counted matches whose duels the provider measured in both
+    WHEN the form before the fixture is read
+    THEN duels won is their average and the whole vocabulary is still published
+    """
+
+    stored = seed([played(1, 1, away_team=ARSENAL), played(2, 2, away_team=EVERTON)])
+
+    store_statistics(
+        [
+            performances(1, home={"duels_won": 40}, away_team=ARSENAL),
+            performances(2, home={"duels_won": 60}, away_team=EVERTON),
+        ]
+    )
+
+    sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
+
+    assert (
+        sample.matches_counted,
+        figure_of(sample, FormMetric.DUELS_WON).value,
+        published(sample),
+    ) == (2, 50.0, METRIC_ORDER)
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_leaves_out_a_figure_no_counted_match_measured() -> None:
+    """
+    GIVEN two counted matches the provider measured neither duels nor tackles in
+    WHEN the form before the fixture is read
+    THEN both are left out of the sample and every other metric is published
+    """
+
+    withheld: dict[str, int | None] = {"duels_won": None, "tackles": None}
+
+    stored = seed([played(1, 1, away_team=ARSENAL), played(2, 2, away_team=EVERTON)])
+
+    store_statistics(
+        [
+            performances(1, home=withheld, away=withheld, away_team=ARSENAL),
+            performances(2, home=withheld, away=withheld, away_team=EVERTON),
+        ]
+    )
+
+    sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
+
+    assert (published(sample), figure_of(sample, FormMetric.SHOTS).value) == (
+        without(FormMetric.TACKLES, FormMetric.DUELS_WON),
+        14.0,
+    )
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_averages_a_partly_measured_figure_over_its_own_rows() -> None:
+    """
+    GIVEN three counted matches, two measuring 40 and 50 duels and one measuring none
+    WHEN the form before the fixture is read
+    THEN duels won is 45, the average of the two, rather than 30, the average of three
+    """
+
+    stored = seed(
+        [
+            played(1, 1, away_team=ARSENAL),
+            played(2, 2, away_team=EVERTON),
+            played(3, 3, away_team=CHELSEA),
+        ]
+    )
+
+    store_statistics(
+        [
+            performances(1, home={"duels_won": 40}, away_team=ARSENAL),
+            performances(2, home={"duels_won": 50}, away_team=EVERTON),
+            performances(3, home={"duels_won": None}, away={"duels_won": None}, away_team=CHELSEA),
+        ]
+    )
+
+    sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
+
+    assert (sample.matches_counted, figure_of(sample, FormMetric.DUELS_WON).value) == (3, 45.0)
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_averages_a_partly_measured_figure_within_each_range() -> None:
+    """
+    GIVEN four counted matches, the newest measuring 30 duels and the oldest 90
+    WHEN the form before the fixture is read
+    THEN the last three publishes 30 and the wider two publish 60, each window its own
+    """
+
+    stored = seed(
+        [
+            played(1, 1, away_team=ARSENAL),
+            played(2, 2, away_team=EVERTON),
+            played(3, 3, away_team=CHELSEA),
+            played(4, 4, away_team=ARSENAL),
+        ]
+    )
+
+    store_statistics(
+        [
+            performances(1, home={"duels_won": 30}, away_team=ARSENAL),
+            performances(2, home={"duels_won": None}, away={"duels_won": None}, away_team=EVERTON),
+            performances(3, home={"duels_won": None}, away={"duels_won": None}, away_team=CHELSEA),
+            performances(4, home={"duels_won": 90}, away_team=ARSENAL),
+        ]
+    )
+
+    samples = [
+        sample_of(read_form(stored).home, counted_range, FormScope.OVERALL)
+        for counted_range in RANGE_ORDER
+    ]
+
+    assert [
+        (sample.matches_counted, figure_of(sample, FormMetric.DUELS_WON).value)
+        for sample in samples
+    ] == [(3, 30.0), (4, 60.0), (4, 60.0)]
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_counts_a_match_whose_figure_the_provider_withheld() -> None:
+    """
+    GIVEN a club whose single previous match carries no duel figure at all
+    WHEN the form before the fixture is read
+    THEN the match is still counted and still won, and only the metric is absent
+    """
+
+    stored = seed([played(1, 1, away_team=ARSENAL, home_goals=2, away_goals=1)])
+
+    store_statistics(
+        [performances(1, home={"duels_won": None}, away={"duels_won": None}, away_team=ARSENAL)]
+    )
+
+    sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
+
+    assert (
+        sample.matches_counted,
+        figure_of(sample, FormMetric.WIN_SHARE).value,
+        figure_of(sample, FormMetric.GOALS).value,
+        FormMetric.DUELS_WON in published(sample),
+    ) == (1, 100.0, 2.0, False)
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_takes_the_dribble_rate_from_the_matches_carrying_the_pair() -> None:
+    """
+    GIVEN two counted matches, one completing a quarter of its dribbles and one unmeasured
+    WHEN the form before the fixture is read
+    THEN the rate is that quarter, taken from the match the provider measured
+    """
+
+    unmeasured: dict[str, int | None] = {"dribble_attempts": None, "successful_dribbles": None}
+
+    stored = seed([played(1, 1, away_team=ARSENAL), played(2, 2, away_team=EVERTON)])
+
+    store_statistics(
+        [
+            performances(1, home=unmeasured, away=unmeasured, away_team=ARSENAL),
+            performances(
+                2,
+                home={"dribble_attempts": 20, "successful_dribbles": 5},
+                away_team=EVERTON,
+            ),
+        ]
+    )
+
+    sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
+
+    assert (sample.matches_counted, figure_of(sample, FormMetric.DRIBBLE_SUCCESS).value) == (
+        2,
+        25.0,
+    )
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_excludes_a_half_measured_dribble_pair_from_the_rate() -> None:
+    """
+    GIVEN two counted matches, one carrying attempts whose completions went unmeasured
+    WHEN the form before the fixture is read
+    THEN the rate is the complete match's quarter, not its five over both attempts
+    """
+
+    stored = seed([played(1, 1, away_team=ARSENAL), played(2, 2, away_team=EVERTON)])
+
+    store_statistics(
+        [
+            performances(
+                1,
+                home={"dribble_attempts": 100, "successful_dribbles": None},
+                away_team=ARSENAL,
+            ),
+            performances(
+                2,
+                home={"dribble_attempts": 20, "successful_dribbles": 5},
+                away_team=EVERTON,
+            ),
+        ]
+    )
+
+    sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
+
+    assert (sample.matches_counted, figure_of(sample, FormMetric.DRIBBLE_SUCCESS).value) == (
+        2,
+        25.0,
+    )
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_leaves_out_the_dribble_rate_no_counted_match_measured() -> None:
+    """
+    GIVEN two counted matches the provider measured no dribble of either kind in
+    WHEN the form before the fixture is read
+    THEN the rate is left out of the sample and the other two rates are published
+    """
+
+    unmeasured: dict[str, int | None] = {"dribble_attempts": None, "successful_dribbles": None}
+
+    stored = seed([played(1, 1, away_team=ARSENAL), played(2, 2, away_team=EVERTON)])
+
+    store_statistics(
+        [
+            performances(1, home=unmeasured, away=unmeasured, away_team=ARSENAL),
+            performances(2, home=unmeasured, away=unmeasured, away_team=EVERTON),
+        ]
+    )
+
+    sample = sample_of(read_form(stored).home, FormRange.LAST_3, FormScope.OVERALL)
+
+    assert (
+        published(sample),
+        figure_of(sample, FormMetric.PASS_ACCURACY).value,
+        figure_of(sample, FormMetric.CROSS_ACCURACY).value,
+    ) == (without(FormMetric.DRIBBLE_SUCCESS), 84.57, 27.78)
 
 
 @pytest.mark.django_db

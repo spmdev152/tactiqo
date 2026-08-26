@@ -124,6 +124,14 @@ PUBLISHED_SAMPLE = [
     {"metric": "offsides", "value": 1.0, "opposed_value": None},
 ]
 
+# The same sample with the duels the provider withheld from both clubs: the
+# metric is left out of the list rather than published as an average no match
+# produced, which is the whole of the difference a nullable column makes to the
+# body. Derived from the complete sample above rather than restated, because
+# every other figure of it is read from the same stored row and the two cannot
+# then drift apart.
+WITHHELD_SAMPLE = [figure for figure in PUBLISHED_SAMPLE if figure["metric"] != "duels_won"]
+
 PUBLISHED_GRID = [
     ("last_3", "overall"),
     ("last_3", "venue"),
@@ -315,7 +323,7 @@ def store_fixture(
 
 
 def store_statistics(
-    fixture: Fixture, team: Team, side: MatchSide, values: dict[str, int]
+    fixture: Fixture, team: Team, side: MatchSide, values: dict[str, int | None]
 ) -> MatchTeamStatistic:
     """
     Persist one club's performance in one match.
@@ -328,8 +336,9 @@ def store_statistics(
         Club whose performance it is.
     side : MatchSide
         Side the club occupied.
-    values : dict of str to int
-        Complete set of stored figures, keyed by column.
+    values : dict of str to (int or None)
+        Complete set of stored figures, keyed by column, ``None`` for a figure
+        the provider did not measure in the match.
 
     Returns
     -------
@@ -342,7 +351,7 @@ def store_statistics(
     )
 
 
-def store_one_previous_match() -> Fixture:
+def store_one_previous_match(withheld: dict[str, int | None] | None = None) -> Fixture:
     """
     Persist the fixture to be read and the single match behind its home club.
 
@@ -351,6 +360,14 @@ def store_one_previous_match() -> Fixture:
     six lenses and every published figure follows from one pair of rows. Forest
     has nothing behind it, which is what makes the two halves of the body
     different shapes to draw and the same shape to read.
+
+    Parameters
+    ----------
+    withheld : dict of str to (int or None) or None
+        Figures to override in both performances, ``None`` for the complete pair
+        every other test reads. A withheld figure is stated for both clubs
+        because the provider withholds one for a whole match rather than for one
+        side of it.
 
     Returns
     -------
@@ -375,8 +392,8 @@ def store_one_previous_match() -> Fixture:
         away_goals=1,
     )
 
-    store_statistics(previous, liverpool, MatchSide.HOME, HOME_FIGURES)
-    store_statistics(previous, arsenal, MatchSide.AWAY, AWAY_FIGURES)
+    store_statistics(previous, liverpool, MatchSide.HOME, HOME_FIGURES | (withheld or {}))
+    store_statistics(previous, arsenal, MatchSide.AWAY, AWAY_FIGURES | (withheld or {}))
 
     return store_fixture(premier_league, 1, liverpool, forest, KICKOFF_AT)
 
@@ -482,6 +499,34 @@ def test_form_publishes_every_metric_of_a_sample_as_a_json_number(
         "scope": "overall",
         "matches_counted": 1,
         "metrics": PUBLISHED_SAMPLE,
+    }
+
+
+@pytest.mark.django_db
+def test_form_leaves_out_a_metric_no_counted_match_measured(
+    api_get: ApiGet, api_post: ApiPost, user: UserFactory, user_password: str
+) -> None:
+    """
+    GIVEN a fixture whose one previous match carries no duel figure for either club
+    WHEN its form is requested
+    THEN the answer is the same sample without that metric, and still HTTP 200
+    """
+
+    fixture = store_one_previous_match({"duels_won": None})
+
+    token = bearer_token(api_post, user, user_password)
+
+    response = api_get(form_url(fixture.pk), token=token)
+
+    assert response.status_code == HTTPStatus.OK
+
+    samples = json_objects(team_body(json_object(response.json()), "home")["samples"])
+
+    assert samples[0] == {
+        "range": "last_3",
+        "scope": "overall",
+        "matches_counted": 1,
+        "metrics": WITHHELD_SAMPLE,
     }
 
 

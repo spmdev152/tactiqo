@@ -51,12 +51,17 @@ class FormSampleResponse(Schema):
     matches_counted : int
         Matches the figures are an average over, so a reader can tell a club
         three matches into a season from one thirty matches in. It is ``0`` for a
-        club with no qualifying history, and every figure is then ``0.0``.
+        club with no qualifying history, and every figure is then ``0.0``. A
+        match the provider withheld a figure for still counts here, because it
+        was played and carried a result whatever it left unmeasured.
     metrics : tuple of MetricValueResponse
-        Every metric the platform publishes, in the promised order and always
-        complete, so the interface never has to decide what a missing metric
-        means. Declared as a tuple because the query yields one, which spares
-        Pydantic a list it would only have to copy.
+        Metrics this sample publishes, in the promised order, which is every
+        metric of ``families`` less the ones no counted match measured. The
+        provider withholds a handful of counts per match and nought is not a
+        reading four of them stand for, so such a metric is left out rather than
+        published as a figure no match produced, and the interface draws it as
+        unpublished. Declared as a tuple because the query yields one, which
+        spares Pydantic a list it would only have to copy.
     """
 
     range: FormRange
