@@ -25,6 +25,9 @@ const PROBABILITIES_LABEL = "Probabilities";
 
 const FORM_LABEL = "Form";
 
+const TAB_TRIGGER =
+  "h-full rounded-none after:hidden data-[state=active]:font-semibold data-[state=active]:text-foreground dark:data-[state=active]:text-foreground";
+
 const UNREACHABLE_REASON =
   "The request did not complete. Check your connection and try again.";
 
@@ -210,11 +213,58 @@ export interface FixtureDisclosureProps {
  * way, and reusing it means this transition is expressed the same way as every
  * other one in the application.
  *
+ * The tab list is the full width of the panel, flush against the row above it,
+ * with each tab exactly half. It is a two-column grid rather than a flex row
+ * with `flex-1` on each trigger, because a grid states the halves and flex only
+ * approximates them: a trigger's padding and its label's width both feed into a
+ * flex basis, so "Probabilities" and "Form" would settle on unequal halves and
+ * the indicator under them would line up with neither.
+ *
+ * `variant="line"` rather than `variant="default"`, chosen for the size of the
+ * override it leaves behind. Under `default` the list carries an opaque
+ * `bg-muted` and the trigger a `data-active:bg-background` pill with its own
+ * shadow and three dark-mode siblings, all of which fight a full-bleed bar and
+ * all of which would have to be suppressed from here. Under `line` the list is
+ * already `bg-transparent` and `rounded-none`, the primitive itself forces the
+ * trigger's background transparent both idle and active, and the only affordance
+ * left is the `after:` underline — one `after:hidden` on the trigger. That
+ * underline sits at `bottom-[-5px]`, outside a list that now carries a border of
+ * its own, so suppressing it is what a flush bar requires rather than a taste.
+ *
+ * `flex-col` on the root and a plain `h-10` on the list are overrides of two
+ * dead declarations in the primitive, and neither is redundant however much it
+ * reads that way. `data-horizontal:flex-col` and
+ * `group-data-horizontal/tabs:h-8` compile to `&[data-horizontal]`, but Radix
+ * writes the attribute as `data-orientation="horizontal"`, so both candidates
+ * match nothing: measured here, the root laid out as a flex *row* and put the
+ * tab list beside its panel at 778px against 196px, with the list stretched to
+ * the panel's full 1870px height. Declaring the direction and the height
+ * outright is what makes a bar above its content. The primitive's
+ * `data-active:` rules miss for the same reason — Radix writes
+ * `data-state="active"` — which is why the selected tab had no visible state at
+ * all before this and why the reinforcement below is keyed on
+ * `data-[state=active]:`. The file is registry-generated and Prettier-excluded,
+ * so the correction belongs here rather than in it.
+ *
+ * The indicator is a `w-1/2` bar translated by nothing or by its own width, and
+ * that is exact rather than measured: with two tabs at half the grid each, the
+ * distance to travel is the width of the bar. Nothing is observed, no layout is
+ * read back, and `transition-transform` animates the one property that moves.
+ * The measured alternative — a ref on the active trigger and its offset held in
+ * state — buys nothing at two tabs and would have to relayout on every resize.
+ *
+ * It slides on `data-shifted`, written from the same state the list is driven
+ * by, so the attribute the CSS keys on is the attribute a test asserts and the
+ * two cannot drift apart. It is `aria-hidden` because it is decoration: which
+ * tab is selected is stated by `aria-selected` and painted a second time as the
+ * label's own weight and colour, for a reader who cannot place a moving bar.
+ *
  * No `prefers-reduced-motion` query is needed here. The base layer at the foot
  * of `globals.css` already clamps `transition-duration` to `0.01ms` on `*`,
  * `*::before` and `*::after` with `!important`, and grants an exemption to the
- * spinner alone, so both transitions this component declares are already
- * suppressed for a visitor who asked for that.
+ * spinner alone, so every transition this component declares — the region's own
+ * grid track and the indicator's slide — is already suppressed for a visitor who
+ * asked for that.
  *
  * The collapsed region is `inert`. Clipping content to zero height leaves it
  * focusable and readable, so without this a keyboard visitor would tab into a
@@ -309,16 +359,27 @@ export function FixtureDisclosure({
       >
         <div className="overflow-hidden">
           {revealed && (
-            <Tabs className="gap-0" onValueChange={select} value={tab}>
-              <div className="bg-muted/30 px-4 pt-4">
-                <TabsList aria-label={TAB_LIST_LABEL}>
-                  <TabsTrigger value={PROBABILITIES_TAB}>
-                    {PROBABILITIES_LABEL}
-                  </TabsTrigger>
+            <Tabs className="flex-col gap-0" onValueChange={select} value={tab}>
+              <TabsList
+                aria-label={TAB_LIST_LABEL}
+                className="relative grid h-10 w-full grid-cols-2 gap-0 border-b border-border bg-muted/50 p-0"
+                variant="line"
+              >
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute bottom-0 left-0 h-[3px] w-1/2 bg-primary transition-transform ease-out data-[shifted=true]:translate-x-full"
+                  data-shifted={tab === FORM_TAB}
+                  data-slot="fixture-tab-indicator"
+                />
 
-                  <TabsTrigger value={FORM_TAB}>{FORM_LABEL}</TabsTrigger>
-                </TabsList>
-              </div>
+                <TabsTrigger className={TAB_TRIGGER} value={PROBABILITIES_TAB}>
+                  {PROBABILITIES_LABEL}
+                </TabsTrigger>
+
+                <TabsTrigger className={TAB_TRIGGER} value={FORM_TAB}>
+                  {FORM_LABEL}
+                </TabsTrigger>
+              </TabsList>
 
               <TabsContent value={PROBABILITIES_TAB}>
                 <FixturePredictionsPanel

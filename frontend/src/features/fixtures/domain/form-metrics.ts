@@ -52,6 +52,44 @@ export const FORM_METRICS = [
 export type FormMetric = (typeof FORM_METRICS)[number];
 
 /**
+ * Every figure a sample publishes twice: once for what the team records and
+ * once for what the opposition records against it.
+ *
+ * @remarks
+ * A subset of {@link FORM_METRICS} rather than a flag on the wire, because
+ * which figures have an opposite is a property of the metric and never varies
+ * by fixture. Each of these is read as two comparisons — what a side does and
+ * what is done to it — and the second is the one a pre-match reader cannot get
+ * anywhere else in the panel, because it says which side concedes more of this.
+ *
+ * The order is the order these members hold in {@link FORM_METRICS}, so the two
+ * tuples read the same way round.
+ */
+export const OPPOSED_FORM_METRICS = [
+  "goals",
+  "shots",
+  "shots_on_target",
+  "big_chances_created",
+  "corners",
+] as const;
+
+/**
+ * One figure a sample publishes for the team and against it.
+ */
+type OpposedFormMetric = (typeof OPPOSED_FORM_METRICS)[number];
+
+/**
+ * The two names one opposed figure's two comparisons are presented under.
+ */
+export interface OpposedMetricLabels {
+  /** Names the comparison of what each side records. */
+  readonly forLabel: string;
+
+  /** Names the comparison of what each side has recorded against it. */
+  readonly againstLabel: string;
+}
+
+/**
  * Every window of completed matches a form sample can be drawn from.
  *
  * @remarks
@@ -143,6 +181,23 @@ const METRIC_LABELS: Record<FormMetric, string> = {
   red_cards: "Red cards",
   offsides: "Offsides",
 };
+
+const OPPOSED_METRIC_LABELS: Record<OpposedFormMetric, OpposedMetricLabels> = {
+  goals: { forLabel: "Goals for", againstLabel: "Goals against" },
+  shots: { forLabel: "Shots for", againstLabel: "Shots against" },
+  shots_on_target: {
+    forLabel: "Shots on target for",
+    againstLabel: "Shots on target against",
+  },
+  big_chances_created: {
+    forLabel: "Big chances for",
+    againstLabel: "Big chances against",
+  },
+  corners: { forLabel: "Corners for", againstLabel: "Corners against" },
+};
+
+const OPPOSED_LABEL_LOOKUP: Partial<Record<FormMetric, OpposedMetricLabels>> =
+  OPPOSED_METRIC_LABELS;
 
 const METRIC_UNITS: Record<FormMetric, FormMetricUnit> = {
   win_share: "percentage",
@@ -269,6 +324,30 @@ export const DEFAULT_FORM_SCOPE: FormScope = "overall";
  */
 export function metricLabel(metric: FormMetric): string {
   return METRIC_LABELS[metric];
+}
+
+/**
+ * Reads the two names an opposed figure is presented under, `null` for a figure
+ * that has no opposite.
+ *
+ * @remarks
+ * The lookup is the same record widened to every metric. That keeps the total
+ * record the thing a sixth opposed figure has to satisfy, so one cannot be added
+ * without naming both of its lines, while still letting a caller holding an
+ * arbitrary metric ask without a cast.
+ *
+ * A caller asks the metric rather than testing the sample, because whether a
+ * figure splits is a property of the metric. A side that conceded nothing
+ * publishes a nought against it and not an absence, so a row that split only
+ * where the figure happened to be non-null would change shape between windows.
+ *
+ * @param metric - Figure to name.
+ * @returns Both names, or `null` where the figure has no opposite.
+ */
+export function opposedMetricLabels(
+  metric: FormMetric,
+): OpposedMetricLabels | null {
+  return OPPOSED_LABEL_LOOKUP[metric] ?? null;
 }
 
 /**

@@ -61,6 +61,9 @@ const MATCHES_NOUN = "matches";
 
 const SHORT_JOINER = "of";
 
+const SEASON_WINDOW_NOTE =
+  "Every window counts only matches from this fixture's own season.";
+
 const PLACEHOLDER_FAMILIES = [
   { key: "form-placeholder-family-0", rows: 4 },
   { key: "form-placeholder-family-1", rows: 6 },
@@ -85,6 +88,10 @@ const SYNCHRONIZED_FORMAT = new Intl.DateTimeFormat("en-GB", {
  * vocabulary's own definition of it. The season window has no target to fall
  * short of and therefore never reads as short, however few matches it found.
  *
+ * The noun agrees with the number it follows, which in the short form is the
+ * window and not the count: one match out of six is "1 of 6 matches", never
+ * "1 of 6 match".
+ *
  * @param counted - Matches the sample was drawn from.
  * @param range - Window the sample was asked for.
  * @returns The count as copy.
@@ -94,14 +101,13 @@ function matchesLabel(counted: number, range: FormRange): string {
     return NO_MATCHES_LABEL;
   }
 
-  const noun = counted === 1 ? MATCH_NOUN : MATCHES_NOUN;
   const wanted = rangeSize(range);
 
   if (wanted !== null && counted < wanted) {
-    return `${counted} ${SHORT_JOINER} ${wanted} ${noun}`;
+    return `${counted} ${SHORT_JOINER} ${wanted} ${wanted === 1 ? MATCH_NOUN : MATCHES_NOUN}`;
   }
 
-  return `${counted} ${noun}`;
+  return `${counted} ${counted === 1 ? MATCH_NOUN : MATCHES_NOUN}`;
 }
 
 /**
@@ -375,6 +381,16 @@ export interface FixtureFormPanelProps {
  * has opened. Nothing is lost by the reset: no read is repeated and no state the
  * visitor cannot restore in one click is discarded.
  *
+ * One line under the filters states that all three windows stay inside the
+ * fixture's own season, and it is stated rather than left to be inferred because
+ * the consequence is otherwise read as a fault. Every window walks backwards
+ * from this fixture's kick-off and stops at the season boundary, so in August
+ * `Last 3`, `Last 6` and `Season` legitimately show the same figures, and a
+ * reader with no explanation for that concludes the filters are broken. It sits
+ * beside the controls it qualifies rather than in a tooltip, because a caveat
+ * nobody hovers is a caveat nobody reads, and the range labels themselves are
+ * left alone: `Last 6` still means the last six matches it could find.
+ *
  * @returns The figures, the placeholder, or why there are none.
  */
 function FormBody({
@@ -443,12 +459,18 @@ function FormBody({
         {LOADED_MESSAGE}
       </p>
 
-      <FormFilters
-        onRangeChange={setRange}
-        onScopeChange={setScope}
-        range={range}
-        scope={scope}
-      />
+      <div className="flex flex-col gap-1.5">
+        <FormFilters
+          onRangeChange={setRange}
+          onScopeChange={setScope}
+          range={range}
+          scope={scope}
+        />
+
+        <p className="text-[0.7rem] text-muted-foreground">
+          {SEASON_WINDOW_NOTE}
+        </p>
+      </div>
 
       <div className="flex items-start justify-between gap-3">
         <TeamFormHeader

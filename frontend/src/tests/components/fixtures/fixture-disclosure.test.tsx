@@ -187,6 +187,23 @@ function selectTab(name: string): void {
   fireEvent.mouseDown(screen.getByRole("tab", { name }));
 }
 
+/**
+ * Reads the sliding indicator the tab list paints under its selected tab.
+ *
+ * @returns The indicator element, which is decorative and has no role to query.
+ */
+function tabIndicator(): HTMLElement {
+  const indicator = document.querySelector<HTMLElement>(
+    '[data-slot="fixture-tab-indicator"]',
+  );
+
+  if (indicator === null) {
+    throw new Error("The tab list painted no indicator.");
+  }
+
+  return indicator;
+}
+
 describe("FixtureDisclosure", () => {
   beforeEach(() => {
     loadFixturePredictionsAction.mockReset();
@@ -588,5 +605,44 @@ describe("FixtureDisclosure", () => {
     );
 
     expect(loadFixtureFormAction).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * GIVEN a tab list whose selection is painted by a bar that slides between halves
+   * WHEN the panel is opened and the other tab is then selected
+   * THEN both the announced selection and the indicator's own state follow it
+   */
+  it("paints which tab is selected and slides the indicator to it", async () => {
+    loadFixtureFormAction.mockResolvedValue(SOME_FORM);
+
+    const toggle = renderDisclosure();
+
+    fireEvent.click(toggle);
+
+    expect(await screen.findByText(UNPUBLISHED_MESSAGE)).toBeVisible();
+
+    expect(screen.getByRole("tab", { name: "Probabilities" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    expect(tabIndicator()).toHaveAttribute("data-shifted", "false");
+    expect(tabIndicator()).toHaveAttribute("aria-hidden", "true");
+
+    selectTab("Form");
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Form" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    );
+
+    expect(tabIndicator()).toHaveAttribute("data-shifted", "true");
+
+    expect(screen.getByRole("tab", { name: "Probabilities" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
   });
 });

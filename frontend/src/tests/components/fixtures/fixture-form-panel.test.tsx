@@ -258,7 +258,7 @@ describe("FixtureFormPanel", () => {
         .map((one) => one.textContent),
     ).toEqual(["Result", "Possession"]);
 
-    expect(screen.getByText("Goals")).toBeVisible();
+    expect(screen.getByText("Goals for")).toBeVisible();
     expect(screen.getByText("25 Aug, 20:00")).toBeVisible();
   });
 
@@ -293,6 +293,23 @@ describe("FixtureFormPanel", () => {
     expect(screen.getByText("4.00")).toBeVisible();
     expect(screen.getByText("3 of 6 matches")).toBeVisible();
     expect(screen.getByText("2 of 6 matches")).toBeVisible();
+  });
+
+  /**
+   * GIVEN a window that asked for six matches and found only one
+   * WHEN its count is read
+   * THEN the noun agrees with the window, so it reads "1 of 6 matches"
+   */
+  it("agrees the match noun with the window rather than the count", () => {
+    const form = buildForm({
+      home: { teamId: 3, samples: [buildSample("last_6", "overall", 1, 2)] },
+      away: { teamId: 4, samples: [buildSample("last_6", "overall", 1, 1)] },
+    });
+
+    renderPanel({ loaded: true, form });
+
+    expect(screen.getAllByText("1 of 6 matches")).toHaveLength(2);
+    expect(screen.queryByText("1 of 6 match")).not.toBeInTheDocument();
   });
 
   /**
@@ -355,7 +372,7 @@ describe("FixtureFormPanel", () => {
 
     expect(screen.getByText("No matches in this window.")).toBeVisible();
     expect(screen.getAllByText("No matches counted")).toHaveLength(2);
-    expect(screen.queryByText("Goals")).not.toBeInTheDocument();
+    expect(screen.queryByText("Goals for")).not.toBeInTheDocument();
   });
 
   /**
@@ -373,13 +390,13 @@ describe("FixtureFormPanel", () => {
 
     expect(screen.getByText("This window was not published.")).toBeVisible();
     expect(screen.getByText("No sample published")).toBeVisible();
-    expect(screen.queryByText("Goals")).not.toBeInTheDocument();
+    expect(screen.queryByText("Goals for")).not.toBeInTheDocument();
   });
 
   /**
    * GIVEN a figure whose name the frontend's vocabulary does not carry
    * WHEN the family that lists it is rendered
-   * THEN the row shows a dash and says the figure was not published
+   * THEN both of its rows show a dash and say the figure was not published
    */
   it("renders a dash for a metric the sample did not publish", () => {
     renderPanel({
@@ -403,8 +420,104 @@ describe("FixtureFormPanel", () => {
       }),
     });
 
-    expect(screen.getAllByText("—")).toHaveLength(2);
-    expect(screen.getAllByText("not published")).toHaveLength(2);
+    expect(screen.getAllByText("—")).toHaveLength(3);
+    expect(screen.getAllByText("not published")).toHaveLength(3);
+
+    for (const label of ["Goals for", "Goals against"]) {
+      expect(screen.getByText(label).closest("li")).toHaveTextContent("—");
+    }
+  });
+
+  /**
+   * GIVEN one metric carrying an opposing figure and one carrying none
+   * WHEN the families that list them are rendered
+   * THEN only the opposed one splits, into a named for row and a named against row
+   */
+  it("splits only the metrics that carry an opposing figure", () => {
+    const { container } = render(
+      <FixtureFormPanel
+        away={NOTTINGHAM_FOREST}
+        home={LIVERPOOL}
+        onRetry={vi.fn()}
+        pending={false}
+        requested
+        result={{ loaded: true, form: buildForm() }}
+      />,
+    );
+
+    expect(
+      Array.from(
+        container.querySelectorAll('[data-slot="form-comparison-track"]'),
+        (track) => track.previousElementSibling?.textContent,
+      ),
+    ).toEqual(["Wins", "Goals for", "Goals against", "Possession"]);
+
+    expect(screen.queryByText("Goals")).not.toBeInTheDocument();
+  });
+
+  /**
+   * GIVEN a metric whose four figures, both sides' own and both conceded, differ
+   * WHEN its two rows are read
+   * THEN the for row compares the direct figures and the against row the conceded
+   */
+  it("compares what each side concedes on the against row", () => {
+    renderPanel({
+      loaded: true,
+      form: buildForm({
+        home: {
+          teamId: 3,
+          samples: [
+            {
+              range: "last_6",
+              scope: "overall",
+              matchesCounted: 6,
+              metrics: [{ metric: "goals", value: 2.5, opposedValue: 0.5 }],
+            },
+          ],
+        },
+        away: {
+          teamId: 4,
+          samples: [
+            {
+              range: "last_6",
+              scope: "overall",
+              matchesCounted: 6,
+              metrics: [{ metric: "goals", value: 1, opposedValue: 1.5 }],
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(announcedText(screen.getByText("Goals for").closest("li"))).toBe(
+      "Liverpool, 2.50 Goals for Nottingham Forest, 1.00",
+    );
+
+    expect(announcedText(screen.getByText("Goals against").closest("li"))).toBe(
+      "Liverpool, 0.50 Goals against Nottingham Forest, 1.50",
+    );
+
+    expect(
+      screen
+        .getByText("Goals against")
+        .closest("li")
+        ?.querySelector('[data-slot="form-comparison-home"]'),
+    ).toHaveStyle({ width: "25%" });
+  });
+
+  /**
+   * GIVEN three windows the backend now confines to the fixture's own season
+   * WHEN the panel's filters are rendered
+   * THEN it states that in words, so three equal windows do not read as a fault
+   */
+  it("states that every window stays inside the fixture's own season", () => {
+    renderPanel({ loaded: true, form: buildForm() });
+
+    expect(
+      screen.getByText(
+        "Every window counts only matches from this fixture's own season.",
+      ),
+    ).toBeVisible();
   });
 
   /**
@@ -424,12 +537,12 @@ describe("FixtureFormPanel", () => {
       />,
     );
 
-    const row = screen.getByText("Goals").closest("li");
+    const row = screen.getByText("Goals for").closest("li");
 
     expect(row).not.toBeNull();
 
     expect(announcedText(row)).toBe(
-      "Liverpool, 2.00 against 1.00 Goals Nottingham Forest, 1.00 against 1.00",
+      "Liverpool, 2.00 Goals for Nottingham Forest, 1.00",
     );
 
     for (const track of container.querySelectorAll(
@@ -440,27 +553,25 @@ describe("FixtureFormPanel", () => {
   });
 
   /**
-   * GIVEN two sides whose figures for one metric differ
-   * WHEN the comparison bar is drawn
-   * THEN the leading side takes the larger share of the track
+   * GIVEN two sides whose figures differ on one comparison and match on another
+   * WHEN the comparison bars are drawn
+   * THEN the leading side takes the larger share and a tie splits the track evenly
    */
   it("splits the comparison bar in proportion to the two figures", () => {
-    const { container } = render(
-      <FixtureFormPanel
-        away={NOTTINGHAM_FOREST}
-        home={LIVERPOOL}
-        onRetry={vi.fn()}
-        pending={false}
-        requested
-        result={{ loaded: true, form: buildForm() }}
-      />,
-    );
+    renderPanel({ loaded: true, form: buildForm() });
 
-    const homeFills = container.querySelectorAll(
-      '[data-slot="form-comparison-home"]',
-    );
+    expect(
+      screen
+        .getByText("Goals for")
+        .closest("li")
+        ?.querySelector('[data-slot="form-comparison-home"]'),
+    ).toHaveStyle({ width: "66.66666666666667%" });
 
-    expect(homeFills[1]).toHaveStyle({ width: "66.66666666666667%" });
-    expect(homeFills[2]).toHaveStyle({ width: "50%" });
+    expect(
+      screen
+        .getByText("Goals against")
+        .closest("li")
+        ?.querySelector('[data-slot="form-comparison-home"]'),
+    ).toHaveStyle({ width: "50%" });
   });
 });

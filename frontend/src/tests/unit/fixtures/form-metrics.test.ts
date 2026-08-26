@@ -12,6 +12,8 @@ import {
   isShareMetric,
   metricCeiling,
   metricLabel,
+  OPPOSED_FORM_METRICS,
+  opposedMetricLabels,
   rangeLabel,
   rangeSize,
   scopeLabel,
@@ -80,6 +82,33 @@ describe("form metrics vocabulary", () => {
    */
   it("owns which figures are percentages", () => {
     expect(FORM_METRICS.filter(isShareMetric)).toEqual([...SHARE_METRICS]);
+  });
+
+  /**
+   * GIVEN the five figures a sample publishes for a side and against it
+   * WHEN every member is asked for its for/against pair
+   * THEN exactly those five are named, each as a "for" and an "against" line
+   */
+  it("names a for and an against line for exactly the opposed figures", () => {
+    expect(
+      FORM_METRICS.filter((metric) => opposedMetricLabels(metric) !== null),
+    ).toEqual([...OPPOSED_FORM_METRICS]);
+
+    expect(
+      OPPOSED_FORM_METRICS.map((metric) => opposedMetricLabels(metric)),
+    ).toEqual([
+      { forLabel: "Goals for", againstLabel: "Goals against" },
+      { forLabel: "Shots for", againstLabel: "Shots against" },
+      {
+        forLabel: "Shots on target for",
+        againstLabel: "Shots on target against",
+      },
+      {
+        forLabel: "Big chances for",
+        againstLabel: "Big chances against",
+      },
+      { forLabel: "Corners for", againstLabel: "Corners against" },
+    ]);
   });
 
   /**

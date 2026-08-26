@@ -2,16 +2,13 @@ import {
   formatMetricValue,
   type FormMetric,
   metricLabel,
+  opposedMetricLabels,
 } from "@/features/fixtures/domain/form-metrics";
 import type { FormMetricValue } from "@/features/fixtures/types/form";
 
 const MISSING_FIGURE = "—";
 
 const MISSING_ANNOUNCEMENT = "not published";
-
-const OPPOSED_SEPARATOR = " / ";
-
-const OPPOSED_ANNOUNCEMENT = " against ";
 
 const EVEN_SPLIT = 50;
 
@@ -25,7 +22,7 @@ interface MetricFigureProps {
   readonly metric: FormMetric;
 
   /** The team's figure, `null` when the sample published none. */
-  readonly value: FormMetricValue | null;
+  readonly value: number | null;
 
   /** Club the figure belongs to, which a column position alone cannot say. */
   readonly teamName: string;
@@ -35,19 +32,13 @@ interface MetricFigureProps {
 }
 
 /**
- * Renders one team's figure for one metric, and the opposing figure where the
- * metric has one.
+ * Renders one team's figure for one comparison.
  *
  * @remarks
  * The club is named from visually hidden text before the number. A sighted
  * reader knows whose figure this is from the column it sits in, and a column is
  * exactly the thing a screen reader does not convey, so without this the panel
  * would announce sixty bare numbers in pairs.
- *
- * The opposing figure is separated by a slash for the eye and by the word
- * "against" for the ear, which is why the slash is hidden and the word is not.
- * A slash is verbalized inconsistently and often dropped, and "one point six
- * seven nought point eight three" is two figures read as one.
  *
  * A metric the sample published nothing for renders as a dash with the reason
  * announced beside it. This is reachable rather than defensive: the wire schema
@@ -79,33 +70,26 @@ function MetricFigure({
     <span className={className}>
       <span className="sr-only">{`${teamName}, `}</span>
 
-      {formatMetricValue(metric, value.value)}
-
-      {value.opposedValue !== null && (
-        <span className="text-muted-foreground">
-          <span aria-hidden="true">{OPPOSED_SEPARATOR}</span>
-
-          <span className="sr-only">{OPPOSED_ANNOUNCEMENT}</span>
-
-          {formatMetricValue(metric, value.opposedValue)}
-        </span>
-      )}
+      {formatMetricValue(metric, value)}
     </span>
   );
 }
 
 /**
- * Props of {@link FormMetricRow}.
+ * Props of {@link ComparisonLine}.
  */
-export interface FormMetricRowProps {
-  /** Metric this row compares the two sides on. */
+interface ComparisonLineProps {
+  /** Metric the two figures belong to, which decides how they are formatted. */
   readonly metric: FormMetric;
 
+  /** What this line compares, which is not always the metric's own name. */
+  readonly label: string;
+
   /** The home side's figure, `null` when the sample published none. */
-  readonly home: FormMetricValue | null;
+  readonly home: number | null;
 
   /** The away side's figure, `null` when the sample published none. */
-  readonly away: FormMetricValue | null;
+  readonly away: number | null;
 
   /** Full name of the home club. */
   readonly homeName: string;
@@ -115,7 +99,7 @@ export interface FormMetricRowProps {
 }
 
 /**
- * Renders one metric as both sides' figures either side of a comparison bar.
+ * Renders one comparison as both sides' figures either side of a split track.
  *
  * @remarks
  * The bar is proportional between the two teams rather than absolute, and this
@@ -144,17 +128,18 @@ export interface FormMetricRowProps {
  * what this bar means; these two colours encode identity, and they need to
  * differ from each other rather than to sit anywhere in particular.
  *
- * @returns The metric row.
+ * @returns The comparison as one row.
  */
-export function FormMetricRow({
+function ComparisonLine({
   metric,
+  label,
   home,
   away,
   homeName,
   awayName,
-}: FormMetricRowProps) {
-  const homeValue = home?.value ?? 0;
-  const awayValue = away?.value ?? 0;
+}: ComparisonLineProps) {
+  const homeValue = home ?? 0;
+  const awayValue = away ?? 0;
   const total = homeValue + awayValue;
 
   const homeShare = total === 0 ? EVEN_SPLIT : (homeValue * FULL_TRACK) / total;
@@ -170,7 +155,7 @@ export function FormMetricRow({
 
       <span className="flex min-w-0 flex-1 flex-col items-center gap-1">
         <span className="max-w-full truncate text-[0.7rem] text-muted-foreground">
-          {metricLabel(metric)}
+          {label}
         </span>
 
         <span
@@ -198,5 +183,95 @@ export function FormMetricRow({
         value={away}
       />
     </li>
+  );
+}
+
+/**
+ * Props of {@link FormMetricRow}.
+ */
+export interface FormMetricRowProps {
+  /** Metric this row compares the two sides on. */
+  readonly metric: FormMetric;
+
+  /** The home side's figure, `null` when the sample published none. */
+  readonly home: FormMetricValue | null;
+
+  /** The away side's figure, `null` when the sample published none. */
+  readonly away: FormMetricValue | null;
+
+  /** Full name of the home club. */
+  readonly homeName: string;
+
+  /** Full name of the away club. */
+  readonly awayName: string;
+}
+
+/**
+ * Renders one metric as the one or two comparisons it is worth reading as.
+ *
+ * @remarks
+ * Five of the twenty-five figures carry what the opposition recorded against the
+ * side, and each of those is two comparisons rather than one. They were drawn as
+ * a single line reading `1.83 / 0.83`, which asked a reader to hold four numbers
+ * and a slash in their head to answer either question, and answered neither with
+ * a bar: the track compared what the two sides score and said nothing at all
+ * about what they concede.
+ *
+ * Split, the second line is the one that earns its place. It compares the two
+ * sides on what is done to them, so a track that leans right means the away side
+ * concedes more of this — a reading the panel could not previously give at any
+ * width. Both lines are named, because two adjacent tracks under one heading
+ * would be indistinguishable.
+ *
+ * Whether a metric splits is asked of the vocabulary rather than of the sample,
+ * for the reason {@link opposedMetricLabels} documents: a nought conceded is a
+ * measurement, and a row that split only where the figure was non-null would
+ * change shape as the visitor widened the window. A figure the sample did not
+ * publish therefore reaches both lines as a dash, which is what it is.
+ *
+ * @returns One row for a plain metric, two for an opposed one.
+ */
+export function FormMetricRow({
+  metric,
+  home,
+  away,
+  homeName,
+  awayName,
+}: FormMetricRowProps) {
+  const opposed = opposedMetricLabels(metric);
+
+  if (opposed === null) {
+    return (
+      <ComparisonLine
+        away={away?.value ?? null}
+        awayName={awayName}
+        home={home?.value ?? null}
+        homeName={homeName}
+        label={metricLabel(metric)}
+        metric={metric}
+      />
+    );
+  }
+
+  return (
+    <>
+      <ComparisonLine
+        away={away?.value ?? null}
+        awayName={awayName}
+        home={home?.value ?? null}
+        homeName={homeName}
+        label={opposed.forLabel}
+        metric={metric}
+      />
+
+      <ComparisonLine
+        away={away?.opposedValue ?? null}
+        awayName={awayName}
+        home={home?.opposedValue ?? null}
+        homeName={homeName}
+        label={opposed.againstLabel}
+        metric={metric}
+      />
+    </>
   );
 }
