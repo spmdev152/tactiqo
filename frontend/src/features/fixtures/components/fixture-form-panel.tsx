@@ -1,13 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
-import { CalendarClock, TriangleAlert } from "lucide-react";
+import { CalendarClock, Info, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { FormFilters } from "@/features/fixtures/components/form-filters";
 import { FormMetricRow } from "@/features/fixtures/components/form-metric-row";
+import {
+  type FixtureStatus,
+  hasKickedOff,
+} from "@/features/fixtures/domain/fixture-status";
 import {
   DEFAULT_FORM_RANGE,
   DEFAULT_FORM_SCOPE,
@@ -61,8 +70,13 @@ const MATCHES_NOUN = "matches";
 
 const SHORT_JOINER = "of";
 
+const NOTE_TRIGGER_LABEL = "About these figures";
+
 const SEASON_WINDOW_NOTE =
   "Every window counts only matches from this fixture's own season.";
+
+const PLAYED_WINDOW_NOTE =
+  "This match has already been played, so the figures stop at its kick-off: they count only the matches each side had played beforehand, and nothing that has happened since. They are the form both sides took into this match.";
 
 const PLACEHOLDER_FAMILIES = [
   { key: "form-placeholder-family-0", rows: 4 },
@@ -349,6 +363,9 @@ export interface FixtureFormPanelProps {
   /** Side playing away, which names the right column. */
   readonly away: FixtureTeam;
 
+  /** State the match is in, which decides what the panel's note explains. */
+  readonly status: FixtureStatus;
+
   /** Asks for the read again after a failure. */
   readonly onRetry: () => void;
 }
@@ -381,15 +398,39 @@ export interface FixtureFormPanelProps {
  * has opened. Nothing is lost by the reset: no read is repeated and no state the
  * visitor cannot restore in one click is discarded.
  *
- * One line under the filters states that all three windows stay inside the
- * fixture's own season, and it is stated rather than left to be inferred because
- * the consequence is otherwise read as a fault. Every window walks backwards
- * from this fixture's kick-off and stops at the season boundary, so in August
- * `Last 3`, `Last 6` and `Season` legitimately show the same figures, and a
- * reader with no explanation for that concludes the filters are broken. It sits
- * beside the controls it qualifies rather than in a tooltip, because a caveat
- * nobody hovers is a caveat nobody reads, and the range labels themselves are
- * left alone: `Last 6` still means the last six matches it could find.
+ * The note under the filters explains two things a reader would otherwise take
+ * for a fault, and it is reached through an info icon rather than printed. Every
+ * window walks backwards from this fixture's kick-off and stops at the season
+ * boundary, so in August `Last 3`, `Last 6` and `Season` legitimately show the
+ * same figures. And for a match that has already kicked off, every window
+ * stopped counting at that kick-off, so the figures record what the two sides
+ * brought into the match rather than anything that came after it — which is
+ * worth saying outright, because a reader looking at a played match reasonably
+ * expects the figures to include it. The range labels themselves are left alone:
+ * `Last 6` still means the last six matches it could find.
+ *
+ * A caveat nobody hovers is a caveat nobody reads, which is what the printed
+ * line was protecting, so nothing here depends on hovering. The trigger is an
+ * ordinary button, reached by Tab like the filters beside it, and the primitive
+ * opens the bubble on focus as well as under a pointer; the icon inside it is
+ * decorative and the button takes its name from hidden text, because an icon
+ * has none of its own.
+ *
+ * The sentences live in a permanently rendered hidden paragraph that the trigger
+ * names through `aria-describedby`, not only in the bubble. The bubble is in the
+ * document only while it is open, so a reader who never opens it would otherwise
+ * never be told at all. That association deliberately replaces the one Radix
+ * makes to its own content, which carries the same words: the difference is that
+ * this one holds when the tooltip is shut.
+ *
+ * It opens to the right, into the empty band the filter row leaves beside the
+ * icon, because the tab strip and the two clubs sit directly above it and the
+ * figures the note is about sit directly below. For a played match the note is
+ * two sentences rather than one, so a bubble opening upwards covered the fixture
+ * row the whole panel belongs to. Radix flips it where the band has no room.
+ *
+ * Which sentences those are follows from the status rather than from the clock,
+ * for the reasons `hasKickedOff` documents.
  *
  * @returns The figures, the placeholder, or why there are none.
  */
@@ -398,10 +439,17 @@ function FormBody({
   pending,
   home,
   away,
+  status,
   onRetry,
 }: FixtureFormPanelProps) {
   const [range, setRange] = useState<FormRange>(DEFAULT_FORM_RANGE);
   const [scope, setScope] = useState<FormScope>(DEFAULT_FORM_SCOPE);
+
+  const noteId = useId();
+
+  const note = hasKickedOff(status)
+    ? `${SEASON_WINDOW_NOTE} ${PLAYED_WINDOW_NOTE}`
+    : SEASON_WINDOW_NOTE;
 
   if (pending || result === null) {
     return (
@@ -459,7 +507,7 @@ function FormBody({
         {LOADED_MESSAGE}
       </p>
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
         <FormFilters
           onRangeChange={setRange}
           onScopeChange={setScope}
@@ -467,8 +515,28 @@ function FormBody({
           scope={scope}
         />
 
-        <p className="text-[0.7rem] text-muted-foreground">
-          {SEASON_WINDOW_NOTE}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-describedby={noteId}
+              className="text-muted-foreground"
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <Info aria-hidden="true" />
+
+              <span className="sr-only">{NOTE_TRIGGER_LABEL}</span>
+            </Button>
+          </TooltipTrigger>
+
+          <TooltipContent align="center" collisionPadding={8} side="right">
+            {note}
+          </TooltipContent>
+        </Tooltip>
+
+        <p className="sr-only" id={noteId}>
+          {note}
         </p>
       </div>
 
@@ -591,6 +659,7 @@ export function FixtureFormPanel({
   pending,
   home,
   away,
+  status,
   onRetry,
 }: FixtureFormPanelProps) {
   if (!requested && result === null) {
@@ -606,6 +675,7 @@ export function FixtureFormPanel({
         pending={pending}
         requested={requested}
         result={result}
+        status={status}
       />
     </div>
   );

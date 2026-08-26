@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { FixtureDisclosure } from "@/features/fixtures/components/fixture-disclosure";
 import type { Fixture } from "@/features/fixtures/types/fixture";
 import type { FixtureFormResult } from "@/features/fixtures/types/form";
@@ -131,6 +132,9 @@ const FAMILY_HEADING = "Result";
 
 const RETRY_LABEL = "Try again";
 
+const PLAYED_NOTE =
+  "This match has already been played, so the figures stop at its kick-off";
+
 const TOGGLE_NAME = /Match insights/;
 
 /**
@@ -141,9 +145,11 @@ const TOGGLE_NAME = /Match insights/;
  */
 function renderDisclosure(fixture: Fixture = FIXTURE): HTMLElement {
   render(
-    <FixtureDisclosure fixture={fixture}>
-      <span>Liverpool versus Nottingham Forest</span>
-    </FixtureDisclosure>,
+    <TooltipProvider>
+      <FixtureDisclosure fixture={fixture}>
+        <span>Liverpool versus Nottingham Forest</span>
+      </FixtureDisclosure>
+    </TooltipProvider>,
   );
 
   return screen.getByRole("button", { name: TOGGLE_NAME });
@@ -298,6 +304,25 @@ describe("FixtureDisclosure", () => {
 
     expect(loadFixtureFormAction).toHaveBeenCalledExactlyOnceWith(41);
     expect(loadFixturePredictionsAction).not.toHaveBeenCalled();
+  });
+
+  /**
+   * GIVEN a fixture the platform reports as finished
+   * WHEN its form panel is opened
+   * THEN the panel's note explains that the figures stop at its own kick-off
+   */
+  it("hands the form panel the state the match is in", async () => {
+    loadFixtureFormAction.mockResolvedValue(SOME_FORM);
+
+    fireEvent.click(renderDisclosure({ ...FIXTURE, status: "finished" }));
+
+    selectTab("Form");
+
+    expect(
+      await screen.findByRole("heading", { level: 3, name: FAMILY_HEADING }),
+    ).toBeVisible();
+
+    expect(screen.getByText(PLAYED_NOTE, { exact: false })).toBeInTheDocument();
   });
 
   /**

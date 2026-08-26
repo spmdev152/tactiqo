@@ -399,6 +399,7 @@ export function FixtureDisclosure({
                   pending={form.pending}
                   requested={form.asked}
                   result={form.result}
+                  status={fixture.status}
                 />
               </TabsContent>
             </Tabs>

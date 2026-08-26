@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { FixtureFormPanel } from "@/features/fixtures/components/fixture-form-panel";
+import type { FixtureStatus } from "@/features/fixtures/domain/fixture-status";
 import type { FixtureTeam } from "@/features/fixtures/types/fixture";
 import type {
   FixtureForm,
@@ -27,6 +29,14 @@ const FAMILIES = [
   { family: "result", metrics: ["win_share", "goals"] },
   { family: "possession", metrics: ["possession"] },
 ] as const;
+
+const NOTE_TRIGGER_NAME = "About these figures";
+
+const SEASON_NOTE =
+  "Every window counts only matches from this fixture's own season.";
+
+const PLAYED_NOTE =
+  "This match has already been played, so the figures stop at its kick-off: they count only the matches each side had played beforehand, and nothing that has happened since. They are the form both sides took into this match.";
 
 /**
  * Builds one sample, whose figures scale with a single factor.
@@ -98,21 +108,55 @@ function buildForm(overrides: Partial<FixtureForm> = {}): FixtureForm {
  *
  * @param result - Outcome the panel is handed.
  * @param onRetry - Retry callback the failure branch is given.
+ * @param status - State the match is reported in, which the note depends on.
+ * @returns The element the panel was rendered into.
  */
 function renderPanel(
   result: FixtureFormResult | null,
   onRetry: () => void = vi.fn(),
-): void {
-  render(
-    <FixtureFormPanel
-      away={NOTTINGHAM_FOREST}
-      home={LIVERPOOL}
-      onRetry={onRetry}
-      pending={false}
-      requested
-      result={result}
-    />,
+  status: FixtureStatus = "scheduled",
+): HTMLElement {
+  const { container } = render(
+    <TooltipProvider>
+      <FixtureFormPanel
+        away={NOTTINGHAM_FOREST}
+        home={LIVERPOOL}
+        onRetry={onRetry}
+        pending={false}
+        requested
+        result={result}
+        status={status}
+      />
+    </TooltipProvider>,
   );
+
+  return container;
+}
+
+/**
+ * Reads the paragraph the info control names, without opening its tooltip.
+ *
+ * @remarks
+ * Resolved through the control's own `aria-describedby` rather than by class or
+ * by position, so a control that describes nothing fails the test instead of
+ * quietly passing it. That association is the whole point of the paragraph: the
+ * bubble is in the document only while it is open, and this is what a reader who
+ * never opens it is told.
+ *
+ * @returns The element holding the note.
+ */
+function noteDescription(): HTMLElement {
+  const trigger = screen.getByRole("button", { name: NOTE_TRIGGER_NAME });
+
+  const id = trigger.getAttribute("aria-describedby") ?? "";
+
+  const description = document.getElementById(id);
+
+  if (description === null) {
+    throw new Error(`The info control names no note with id "${id}".`);
+  }
+
+  return description;
 }
 
 /**
@@ -172,6 +216,7 @@ describe("FixtureFormPanel", () => {
         pending={false}
         requested={false}
         result={null}
+        status="scheduled"
       />,
     );
 
@@ -434,16 +479,7 @@ describe("FixtureFormPanel", () => {
    * THEN only the opposed one splits, into a named for row and a named against row
    */
   it("splits only the metrics that carry an opposing figure", () => {
-    const { container } = render(
-      <FixtureFormPanel
-        away={NOTTINGHAM_FOREST}
-        home={LIVERPOOL}
-        onRetry={vi.fn()}
-        pending={false}
-        requested
-        result={{ loaded: true, form: buildForm() }}
-      />,
-    );
+    const container = renderPanel({ loaded: true, form: buildForm() });
 
     expect(
       Array.from(
@@ -506,18 +542,60 @@ describe("FixtureFormPanel", () => {
   });
 
   /**
-   * GIVEN three windows the backend now confines to the fixture's own season
+   * GIVEN a note that used to be printed under the filters as a bare line
    * WHEN the panel's filters are rendered
-   * THEN it states that in words, so three equal windows do not read as a fault
+   * THEN one named info control describes it and the sentence sits nowhere else
    */
-  it("states that every window stays inside the fixture's own season", () => {
+  it("hides the season note behind a named info control", () => {
     renderPanel({ loaded: true, form: buildForm() });
 
-    expect(
-      screen.getByText(
-        "Every window counts only matches from this fixture's own season.",
-      ),
-    ).toBeVisible();
+    const description = noteDescription();
+
+    expect(screen.getByText(SEASON_NOTE)).toBe(description);
+    expect(description).toHaveClass("sr-only");
+  });
+
+  /**
+   * GIVEN a fixture that has not kicked off
+   * WHEN its info control is reached by keyboard rather than by pointer
+   * THEN the note opens and claims nothing about a match already played
+   */
+  it("opens the note on focus without the played-match sentence", async () => {
+    renderPanel({ loaded: true, form: buildForm() });
+
+    const trigger = screen.getByRole("button", { name: NOTE_TRIGGER_NAME });
+
+    act(() => {
+      trigger.focus();
+    });
+
+    expect(trigger).toHaveFocus();
+
+    const tooltip = await screen.findByRole("tooltip");
+
+    expect(tooltip).toHaveTextContent(SEASON_NOTE);
+    expect(tooltip).not.toHaveTextContent(PLAYED_NOTE);
+  });
+
+  /**
+   * GIVEN a fixture the platform reports as finished
+   * WHEN its note is opened and the paragraph behind it is read
+   * THEN both say the figures stop at that match's own kick-off
+   */
+  it("explains that a played match's figures stop at its kick-off", async () => {
+    renderPanel({ loaded: true, form: buildForm() }, vi.fn(), "finished");
+
+    const trigger = screen.getByRole("button", { name: NOTE_TRIGGER_NAME });
+
+    act(() => {
+      trigger.focus();
+    });
+
+    const tooltip = await screen.findByRole("tooltip");
+
+    expect(tooltip).toHaveTextContent(SEASON_NOTE);
+    expect(tooltip).toHaveTextContent(PLAYED_NOTE);
+    expect(noteDescription()).toHaveTextContent(PLAYED_NOTE);
   });
 
   /**
@@ -526,16 +604,7 @@ describe("FixtureFormPanel", () => {
    * THEN both clubs are named beside their own figures and the bar is silent
    */
   it("speaks every figure the comparison bar draws", () => {
-    const { container } = render(
-      <FixtureFormPanel
-        away={NOTTINGHAM_FOREST}
-        home={LIVERPOOL}
-        onRetry={vi.fn()}
-        pending={false}
-        requested
-        result={{ loaded: true, form: buildForm() }}
-      />,
-    );
+    const container = renderPanel({ loaded: true, form: buildForm() });
 
     const row = screen.getByText("Goals for").closest("li");
 
