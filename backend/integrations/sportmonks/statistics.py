@@ -51,22 +51,41 @@ PROVIDER_STATISTICS: dict[int, str] = {
     51: "offsides",
 }
 
-# The provider omits an event-conditional count at nought rather than sending a zero, so absence
-# is the reading itself for these eight and not a defect. Measured over the 828 sides of the 414
-# fixtures between 2026-03-28 and 2026-08-25: redcards is published on 14.73% of sides, offsides on
-# 95.17%, yellowcards on 96.62%, key-passes on 98.07%, big-chances-created on 98.31%,
-# accurate-crosses on 99.03%, saves on 99.52% and shots-blocked on 99.76%. Nought is a real value
-# for every one of them: a side can create no clear chance, complete no cross of the several it
-# attempted, or never test the goalkeeper. The other fourteen types this boundary maps were
-# published on 100% of those sides, which is why a side missing one of them is read as a malformed
-# record rather than as fourteen figures and a nought. That distinction is what the required set
-# buys: possession is a rate whose absence means unknown rather than nought, and passes, crosses
-# and dribble-attempts are denominators a ratio would silently read as nought.
+# A withheld statistic is withheld for the whole match, never for one side of it. Measured over
+# the 7,100 sides of the 3,550 matches between 2024-07-15 and 2026-08-26, every type the provider
+# left out it left out of both sides: for each of the twelve types it ever withholds, the count of
+# sides missing it while the opposing side stated it is exactly nought. So an absence says nothing
+# about a particular club, and the only question a missing type raises is whether nought is a
+# reading it could stand for. Ten of the twenty-two types this boundary maps were absent from no
+# side at all, so a record leaving one of those out is read as a malformed record rather than as
+# twenty-one figures and a guess.
 #
-# Narrowing this set to the three types a one-month sample suggested cost 21 of 413 finished
-# matches, because one absent count discards a whole match, so the sample behind it is deliberately
-# a full season rather than a single month.
+# For these eight nought is a reading, and the provider sending explicit noughts for them is what
+# rules out its using absence to mean one: offsides is absent from 5.15% of sides and explicitly
+# nought on 1,247 of them, red cards from 83.04% and nought on 558, yellow cards from 2.90% and
+# 700, big chances created from 1.55% and 858, saves from 0.31% and 495, blocked shots from 0.17%
+# and 466, accurate crosses from 0.34% and 233, key passes from 0.31% and 14. Reading the absence
+# as nought is therefore a deliberate trade rather than a contract, and it is the right way round:
+# refusing the record instead would discard twenty-one sound figures over one absent count, and
+# would cost 83 percent of matches for red cards alone.
 OPTIONAL_STATISTICS: frozenset[int] = frozenset({51, 57, 58, 83, 84, 99, 117, 580})
+
+# For these four nought is not a reading the provider has ever published. Duels won is absent from
+# 14.00% of sides, and across the 6,106 it does state, the lowest reading is three and the median
+# forty-seven, so the matches missing it cannot be matches where both clubs won none; tackles and
+# dribbles attempted are absent from 0.03% and bottom out at one; dribbles completed is absent
+# from exactly the one match its denominator is. Writing nought here would invent a figure no
+# match has produced, so the record is kept with the column unset and every figure the provider
+# did state lands. Ranking these as required instead is what the two-tier split this replaces
+# cost: duels won alone discarded 499 of 3,548 finished matches, 14 percent of a backfill.
+UNMEASURED_STATISTICS: frozenset[int] = frozenset({78, 106, 108, 109})
+
+# Columns of the unmeasured types, derived through the mapping so the two statements of one fact
+# cannot drift apart. This is the vocabulary the read layer needs as well: a metric unset in every
+# match a sample counted is left out of that sample rather than averaged as nought.
+UNMEASURED_COLUMNS: frozenset[str] = frozenset(
+    PROVIDER_STATISTICS[type_id] for type_id in UNMEASURED_STATISTICS
+)
 
 # Each completion the product turns into an accuracy, mapped to the attempt that bounds it. The
 # pairs are named here rather than inferred from the column names, because the boundary refuses a
@@ -98,17 +117,18 @@ class ProviderTeamStatistics:
     side : MatchSide
         Side the team played, mapped from the provider's ``location`` string,
         which never leaves this module.
-    values : dict of str to int
+    values : dict of str to (int or None)
         Figure of every column of ``apps.statistics.models.MatchTeamStatistic``
-        this boundary persists, keyed by column name and complete: a record that
-        could not resolve one of them is never built. Keys arrive in
-        ``PROVIDER_STATISTICS`` order rather than in the provider's, so two
-        records of the same fixture are comparable.
+        this boundary persists, keyed by column name. Every column is present:
+        one of ``UNMEASURED_COLUMNS`` the provider did not measure for the match
+        is ``None``, and a record that could not resolve one of the rest is never
+        built at all. Keys arrive in ``PROVIDER_STATISTICS`` order rather than in
+        the provider's, so two records of the same fixture are comparable.
     """
 
     team_provider_id: int
     side: MatchSide
-    values: dict[str, int]
+    values: dict[str, int | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,9 +358,16 @@ def _team_statistics_of(
 
     Every column the boundary persists is resolved, so the caller receives a
     record it can write whole or nothing at all. A type in
-    ``OPTIONAL_STATISTICS`` that the provider left out reads as nought, which is
-    what its absence means; any of the fourteen it always sends being left out
-    makes the record unusable.
+    ``OPTIONAL_STATISTICS`` the provider left out reads as nought and one in
+    ``UNMEASURED_STATISTICS`` reads as unset, both of which are figures the
+    record still carries; one of the ten it publishes on every side being left
+    out makes the record unusable.
+
+    A value the provider did state and the column could not hold discards the
+    record whichever tier its type belongs to. An unset column means the
+    provider did not measure the figure, not that it sent something unusable,
+    and reading the second as the first would turn a broken contract into a
+    silent gap.
 
     Parameters
     ----------
@@ -383,12 +410,26 @@ def _team_statistics_of(
 
         published[type_id] = data.get("value") if isinstance(data, dict) else data
 
-    values: dict[str, int] = {}
+    values: dict[str, int | None] = {}
 
     for type_id, column in PROVIDER_STATISTICS.items():
         if type_id not in published:
             if type_id in OPTIONAL_STATISTICS:
                 values[column] = 0
+
+                continue
+
+            if type_id in UNMEASURED_STATISTICS:
+                logger.debug(
+                    "Reading %s of team %d of Sportmonks fixture %d as unset: statistic type %d "
+                    "was not measured for this match.",
+                    column,
+                    team_provider_id,
+                    fixture_provider_id,
+                    type_id,
+                )
+
+                values[column] = None
 
                 continue
 
@@ -426,7 +467,9 @@ def _team_statistics_of(
     return ProviderTeamStatistics(team_provider_id=team_provider_id, side=side, values=values)
 
 
-def _consistent(values: dict[str, int], team_provider_id: int, fixture_provider_id: int) -> bool:
+def _consistent(
+    values: dict[str, int | None], team_provider_id: int, fixture_provider_id: int
+) -> bool:
     """
     Report whether every completion the record states is one of an attempt it also states.
 
@@ -440,9 +483,15 @@ def _consistent(values: dict[str, int], team_provider_id: int, fixture_provider_
     than one absent figure, and because the check is the only thing standing
     between the provider and that share.
 
+    A pair either half of which the provider did not measure is passed over
+    rather than refused, because an attempt nobody counted bounds nothing. The
+    only such pair is dribbles, and its two halves were absent from exactly the
+    same one match of the 3,550 measured, so this is the arithmetic of the guard
+    rather than a case the provider has been seen to produce.
+
     Parameters
     ----------
-    values : dict of str to int
+    values : dict of str to (int or None)
         Resolved figures of one record, keyed by column name.
     team_provider_id : int
         Sportmonks team identifier the figures belong to.
@@ -456,14 +505,20 @@ def _consistent(values: dict[str, int], team_provider_id: int, fixture_provider_
     """
 
     for completed, attempted in COMPLETION_PAIRS.items():
-        if values[completed] > values[attempted]:
+        completions = values[completed]
+        attempts = values[attempted]
+
+        if completions is None or attempts is None:
+            continue
+
+        if completions > attempts:
             logger.warning(
                 "Skipping team %d of Sportmonks fixture %d: %d %s exceeds %d %s.",
                 team_provider_id,
                 fixture_provider_id,
-                values[completed],
+                completions,
                 completed,
-                values[attempted],
+                attempts,
                 attempted,
             )
 

@@ -70,7 +70,7 @@ ONE_SIDE = [HOME_PERFORMANCE]
 
 PerformanceRow = tuple[int, int]
 
-StoredRow = tuple[int, str, tuple[int, ...]]
+StoredRow = tuple[int, str, tuple[int | None, ...]]
 
 
 def performance_key(fixture_provider_id: int, team_provider_id: int) -> PerformanceRow:
@@ -330,6 +330,58 @@ def test_upsert_statistics_moves_a_revised_figure_instead_of_duplicating_it() ->
         REVISED_HOME_PERFORMANCE.values["shots_total"],
         REVISED_HOME_PERFORMANCE.values["corners"],
     )
+
+
+@pytest.mark.django_db
+def test_upsert_statistics_stores_a_figure_the_provider_did_not_measure_as_a_null() -> None:
+    """
+    GIVEN a read whose home side carries no duels won, as the provider publishes 497 matches
+    WHEN the read is stored
+    THEN the row is written with that column unset and its other figures intact
+    """
+
+    seed_fixture_ids()
+
+    store_statistics(
+        [
+            fixture_statistics(
+                FIXTURE_PROVIDER_ID,
+                [team_statistics(LIVERPOOL.provider_id, MatchSide.HOME, duels_won=None)],
+            )
+        ]
+    )
+
+    stored = MatchTeamStatistic.objects.get()
+
+    assert stored.duels_won is None
+    assert stored.shots_total == HOME_PERFORMANCE.values["shots_total"]
+
+
+@pytest.mark.django_db
+def test_upsert_statistics_unsets_a_figure_the_provider_stopped_measuring() -> None:
+    """
+    GIVEN a stored performance whose duels won the provider withheld on the next read
+    WHEN that read is stored
+    THEN the column is unset rather than left carrying the figure of the earlier read
+    """
+
+    seed_fixture_ids()
+    store_statistics([fixture_statistics(FIXTURE_PROVIDER_ID, [HOME_PERFORMANCE])])
+
+    store_statistics(
+        [
+            fixture_statistics(
+                FIXTURE_PROVIDER_ID,
+                [team_statistics(LIVERPOOL.provider_id, MatchSide.HOME, duels_won=None)],
+            )
+        ],
+        LATER_SYNCHRONIZED_AT,
+    )
+
+    stored = MatchTeamStatistic.objects.get()
+
+    assert stored.duels_won is None
+    assert stored.synchronized_at == LATER_SYNCHRONIZED_AT
 
 
 @pytest.mark.django_db

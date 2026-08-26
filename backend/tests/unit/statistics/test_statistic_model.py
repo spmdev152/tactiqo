@@ -1,9 +1,12 @@
+from collections.abc import Collection
+
 import pytest
 from django.db import IntegrityError
 
 from apps.fixtures.models import Fixture, Team
 from apps.statistics.domain.enums import MatchSide
 from apps.statistics.models import POSSESSION_CEILING, MatchTeamStatistic
+from integrations.sportmonks.statistics import UNMEASURED_COLUMNS
 from tests.unit.fixtures.conftest import LIVERPOOL, NOTTINGHAM_FOREST
 from tests.unit.statistics.conftest import (
     BASE_VALUES,
@@ -19,6 +22,8 @@ def store_statistic(
     fixture: Fixture,
     team: Team,
     side: MatchSide = MatchSide.HOME,
+    *,
+    unset: Collection[str] = (),
     **values: int,
 ) -> MatchTeamStatistic:
     """
@@ -37,6 +42,9 @@ def store_statistic(
         Club whose performance the row records.
     side : MatchSide
         Side the club occupied.
+    unset : Collection of str
+        Columns to write unset, standing for the figures the provider did not
+        measure for the match.
     **values : int
         Figures to override in ``BASE_VALUES``, valid or otherwise.
 
@@ -51,7 +59,7 @@ def store_statistic(
         team=team,
         side=side,
         synchronized_at=SYNCHRONIZED_AT,
-        **(BASE_VALUES | values),
+        **(BASE_VALUES | values | dict.fromkeys(unset)),
     )
 
 
@@ -128,6 +136,25 @@ def test_the_database_refuses_a_negative_count() -> None:
 
     with pytest.raises(IntegrityError, match="shots_total"):
         store_statistic(fixture, fixture.home_team, shots_total=-SMALLEST_STEP)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("column", sorted(UNMEASURED_COLUMNS))
+def test_a_figure_the_provider_did_not_measure_round_trips_as_a_null(column: str) -> None:
+    """
+    GIVEN a match the provider published every figure of but one it does not always measure
+    WHEN the row is written with that column unset
+    THEN it is stored and read back unset, rather than as a nought no match has produced
+    """
+
+    fixture = seed_fixture_ids()[FIXTURE_PROVIDER_ID]
+
+    store_statistic(fixture, fixture.home_team, unset=[column])
+
+    stored = MatchTeamStatistic.objects.get()
+
+    assert getattr(stored, column) is None
+    assert stored.possession == BASE_VALUES["possession"]
 
 
 @pytest.mark.django_db

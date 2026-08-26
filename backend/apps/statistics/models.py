@@ -33,9 +33,32 @@ class MatchTeamStatistic(models.Model):
     Nothing about the result is stored. Goals, and therefore the win, draw, and
     loss shares, come from ``Fixture.home_goals`` and ``Fixture.away_goals``,
     which are already synchronized and already guarded as a pair. The provider
-    omits its own goals statistic at nought, so a goalless side carries no row
-    and a table sourcing goals from the statistics would read every goalless
-    performance as missing data.
+    withholds its own goals statistic for some matches, so a table sourcing goals
+    from the statistics would read those as missing data.
+
+    Four columns are nullable and the rest are not, and which is which follows
+    from what the provider actually withholds. Measured over the 7,100 sides of
+    the 3,550 matches between July 2024 and August 2026, a withheld statistic is
+    always withheld for the whole match and never for one side of it: not one
+    type was absent from a single side while present on the other. So an absence
+    says nothing about a particular club, and the only question left is whether
+    nought is a reading it could stand for.
+
+    For eight counts it is, because the provider also sends explicit noughts for
+    them: offsides is nought on 1,247 sides, red cards on 558, blocked shots on
+    466. Those are read as nought when absent, which is a deliberate trade rather
+    than a contract, and it is the right way round because refusing the record
+    instead would discard twenty-one sound figures over one, and would cost 83
+    percent of matches for red cards alone.
+
+    For four it is not. Duels won never once reads nought across 6,106 sides, its
+    lowest reading is three and its median is forty-seven, so the 497 matches it
+    is missing from cannot be matches where both clubs won none; the same holds
+    for tackles and dribbles attempted, whose lowest readings are one. Writing
+    nought there would invent a figure no match has ever produced, and writing
+    the record without it is exactly what a nullable column says. A metric whose
+    column is null in every match a sample counted is left out of that sample
+    rather than published as nought.
 
     Attributes
     ----------
@@ -83,19 +106,23 @@ class MatchTeamStatistic(models.Model):
     accurate_crosses : int
         Crosses the club completed, stored beside the attempts for the reason
         given for the passes.
-    dribble_attempts : int
-        Dribbles the club attempted.
-    successful_dribbles : int
+    dribble_attempts : int or None
+        Dribbles the club attempted, ``None`` when the provider did not measure
+        them for this match. See the note below on unmeasured figures.
+    successful_dribbles : int or None
         Dribbles the club completed, stored beside the attempts for the reason
-        given for the passes.
+        given for the passes, and ``None`` on the same terms.
     saves : int
         Saves the club's goalkeeper made.
-    tackles : int
-        Tackles the club made.
+    tackles : int or None
+        Tackles the club made, ``None`` when the provider did not measure them
+        for this match.
     interceptions : int
         Interceptions the club made.
-    duels_won : int
-        Duels the club won.
+    duels_won : int or None
+        Duels the club won, ``None`` when the provider did not measure them for
+        this match. It is the figure this happens to most: the provider withheld
+        it for 497 of the 3,550 matches measured.
     fouls : int
         Fouls the club conceded.
     yellow_cards : int
@@ -141,13 +168,13 @@ class MatchTeamStatistic(models.Model):
     successful_passes = models.PositiveSmallIntegerField()
     crosses = models.PositiveSmallIntegerField()
     accurate_crosses = models.PositiveSmallIntegerField()
-    dribble_attempts = models.PositiveSmallIntegerField()
-    successful_dribbles = models.PositiveSmallIntegerField()
+    dribble_attempts = models.PositiveSmallIntegerField(null=True, blank=True)
+    successful_dribbles = models.PositiveSmallIntegerField(null=True, blank=True)
 
     saves = models.PositiveSmallIntegerField()
-    tackles = models.PositiveSmallIntegerField()
+    tackles = models.PositiveSmallIntegerField(null=True, blank=True)
     interceptions = models.PositiveSmallIntegerField()
-    duels_won = models.PositiveSmallIntegerField()
+    duels_won = models.PositiveSmallIntegerField(null=True, blank=True)
 
     fouls = models.PositiveSmallIntegerField()
     yellow_cards = models.PositiveSmallIntegerField()

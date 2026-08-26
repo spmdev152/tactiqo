@@ -32,9 +32,11 @@ SPLIT_BATCH_SIZE = 1
 
 # One plausible performance, complete in every column, so a test names only the
 # figures its assertion is about and the rest still satisfy the model. The
-# provider publishes all twenty-two for a settled fixture, so a partial set
-# would be a shape the boundary never yields.
-BASE_VALUES = {
+# provider publishes all twenty-two for a settled fixture whose figures it
+# measured, so a partial set would be a shape the boundary never yields; a
+# column it did not measure is expressed by overriding that column with
+# ``None``, which is what the nullable columns of the model store.
+BASE_VALUES: dict[str, int | None] = {
     "shots_total": 14,
     "shots_on_target": 6,
     "shots_inside_box": 9,
@@ -159,7 +161,7 @@ def seed_fixture_ids(
 
 
 def team_statistics(
-    team_provider_id: int, side: MatchSide, **values: int
+    team_provider_id: int, side: MatchSide, **values: int | None
 ) -> ProviderTeamStatistics:
     """
     Build one side's figures without contacting the provider.
@@ -170,9 +172,10 @@ def team_statistics(
         Provider identifier of the club whose performance this is.
     side : MatchSide
         Side the club occupied in the match.
-    **values : int
+    **values : int or None
         Figures to override in ``BASE_VALUES``, keyed by the column that stores
-        each one.
+        each one. ``None`` is a column the provider did not measure for the
+        match, which the boundary yields for the four the model stores nullable.
 
     Returns
     -------

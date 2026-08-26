@@ -20,6 +20,8 @@ from integrations.sportmonks.statistics import (
     POSSESSION_CEILING,
     POSSESSION_TYPE,
     PROVIDER_STATISTICS,
+    UNMEASURED_COLUMNS,
+    UNMEASURED_STATISTICS,
     ProviderTeamStatistics,
     fetch_match_statistics,
 )
@@ -142,7 +144,7 @@ AWAY_FIGURES: dict[int, int] = {
     51: 1,
 }
 
-HOME_VALUES: dict[str, int] = {
+HOME_VALUES: dict[str, int | None] = {
     "shots_total": 14,
     "shots_on_target": 5,
     "shots_inside_box": 9,
@@ -167,7 +169,7 @@ HOME_VALUES: dict[str, int] = {
     "offsides": 3,
 }
 
-AWAY_VALUES: dict[str, int] = {
+AWAY_VALUES: dict[str, int | None] = {
     "shots_total": 10,
     "shots_on_target": 3,
     "shots_inside_box": 6,
@@ -208,6 +210,14 @@ REFUSED_FIGURES: list[object] = [
     "many",
     [14],
 ]
+
+# One figure of the refused set, used where the assertion is about which tier the type belongs to
+# rather than about which shapes the boundary refuses.
+REFUSED_COUNT = -1
+
+# Tier a missing type falls into when it is neither read as nought nor left unset: the ten the
+# provider was never observed to withhold, so an absence of one is a broken record.
+REQUIRED_STATISTICS = frozenset(PROVIDER_STATISTICS) - OPTIONAL_STATISTICS - UNMEASURED_STATISTICS
 
 
 class StubbedProvider:
@@ -359,6 +369,29 @@ def count_columns(model: type[Model]) -> list[str]:
     ]
 
 
+def nullable_columns(model: type[Model]) -> set[str]:
+    """
+    Return every whole-count column a model accepts a null in.
+
+    Parameters
+    ----------
+    model : type of Model
+        Model the adapter feeds.
+
+    Returns
+    -------
+    set of str
+        Name of every unsigned small-integer field of the model the schema lets
+        a row leave unset.
+    """
+
+    return {
+        field.name
+        for field in model._meta.get_fields()
+        if isinstance(field, PositiveSmallIntegerField) and field.null
+    }
+
+
 def statistic_rows(
     figures: Mapping[int, object],
     participant_id: int,
@@ -476,7 +509,7 @@ def read_teams() -> list[ProviderTeamStatistics]:
     return fixtures[0].teams if fixtures else []
 
 
-def read_values(side: MatchSide) -> dict[str, int]:
+def read_values(side: MatchSide) -> dict[str, int | None]:
     """
     Read the figures one side of the fixture under test was normalized with.
 
@@ -487,8 +520,9 @@ def read_values(side: MatchSide) -> dict[str, int]:
 
     Returns
     -------
-    dict of str to int
-        Figures of that side, or none when the fixture was dropped.
+    dict of str to (int or None)
+        Figures of that side, unset where the provider did not measure one, or
+        none at all when the fixture was dropped.
     """
 
     return next((team.values for team in read_teams() if team.side == side), {})
@@ -631,7 +665,7 @@ def test_an_event_conditional_count_the_provider_omits_reads_as_nought(
     assert reported(caplog) == []
 
 
-@pytest.mark.parametrize("type_id", sorted(set(PROVIDER_STATISTICS) - OPTIONAL_STATISTICS))
+@pytest.mark.parametrize("type_id", sorted(REQUIRED_STATISTICS))
 def test_a_required_type_the_provider_omits_costs_the_whole_fixture(
     provider: StubbedProvider, caplog: pytest.LogCaptureFixture, type_id: int
 ) -> None:
@@ -651,6 +685,81 @@ def test_a_required_type_the_provider_omits_costs_the_whole_fixture(
 
     assert read_teams() == []
     assert f"statistic type {type_id} states no {PROVIDER_STATISTICS[type_id]}" in caplog.text
+
+
+@pytest.mark.parametrize("type_id", sorted(UNMEASURED_STATISTICS))
+def test_a_figure_the_provider_did_not_measure_leaves_its_column_unset(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture, type_id: int
+) -> None:
+    """
+    GIVEN a side whose rows leave out one of the counts the provider publishes no nought for
+    WHEN the window is read
+    THEN the column is unset, every other column is intact, and nothing is reported as broken
+    """
+
+    caplog.set_level(logging.WARNING, logger=STATISTICS_LOGGER)
+
+    serve_statistics(
+        provider,
+        statistic_rows(without(HOME_FIGURES, type_id), HOME_TEAM_ID, "home")
+        + statistic_rows(AWAY_FIGURES, AWAY_TEAM_ID, "away"),
+    )
+
+    assert read_values(MatchSide.HOME) == {
+        **HOME_VALUES,
+        PROVIDER_STATISTICS[type_id]: None,
+    }
+    assert reported(caplog) == []
+
+
+@pytest.mark.parametrize("type_id", sorted(UNMEASURED_STATISTICS))
+def test_a_figure_the_provider_measured_for_neither_side_still_yields_the_fixture(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture, type_id: int
+) -> None:
+    """
+    GIVEN a fixture whose two sides both leave out an unmeasured count, as the provider withholds
+    WHEN the window is read
+    THEN both records are kept with that column unset, which is what 497 real matches look like
+    """
+
+    caplog.set_level(logging.WARNING, logger=STATISTICS_LOGGER)
+
+    serve_statistics(
+        provider,
+        statistic_rows(without(HOME_FIGURES, type_id), HOME_TEAM_ID, "home")
+        + statistic_rows(without(AWAY_FIGURES, type_id), AWAY_TEAM_ID, "away"),
+    )
+
+    assert [
+        values[PROVIDER_STATISTICS[type_id]]
+        for values in (
+            read_values(MatchSide.HOME),
+            read_values(MatchSide.AWAY),
+        )
+    ] == [None, None]
+    assert reported(caplog) == []
+
+
+@pytest.mark.parametrize("type_id", sorted(UNMEASURED_STATISTICS))
+def test_an_unusable_figure_costs_the_fixture_even_where_an_absence_would_not(
+    provider: StubbedProvider, caplog: pytest.LogCaptureFixture, type_id: int
+) -> None:
+    """
+    GIVEN a side stating a count the column could not hold for a type it may also leave out
+    WHEN the window is read
+    THEN the fixture yields nothing, because an unusable value is not an unmeasured one
+    """
+
+    caplog.set_level(logging.WARNING, logger=STATISTICS_LOGGER)
+
+    serve_statistics(
+        provider,
+        statistic_rows(replacing(HOME_FIGURES, type_id, REFUSED_COUNT), HOME_TEAM_ID, "home")
+        + statistic_rows(AWAY_FIGURES, AWAY_TEAM_ID, "away"),
+    )
+
+    assert read_teams() == []
+    assert "the column that stores it could hold" in caplog.text
 
 
 @pytest.mark.parametrize("value", REFUSED_FIGURES)
@@ -971,11 +1080,11 @@ def test_the_statistic_table_maps_only_types_the_provider_publishes() -> None:
     assert {type_id: recorded.get(type_id) for type_id in PROVIDER_STATISTICS} == MAPPED_CODES
 
 
-def test_the_types_read_as_nought_when_absent_are_the_event_conditional_ones() -> None:
+def test_the_types_read_as_nought_when_absent_are_the_ones_the_provider_zeroes() -> None:
     """
     GIVEN the types the boundary reads an absence of as nought
     WHEN they are compared with the mapping and with the codes the provider publishes them under
-    THEN they are mapped types, and they are the eight counts a match need not produce at all
+    THEN they are mapped types, and they are the eight the provider also sends explicit noughts for
     """
 
     assert set(PROVIDER_STATISTICS) >= OPTIONAL_STATISTICS
@@ -991,31 +1100,70 @@ def test_the_types_read_as_nought_when_absent_are_the_event_conditional_ones() -
     }
 
 
+def test_the_types_left_unset_when_absent_are_the_ones_no_match_ever_read_nought() -> None:
+    """
+    GIVEN the types the boundary leaves unset rather than reading an absence of as nought
+    WHEN they are compared with the mapping, the provider codes, and the columns exported for them
+    THEN they are the four whose lowest reading over 7,100 sides was above nought
+    """
+
+    assert set(PROVIDER_STATISTICS) >= UNMEASURED_STATISTICS
+    assert {MAPPED_CODES[type_id] for type_id in UNMEASURED_STATISTICS} == {
+        "dribble-attempts",
+        "duels-won",
+        "successful-dribbles",
+        "tackles",
+    }
+    assert {
+        "dribble_attempts",
+        "duels_won",
+        "successful_dribbles",
+        "tackles",
+    } == UNMEASURED_COLUMNS
+
+
 def test_the_types_a_record_cannot_do_without_are_the_ones_the_provider_always_sends() -> None:
     """
     GIVEN the types whose absence discards a record
-    WHEN they are compared with the codes measured on every side of a season of fixtures
-    THEN they are exactly those, so no absence the provider actually produces costs a match
+    WHEN they are compared with the codes measured on every side of two seasons of fixtures
+    THEN they are the ten never once withheld, so no absence the provider produces costs a match
     """
 
-    required = set(PROVIDER_STATISTICS) - OPTIONAL_STATISTICS
-
-    assert {MAPPED_CODES[type_id] for type_id in required} == {
+    assert {MAPPED_CODES[type_id] for type_id in REQUIRED_STATISTICS} == {
         "ball-possession",
         "corners",
-        "dribble-attempts",
-        "duels-won",
         "fouls",
         "interceptions",
         "passes",
         "shots-insidebox",
         "shots-on-target",
         "shots-total",
-        "successful-dribbles",
         "successful-passes",
-        "tackles",
         "total-crosses",
     }
+
+
+def test_the_three_tiers_partition_every_type_the_boundary_maps() -> None:
+    """
+    GIVEN the three tiers an absent type is read under: required, nought, and unset
+    WHEN their union and their sizes are compared with the mapping the whole policy is stated over
+    THEN they cover every mapped type exactly once, which is what the policy rests on
+    """
+
+    tiers = (REQUIRED_STATISTICS, OPTIONAL_STATISTICS, UNMEASURED_STATISTICS)
+
+    assert frozenset[int]().union(*tiers) == set(PROVIDER_STATISTICS)
+    assert sum(len(tier) for tier in tiers) == len(PROVIDER_STATISTICS)
+
+
+def test_the_columns_left_unset_are_the_ones_the_model_accepts_a_null_in() -> None:
+    """
+    GIVEN the columns the boundary can leave unset and the columns the model declares nullable
+    WHEN they are compared
+    THEN they are the same set, so the boundary can only leave unset what the schema stores unset
+    """
+
+    assert nullable_columns(MatchTeamStatistic) == UNMEASURED_COLUMNS
 
 
 def test_the_statistic_table_names_every_column_that_stores_a_figure() -> None:
