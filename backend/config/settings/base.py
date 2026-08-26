@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.fixtures",
     "apps.predictions",
+    "apps.statistics",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -151,6 +152,30 @@ PREDICTION_RELIABILITY_LOCK_SECONDS = 600
 # queued run stays valid for almost the whole interval.
 PREDICTION_RELIABILITY_EXPIRY_SECONDS = 82800
 
+# Statistics are read for matches that have already been played, so the window
+# looks backwards only and is its own constant rather than the fixture pair: a
+# full matchweek plus the midweek round either side of it, which is long enough
+# that a run missed overnight still catches every result it would have written.
+STATISTICS_SYNCHRONIZATION_PAST_DAYS = 5
+
+# A backfill walks its range in chunks of this many days. The bound exists
+# because the client refuses a read it cannot finish in forty pages of fifty
+# fixtures, and five leagues produce on the order of two hundred fixtures a
+# month, so a month-wide chunk stays an order of magnitude inside the ceiling
+# while keeping the request count low.
+STATISTICS_SYNCHRONIZATION_CHUNK_DAYS = 30
+
+# Each chunk costs two paginated reads, the fixtures and their statistics, and a
+# backfill can be given a range spanning two seasons. The lease is sized for that
+# operator-run case rather than for the trailing window, and still sits below the
+# 3600-second Redis visibility timeout after which Celery redelivers an
+# unacknowledged task.
+STATISTICS_SYNCHRONIZATION_LOCK_SECONDS = 3000
+
+# Same six-hour cadence as the fixtures, so a queued run stays valid until
+# shortly before its successor.
+STATISTICS_SYNCHRONIZATION_EXPIRY_SECONDS = 21000
+
 CELERY_BEAT_SCHEDULE = {
     "accounts-purge-expired-sessions": {
         "task": "accounts.purge_expired_sessions",
@@ -171,6 +196,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "predictions.synchronize_reliability",
         "schedule": crontab(minute="50", hour="3"),
         "options": {"expires": PREDICTION_RELIABILITY_EXPIRY_SECONDS},
+    },
+    "statistics-synchronize": {
+        "task": "statistics.synchronize_statistics",
+        "schedule": crontab(minute="20", hour="*/6"),
+        "options": {"expires": STATISTICS_SYNCHRONIZATION_EXPIRY_SECONDS},
     },
 }
 
