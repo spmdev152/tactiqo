@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -8,7 +8,6 @@ from apps.fixtures.domain.enums import FixtureStatus
 from apps.fixtures.models import Fixture
 from apps.statistics.domain.enums import FormMetric, FormRange, FormScope, MatchSide
 from apps.statistics.domain.metrics import (
-    DEEPEST_COUNTED_RANGE,
     METRIC_ORDER,
     OPPOSED_METRICS,
     RANGE_ORDER,
@@ -97,7 +96,8 @@ MATCH_COLUMNS: tuple[str, ...] = (
 )
 
 # Newest first, broken by primary key so two matches kicking off together are
-# taken in a stable order and the deepest range keeps the same matches twice.
+# taken in a stable order and a counted range is a prefix of the range above it
+# rather than of a different arrangement of the same matches.
 RECENT_ORDER: tuple[str, ...] = ("-kickoff_at", "-id")
 
 PERCENTAGE_SCALE = 100
@@ -620,7 +620,7 @@ def played_before(kickoff_at: datetime) -> QuerySet[Fixture]:
     Returns
     -------
     QuerySet of Fixture
-        Unordered, unsliced base query the scoped reads narrow further.
+        Unordered base query the season read narrows to one season and two clubs.
     """
 
     return Fixture.objects.filter(
@@ -631,85 +631,16 @@ def played_before(kickoff_at: datetime) -> QuerySet[Fixture]:
     )
 
 
-def recent_matches(
-    team_id: int, kickoff_at: datetime, side: MatchSide | None
-) -> list[CountedMatch]:
-    """
-    Read the deepest counted range of one club's latest matches.
-
-    The statement is sliced to ``DEEPEST_COUNTED_RANGE``, so a club with fifteen
-    seasons behind it costs exactly what a promoted one does, and the shallower
-    ranges are then prefixes of the same list. It deliberately says nothing
-    about the season: a range counted by matches crosses a season boundary,
-    because a club's last three matches are its last three whether or not a
-    summer fell in the middle of them.
-
-    Parameters
-    ----------
-    team_id : int
-        Primary key of the club whose matches are wanted.
-    kickoff_at : datetime
-        Kick-off of the fixture being read.
-    side : MatchSide or None
-        Side the matches have to have been played on, or ``None`` for either,
-        which is the difference between the two scopes.
-
-    Returns
-    -------
-    list of CountedMatch
-        Matches newest first, at most ``DEEPEST_COUNTED_RANGE`` of them.
-    """
-
-    matches = played_before(kickoff_at)
-
-    if side is None:
-        matches = matches.filter(Q(home_team_id=team_id) | Q(away_team_id=team_id))
-    elif side == MatchSide.HOME:
-        matches = matches.filter(home_team_id=team_id)
-    else:
-        matches = matches.filter(away_team_id=team_id)
-
-    rows = matches.order_by(*RECENT_ORDER).values_list(*MATCH_COLUMNS)[:DEEPEST_COUNTED_RANGE]
-
-    return [counted_match(row, team_id) for row in rows]
-
-
-def recent_scopes(team_id: int, side: MatchSide, kickoff_at: datetime) -> ScopedMatches:
-    """
-    Read both scopes of one club's latest matches.
-
-    Parameters
-    ----------
-    team_id : int
-        Primary key of the club whose matches are wanted.
-    side : MatchSide
-        Side that club takes in the fixture being read, which is what its
-        venue scope means: the home club's venue form is its home matches and
-        the away club's is its away matches.
-    kickoff_at : datetime
-        Kick-off of the fixture being read.
-
-    Returns
-    -------
-    dict of FormScope to list of CountedMatch
-        Matches newest first under each scope, two statements in total.
-    """
-
-    return {
-        FormScope.OVERALL: recent_matches(team_id, kickoff_at, None),
-        FormScope.VENUE: recent_matches(team_id, kickoff_at, side),
-    }
-
-
 def season_matches(
     team_ids: Sequence[int], season_provider_id: int | None, kickoff_at: datetime
 ) -> list[MatchRow]:
     """
     Read every already-played match of the fixture's season, for both clubs.
 
-    One statement serves both clubs, which is what makes the read cost the same
-    whether the two have met before or not: a derby appears once and is counted
-    from both points of view in memory.
+    One statement serves both clubs and every range, which is what makes the
+    read cost the same whether the two have met before or not: a derby appears
+    once and is counted from both points of view in memory, and a counted range
+    is a prefix of what comes back rather than a read of its own.
 
     Parameters
     ----------
@@ -718,10 +649,10 @@ def season_matches(
     season_provider_id : int or None
         Provider identifier of the season the fixture belongs to, or ``None``
         for a fixture the provider gave no season. The season is then unknown
-        rather than empty, so nothing is read and the season samples come back
-        with no matches counted: a read filtering on a null season would gather
-        every other seasonless match in the table, which is a different
-        question and a wrong answer.
+        rather than empty, so nothing is read and every one of the club's six
+        samples comes back with no matches counted, not only its season ones: a
+        read filtering on a null season would gather every other seasonless
+        match in the table, which is a different question and a wrong answer.
     kickoff_at : datetime
         Kick-off of the fixture being read.
 
@@ -747,7 +678,11 @@ def season_matches(
 
 def season_scopes(rows: Sequence[MatchRow], team_id: int, side: MatchSide) -> ScopedMatches:
     """
-    Split the season's matches into the two scopes of one club.
+    Split the season's matches into the two ordered lists one club is read from.
+
+    Every range reads one of these two lists: the season range is the list and a
+    counted range is a prefix of it, so the split is done once per club and
+    scope rather than once per sample.
 
     Parameters
     ----------
@@ -770,28 +705,6 @@ def season_scopes(rows: Sequence[MatchRow], team_id: int, side: MatchSide) -> Sc
     return {
         FormScope.OVERALL: overall,
         FormScope.VENUE: [match for match in overall if match.side == side],
-    }
-
-
-def counted_fixture_ids(scopes: Iterable[ScopedMatches]) -> set[int]:
-    """
-    Return the matches every sample of the fixture could read a statistic of.
-
-    Parameters
-    ----------
-    scopes : iterable of dict of FormScope to list of CountedMatch
-        Every scoped set of matches the samples will be folded from.
-
-    Returns
-    -------
-    set of int
-        Primary keys of the matches, deduplicated because the scopes overlap: a
-        club's venue matches are also overall matches, and its recent matches
-        are usually also season ones.
-    """
-
-    return {
-        match.fixture_id for scoped in scopes for matches in scoped.values() for match in matches
     }
 
 
@@ -832,25 +745,23 @@ def load_statistics(fixture_ids: set[int]) -> StoredStatistics:
 
 
 def team_form(
-    team_id: int, recent: ScopedMatches, season: ScopedMatches, statistics: StoredStatistics
+    team_id: int, matches: ScopedMatches, statistics: StoredStatistics
 ) -> tuple[TeamForm, datetime | None]:
     """
     Fold one club's loaded matches into the six samples it publishes.
 
-    Nothing here reaches the database. The ranges counted by matches are
-    prefixes of the loaded list and the season ranges are the loaded season, so
-    the six samples are six folds over rows already in memory, and the ordering
-    the contract promises is applied from the domain tables rather than by a
-    second query with a different ``ORDER BY``.
+    Nothing here reaches the database. Every range is a prefix of the one
+    ordered list its scope holds, the season range being the whole list, so the
+    six samples are six folds over rows already in memory, and the ordering the
+    contract promises is applied from the domain tables rather than by a second
+    query with a different ``ORDER BY``.
 
     Parameters
     ----------
     team_id : int
         Primary key of the club.
-    recent : dict of FormScope to list of CountedMatch
-        Its latest matches under each scope, newest first.
-    season : dict of FormScope to list of CountedMatch
-        Its matches of the fixture's season under each scope.
+    matches : dict of FormScope to list of CountedMatch
+        Its matches of the fixture's season under each scope, newest first.
     statistics : StoredStatistics
         Every statistic row of every candidate match, keyed by match and side.
 
@@ -870,11 +781,9 @@ def team_form(
         depth = RANGE_SIZES[counted_range]
 
         for scope in SCOPE_ORDER:
-            matches = season[scope] if depth is None else recent[scope][:depth]
-
             totals = SampleTotals()
 
-            for match in matches:
+            for match in matches[scope][:depth]:
                 totals.count(match, statistics)
 
             samples.append(
@@ -898,19 +807,21 @@ def get_fixture_form(fixture_id: int) -> FixtureForm | None:
     """
     Return both clubs' form before a fixture, in the contracted order.
 
-    Seven statements answer the whole payload however much history the two
-    clubs have: one resolving the fixture, one per club and scope for the
-    matches a counted range can reach, one for the season of both clubs at
-    once, and one for the statistic rows of everything loaded. The twelve
-    samples are then folded in memory. Nothing in that count depends on how
-    many matches a club has played, because every backward-looking read is
-    either sliced to ``DEEPEST_COUNTED_RANGE`` or bounded by one season, and
-    nothing depends on how many samples are published, because they all read
-    the same loaded rows.
+    Three statements answer the whole payload however much history the two clubs
+    have: one resolving the fixture, one loading every already-played match of
+    its season for both clubs at once, and one loading the statistic rows of
+    those matches. The twelve samples are then folded in memory. Every loaded
+    row involves one of the two clubs, so the statistic read takes the whole
+    loaded set and no range can reach a match it left unread. Nothing in that
+    count depends on how many matches a club has played, because the read is
+    bounded by one season, and nothing depends on how many samples are
+    published, because each of them is a prefix of the same loaded list.
 
-    A fixture the provider gave no season costs one statement fewer and
-    publishes empty season samples, and two clubs with no qualifying history
-    cost one fewer again, because there are no matches to read statistics of.
+    A fixture whose clubs have played nothing yet in its season costs one
+    statement fewer, because there is then no match to read statistics of, and a
+    fixture the provider gave no season costs two fewer: its season is unknown
+    rather than empty, so nothing is loaded and all twelve samples come back
+    counting no matches.
 
     Parameters
     ----------
@@ -937,20 +848,15 @@ def get_fixture_form(fixture_id: int) -> FixtureForm | None:
 
     home_team_id, away_team_id, kickoff_at, season_provider_id = stored
 
-    home_recent = recent_scopes(home_team_id, MatchSide.HOME, kickoff_at)
-    away_recent = recent_scopes(away_team_id, MatchSide.AWAY, kickoff_at)
-
     rows = season_matches((home_team_id, away_team_id), season_provider_id, kickoff_at)
 
-    home_season = season_scopes(rows, home_team_id, MatchSide.HOME)
-    away_season = season_scopes(rows, away_team_id, MatchSide.AWAY)
+    statistics = load_statistics({row[0] for row in rows})
 
-    statistics = load_statistics(
-        counted_fixture_ids((home_recent, away_recent, home_season, away_season))
-    )
+    home_matches = season_scopes(rows, home_team_id, MatchSide.HOME)
+    away_matches = season_scopes(rows, away_team_id, MatchSide.AWAY)
 
-    home, home_synchronized_at = team_form(home_team_id, home_recent, home_season, statistics)
-    away, away_synchronized_at = team_form(away_team_id, away_recent, away_season, statistics)
+    home, home_synchronized_at = team_form(home_team_id, home_matches, statistics)
+    away, away_synchronized_at = team_form(away_team_id, away_matches, statistics)
 
     stamps = [stamp for stamp in (home_synchronized_at, away_synchronized_at) if stamp is not None]
 

@@ -88,15 +88,13 @@ RANGE_ORDER: tuple[FormRange, ...] = (FormRange.LAST_3, FormRange.LAST_6, FormRa
 
 SCOPE_ORDER: tuple[FormScope, ...] = (FormScope.OVERALL, FormScope.VENUE)
 
-# How many matches each range keeps. ``SEASON`` is unbounded by a count and
-# bounded by the season instead, which is why it maps to nothing rather than to a
-# large number.
+# How many matches each range keeps, as the length of the prefix it takes of the
+# club's matches in the fixture's season, newest first. ``SEASON`` keeps the
+# whole season rather than a count, which is why it maps to nothing: ``None`` is
+# what a slice already reads as "to the end", so no range needs a branch of its
+# own.
 RANGE_SIZES: dict[FormRange, int | None] = {
     FormRange.LAST_3: 3,
     FormRange.LAST_6: 6,
     FormRange.SEASON: None,
 }
-
-# Deepest count any range asks for, which is what bounds the number of matches a
-# read has to load per team and per scope.
-DEEPEST_COUNTED_RANGE = max(size for size in RANGE_SIZES.values() if size is not None)

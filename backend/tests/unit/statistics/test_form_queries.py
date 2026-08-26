@@ -39,16 +39,19 @@ KICKOFF_AT = kickoff(12)
 
 PREVIOUS_SEASON_ID = SEASON_ID - 1
 
+OLDER_SEASON_ID = PREVIOUS_SEASON_ID - 1
+
 # Wide enough for every match a test seeds, because one call is one
 # authoritative window and the range is what the reconciliation clears.
 SEEDED_START = date(2025, 1, 1)
 
 SEEDED_END = date(2027, 1, 1)
 
-# One statement resolving the fixture, one per club and scope for the matches a
-# counted range can reach, one for the season of both clubs, and one for the
-# statistic rows of everything loaded.
-EXPECTED_QUERY_COUNT = 7
+# One statement resolving the fixture, one loading the already-played matches of
+# its season for both clubs, and one loading the statistic rows of those
+# matches. Every range is a prefix of what the second returned, so no sample
+# costs a read of its own.
+EXPECTED_QUERY_COUNT = 3
 
 ARSENAL = ProviderTeam(
     provider_id=19,
@@ -364,11 +367,11 @@ def test_get_fixture_form_counts_the_venue_scope_from_each_club_s_own_side() -> 
 
 
 @pytest.mark.django_db
-def test_get_fixture_form_lets_a_counted_range_cross_a_season_boundary() -> None:
+def test_get_fixture_form_confines_every_range_to_the_fixture_s_own_season() -> None:
     """
     GIVEN a club with two matches this season and two in the one before it
     WHEN the form before the fixture is read
-    THEN the last three reach back over the boundary and the season stops at it
+    THEN the boundary stops every range, so all three count the same two
     """
 
     form = read_form(
@@ -388,18 +391,112 @@ def test_get_fixture_form_lets_a_counted_range_cross_a_season_boundary() -> None
         )
     )
 
-    assert (
-        sample_of(form.home, FormRange.LAST_3, FormScope.OVERALL).matches_counted,
-        sample_of(form.home, FormRange.SEASON, FormScope.OVERALL).matches_counted,
-    ) == (3, 2)
+    assert [
+        sample_of(form.home, counted_range, FormScope.OVERALL).matches_counted
+        for counted_range in RANGE_ORDER
+    ] == [2, 2, 2]
 
 
 @pytest.mark.django_db
-def test_get_fixture_form_counts_no_season_for_a_fixture_without_one() -> None:
+def test_get_fixture_form_publishes_one_match_identically_across_the_three_ranges() -> None:
+    """
+    GIVEN a club whose season holds a single match before the fixture
+    WHEN the form before the fixture is read
+    THEN the three ranges count that match and publish figures that agree
+    """
+
+    stored = seed([played(1, 1, away_team=ARSENAL, home_goals=2, away_goals=1)])
+
+    store_statistics([performances(1, home={"shots_total": 14}, away_team=ARSENAL)])
+
+    form = read_form(stored)
+
+    samples = [
+        sample_of(form.home, counted_range, FormScope.OVERALL) for counted_range in RANGE_ORDER
+    ]
+
+    assert (
+        {sample.matches_counted for sample in samples},
+        len({sample.metrics for sample in samples}),
+        figure_of(samples[0], FormMetric.GOALS).value,
+        figure_of(samples[0], FormMetric.SHOTS).value,
+    ) == ({1}, 1, 2.0, 14.0)
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_takes_the_three_newest_of_four_matches_in_a_season() -> None:
+    """
+    GIVEN a club whose season holds four matches before the fixture, scoring 4 to 1
+    WHEN the form before the fixture is read
+    THEN the last three counts the three newest and the wider two count all four
+    """
+
+    form = read_form(
+        seed(
+            [
+                played(1, 1, away_team=ARSENAL, home_goals=4, away_goals=0),
+                played(2, 2, away_team=EVERTON, home_goals=3, away_goals=0),
+                played(3, 3, away_team=CHELSEA, home_goals=2, away_goals=0),
+                played(4, 4, away_team=ARSENAL, home_goals=1, away_goals=0),
+            ]
+        )
+    )
+
+    samples = [
+        sample_of(form.home, counted_range, FormScope.OVERALL) for counted_range in RANGE_ORDER
+    ]
+
+    assert [
+        (sample.matches_counted, figure_of(sample, FormMetric.GOALS).value) for sample in samples
+    ] == [(3, 3.0), (4, 2.5), (4, 2.5)]
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_reads_a_past_fixture_from_the_season_it_belongs_to() -> None:
+    """
+    GIVEN a played fixture of an earlier season, with a match on each side of it
+    WHEN the form before it is read
+    THEN only that season's earlier match counts, in every one of the ranges
+    """
+
+    form = read_form(
+        seed(
+            [
+                played(
+                    1,
+                    1,
+                    away_team=ARSENAL,
+                    home_goals=3,
+                    away_goals=0,
+                    season_provider_id=PREVIOUS_SEASON_ID,
+                ),
+                played(2, 300, away_team=EVERTON, season_provider_id=OLDER_SEASON_ID),
+                played(3, -1, away_team=CHELSEA, home_goals=5, away_goals=0),
+            ],
+            target(
+                season_provider_id=PREVIOUS_SEASON_ID,
+                status=FixtureStatus.FINISHED,
+                home_goals=1,
+                away_goals=0,
+            ),
+        )
+    )
+
+    samples = [
+        sample_of(form.home, counted_range, FormScope.OVERALL) for counted_range in RANGE_ORDER
+    ]
+
+    assert [
+        (sample.matches_counted, figure_of(sample, FormMetric.GOALS).value) for sample in samples
+    ] == [(1, 3.0), (1, 3.0), (1, 3.0)]
+
+
+@pytest.mark.django_db
+def test_get_fixture_form_counts_nothing_at_all_for_a_fixture_without_a_season() -> None:
     """
     GIVEN a fixture the provider stated no season for, behind it two matches
     WHEN the form before it is read
-    THEN the counted range still counts them and the season counts nothing
+    THEN no range reaches them, and every sample still publishes every metric
     """
 
     form = read_form(
@@ -412,10 +509,13 @@ def test_get_fixture_form_counts_no_season_for_a_fixture_without_one() -> None:
         )
     )
 
+    sample = sample_of(form.home, FormRange.LAST_3, FormScope.OVERALL)
+
     assert (
-        sample_of(form.home, FormRange.LAST_3, FormScope.OVERALL).matches_counted,
-        sample_of(form.home, FormRange.SEASON, FormScope.OVERALL).matches_counted,
-    ) == (2, 0)
+        [counted.matches_counted for counted in form.home.samples],
+        tuple(figure.metric for figure in sample.metrics),
+        {figure.value for figure in sample.metrics},
+    ) == ([0, 0, 0, 0, 0, 0], METRIC_ORDER, {0.0})
 
 
 @pytest.mark.django_db
@@ -658,11 +758,11 @@ def test_get_fixture_form_stamps_the_payload_with_the_newest_row_that_fed_it() -
 
 
 @pytest.mark.django_db
-def test_get_fixture_form_reads_a_long_history_in_seven_statements() -> None:
+def test_get_fixture_form_reads_a_long_history_in_three_statements() -> None:
     """
     GIVEN a club with a full season of counted matches behind the fixture
     WHEN the form before it is read
-    THEN seven statements answer all twelve samples
+    THEN three statements answer all twelve samples
     """
 
     stored = seed(
@@ -681,11 +781,11 @@ def test_get_fixture_form_reads_a_long_history_in_seven_statements() -> None:
 
 
 @pytest.mark.django_db
-def test_get_fixture_form_reads_a_short_history_in_the_same_seven_statements() -> None:
+def test_get_fixture_form_reads_a_short_history_in_the_same_three_statements() -> None:
     """
     GIVEN a club with a single counted match behind the fixture
     WHEN the form before it is read
-    THEN the same seven statements answer it, so the cost is not per match
+    THEN the same three statements answer it, so the cost is not per match
     """
 
     stored = seed([played(1, 1, away_team=ARSENAL)])

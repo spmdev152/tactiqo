@@ -26,24 +26,28 @@ class FormRange(models.TextChoices):
     """
     Window of completed matches a form sample is drawn from.
 
-    The two short windows count matches rather than days, so they answer what a
-    reader means by recent form regardless of how a calendar has been arranged
-    around international breaks. They also cross a season boundary when the
-    current season has not yet produced enough matches, which is the ordinary
-    state through August and September; the sample states how many matches it
-    found, so a short one is visible rather than implied.
+    Every window is confined to the season the fixture being read belongs to,
+    and the two short ones count matches rather than days inside it, so they
+    answer what a reader means by recent form regardless of how a calendar has
+    been arranged around international breaks. A pre-match read is about form in
+    the campaign being played: a window spanning two of them makes one figure
+    mean two different things, and what a club did last season is not evidence
+    about this one. While a season has produced three matches or fewer the three
+    windows therefore coincide, which is accepted rather than worked around, and
+    each sample states how many matches it found, so a short one is visible
+    rather than implied.
 
     Attributes
     ----------
     LAST_3 : str
-        Three most recent completed matches, serialized as ``"last_3"``.
+        Three most recent completed matches of the season, serialized as
+        ``"last_3"``.
     LAST_6 : str
-        Six most recent completed matches, serialized as ``"last_6"``.
+        Six most recent completed matches of the season, serialized as
+        ``"last_6"``.
     SEASON : str
-        Every completed match of the season the fixture belongs to, serialized as
-        ``"season"``. Unlike the two above it never reaches into an earlier
-        season, so early in a campaign it is the narrowest window of the three
-        rather than the widest.
+        Every completed match of the season the fixture belongs to, serialized
+        as ``"season"``, which makes it the widest of the three.
     """
 
     LAST_3 = "last_3", "Last 3"
