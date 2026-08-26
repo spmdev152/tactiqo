@@ -1,0 +1,234 @@
+{
+  "data": [
+    {
+      "id": 34,
+      "code": "corners",
+      "name": "Corners"
+    },
+    {
+      "id": 41,
+      "code": "shots-off-target",
+      "name": "Shots Off Target"
+    },
+    {
+      "id": 42,
+      "code": "shots-total",
+      "name": "Shots Total"
+    },
+    {
+      "id": 43,
+      "code": "attacks",
+      "name": "Attacks"
+    },
+    {
+      "id": 44,
+      "code": "dangerous-attacks",
+      "name": "Dangerous Attacks"
+    },
+    {
+      "id": 45,
+      "code": "ball-possession",
+      "name": "Ball Possession %"
+    },
+    {
+      "id": 46,
+      "code": "ball-safe",
+      "name": "Ball Safe"
+    },
+    {
+      "id": 47,
+      "code": "penalties",
+      "name": "Penalties"
+    },
+    {
+      "id": 49,
+      "code": "shots-insidebox",
+      "name": "Shots Insidebox"
+    },
+    {
+      "id": 50,
+      "code": "shots-outsidebox",
+      "name": "Shots Outsidebox"
+    },
+    {
+      "id": 51,
+      "code": "offsides",
+      "name": "Offsides"
+    },
+    {
+      "id": 52,
+      "code": "goals",
+      "name": "Goals"
+    },
+    {
+      "id": 53,
+      "code": "goals-kicks",
+      "name": "Goal Kicks"
+    },
+    {
+      "id": 54,
+      "code": "goal-attempts",
+      "name": "Goal Attempts"
+    },
+    {
+      "id": 55,
+      "code": "free-kicks",
+      "name": "Free Kicks"
+    },
+    {
+      "id": 56,
+      "code": "fouls",
+      "name": "Fouls"
+    },
+    {
+      "id": 57,
+      "code": "saves",
+      "name": "Saves"
+    },
+    {
+      "id": 58,
+      "code": "shots-blocked",
+      "name": "Shots Blocked"
+    },
+    {
+      "id": 59,
+      "code": "substitutions",
+      "name": "Substitutions"
+    },
+    {
+      "id": 60,
+      "code": "throwins",
+      "name": "Throwins"
+    },
+    {
+      "id": 62,
+      "code": "long-passes",
+      "name": "Long Passes"
+    },
+    {
+      "id": 64,
+      "code": "hit-woodwork",
+      "name": "Hit Woodwork"
+    },
+    {
+      "id": 65,
+      "code": "successful-headers",
+      "name": "Successful Headers"
+    },
+    {
+      "id": 78,
+      "code": "tackles",
+      "name": "Tackles"
+    },
+    {
+      "id": 79,
+      "code": "assists",
+      "name": "Assists"
+    },
+    {
+      "id": 80,
+      "code": "passes",
+      "name": "Passes"
+    },
+    {
+      "id": 81,
+      "code": "successful-passes",
+      "name": "Successful Passes"
+    },
+    {
+      "id": 82,
+      "code": "successful-passes-percentage",
+      "name": "Successful Passes Percentage"
+    },
+    {
+      "id": 83,
+      "code": "redcards",
+      "name": "Redcards"
+    },
+    {
+      "id": 84,
+      "code": "yellowcards",
+      "name": "Yellowcards"
+    },
+    {
+      "id": 85,
+      "code": "yellowred-cards",
+      "name": "Yellowred Cards"
+    },
+    {
+      "id": 86,
+      "code": "shots-on-target",
+      "name": "Shots On Target"
+    },
+    {
+      "id": 87,
+      "code": "injuries",
+      "name": "Injuries"
+    },
+    {
+      "id": 98,
+      "code": "total-crosses",
+      "name": "Total Crosses"
+    },
+    {
+      "id": 99,
+      "code": "accurate-crosses",
+      "name": "Accurate Crosses"
+    },
+    {
+      "id": 100,
+      "code": "interceptions",
+      "name": "Interceptions"
+    },
+    {
+      "id": 106,
+      "code": "duels-won",
+      "name": "Duels Won"
+    },
+    {
+      "id": 108,
+      "code": "dribble-attempts",
+      "name": "Dribble Attempts"
+    },
+    {
+      "id": 109,
+      "code": "successful-dribbles",
+      "name": "Successful Dribbles"
+    },
+    {
+      "id": 117,
+      "code": "key-passes",
+      "name": "Key Passes"
+    },
+    {
+      "id": 580,
+      "code": "big-chances-created",
+      "name": "Big Chances Created"
+    },
+    {
+      "id": 581,
+      "code": "big-chances-missed",
+      "name": "Big Chances Missed"
+    },
+    {
+      "id": 1527,
+      "code": "counter-attacks",
+      "name": "Counter Attacks"
+    },
+    {
+      "id": 1605,
+      "code": "successful-dribbles-percentage",
+      "name": "Successful Dribbles Percentage"
+    },
+    {
+      "id": 27264,
+      "code": "successful-long-passes",
+      "name": "Successful Long Passes"
+    },
+    {
+      "id": 27265,
+      "code": "successful-long-passes-percentage",
+      "name": "Successful Long Passes Percentage"
+    }
+  ]
+}
